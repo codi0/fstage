@@ -2,8 +2,9 @@
  * FSTAGE
  *
  * About: A lean javascript library for developing modern web apps
- * Source: https://github.com/codi0/fstage
+ * Version: 0.0.1
  * License: MIT
+ * Source: https://github.com/codi0/fstage
  *
  * Assumes support for: Promise, fetch, Proxy (IE is dead)
  * Checks support for: Symbol.iterator, AbortController, Crypto.subtle, Element.prototype.animate
