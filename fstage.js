@@ -1,7 +1,17 @@
-(function(window, undefined) {
+/**
+ * FSTAGE
+ *
+ * About: A lean javascript library for developing modern web apps
+ * Source: https://github.com/codi0/fstage
+ * License: MIT
+ *
+ * Assumes support for: Promise, fetch, Proxy (IE is dead)
+ * Checks support for: Symbol.iterator, AbortController, Crypto.subtle, Element.prototype.animate
+**/
+(function(undefined) {
 	'use strict';
 
-	/* CORE */
+/* (1) CORE */
 
 	var Fstage = function(s, ctx) {
 		if(Fstage.win && s === window) return Fstage.win;
@@ -44,23 +54,27 @@
 
 	Fstage.prototype.length = 0;
 	Fstage.prototype.splice = Array.prototype.splice;
-	Fstage.prototype[Symbol['iterator']] = Array.prototype[Symbol['iterator']];
 	Fstage.prototype.get = function(i) { return this[i]; };
 	Fstage.prototype.each = function(fn) { for(var i=0; i < this.length; i++) if(fn.call(arr[i], i, arr[i]) === false) break; };
+
+	if(typeof Symbol === 'function') {
+		Fstage.prototype[Symbol.iterator] = Array.prototype[Symbol.iterator];
+	}
 
 	window.Fstage = Fstage;
 	window.$ = window.$ || Fstage;
 
-	if(typeof exports === 'object') {
+	if(typeof module === 'object' && module.exports) {
 		module.exports = Fstage;
-	} else if(typeof define === 'function' && define.amd) {
+	}
+
+	if(typeof define === 'function' && define.amd) {
 		define('fstage', [], function() { return Fstage; });
 	}
 
-	/* HELPERS */
+/* (2) UTILITY HELPERS */
 
 	Fstage.each = function(arr, fn) {
-		//array or object?
 		if('length' in arr) {
 			for(var i=0; i < arr.length; i++) {
 				if(fn.call(arr[i], i, arr[i]) === false) break;
@@ -93,43 +107,21 @@
 		return ({}).toString.call(input).match(/\s([a-zA-Z]+)/)[1].toLowerCase();
 	};
 
-	Fstage.ready = Fstage.prototype.ready = function(fn) {
-		//execute now?
-		if(/comp|inter|loaded/.test(document.readyState)) {
-			return fn();
-		}
-		//add listener
-		document.addEventListener('DOMContentLoaded', fn);
-	};
-
-	Fstage.toNodes = function(input) {
+	Fstage.toNodes = function(input, first = false) {
+		//parse html string?
 		if(typeof input === 'string') {
-			return new DOMParser().parseFromString(input, 'text/html').body.childNodes
+			input = new DOMParser().parseFromString(input, 'text/html').body.childNodes;
 		} else {
-			return (input && input.tagName) ? [ input ] : (input || []);
+			input = (input && input.tagName) ? [ input ] : (input || []);
 		}
+		//return
+		return first ? (input[0] || null) : input;
 	};
 
-	Fstage.noHtml = function(html, encode = false) {
+	Fstage.stripHtml = function(html, encode = false) {
 		var el = document.createElement('div');
 		el[encode ? 'textContent' : 'innerHTML'] = html;
 		return el[encode ? 'innerHTML' : 'textContent'];
-	};
-
-	Fstage.debounce = function(fn, wait = 100) {
-		//set vars
-		var tid;
-		//return closure
-		return function() {
-			//set vars
-			var ctx = this, args = arguments;
-			//clear timeout
-			tid && clearTimeout(tid);
-			//set timeout
-			tid = setTimeout(function() {
-				fn.apply(ctx, args);
-			}, wait);
-		};
 	};
 
 	Fstage.copy = function(input, opts = {}) {
@@ -155,10 +147,87 @@
 		return output;
 	};
 
-	/* EVENTS */
+	Fstage.debounce = function(fn, wait = 100) {
+		//set vars
+		var tid;
+		//return closure
+		return function() {
+			//set vars
+			var ctx = this, args = arguments;
+			//clear timeout
+			tid && clearTimeout(tid);
+			//set timeout
+			tid = setTimeout(function() {
+				fn.apply(ctx, args);
+			}, wait);
+		};
+	};
+
+	Fstage.ready = Fstage.prototype.ready = function(fn) {
+		//execute now?
+		if(/comp|inter|loaded/.test(document.readyState)) {
+			return fn();
+		}
+		//add listener
+		document.addEventListener('DOMContentLoaded', fn);
+	};
+
+/* (3) DOM SELECTION */
+
+	//Dependencies: Fstage.select
+	Fstage.prototype.find = function(s) {
+		//set vars
+		var res = [];
+		//loop through elements
+		for(var i=0; i < this.length; i++) {
+			//select with context
+			var tmp = Fstage.select(s, this[i]);
+			//add elements
+			for(var j=0; j < tmp.length; j++) {
+				res.push(tmp[j]);
+			}
+		}
+		//return
+		return Fstage(res);
+	};
+
+	Fstage.prototype.closest = Fstage.closest = function(s, target = null) {
+		//set vars
+		var res = [];
+		var els = target ? [ target ] : this;
+		//loop through elements
+		for(var i=0; i < els.length; i++) {
+			//set target
+			var t = els[i];
+			//traverse dom tree
+			while(t && t !== document) {
+				//match found?
+				if(t.matches(s)) {
+					res.push(t);
+					break;
+				}
+				//get parent
+				t = t.parentNode;
+			}
+		}
+		//return
+		return Fstage(res);
+	};
+
+	Fstage.prototype.parent = function() {
+		//loop through elements
+		for(var i=0; i < this.length; i++) {
+			this[i] = this[i].parentNode;
+		}
+		//chain it
+		return this;
+	};
+
+/* (4) DOM EVENTS - requires #3 */
 
 	var evGuid = 0;
 
+	//Dependencies: Fstage.closest
 	Fstage.prototype.on = function(types, delegate, handler, once = false) {
 		//delegate is handler?
 		if(typeof delegate === 'function') {
@@ -271,62 +340,387 @@
 		return this;
 	};
 
-	/* PUBSUB */
+/* (5) DOM MANIPULATION - requires #2 */
 
-	var psCache = {};
-
-	Fstage.pub = function(id, args = {}) {
-		//loop through subscribers to call
-		for(var i=0; i < (psCache[id] || []).length; i++) {
-			psCache[id][i](args);
-		}
-	};
-
-	Fstage.sub = function(id, fn) {
-		//set array
-		psCache[id] = psCache[id] || [];
-		//add subscriber
-		psCache[id].push(fn);
-	};
-
-	Fstage.unsub = function(id, fn) {
-		//loop through subscribers
-		for(var i=0; i < (psCache[id] || []).length; i++) {
-			//remove subscriber?
-			if(psCache[id][i] === fn) {
-				psCache[id].splice(i);
+	Fstage.prototype.hasClass = function(cls, action = 'contains') {
+		//set vars
+		var res = null;
+		var contains = (action === 'contains');
+		//split class list
+		cls = cls.trim().split(/\s+/);
+		//loop through elements
+		for(var i=0; i < this.length; i++) {
+			//loop through classes
+			for(var j=0; j < cls.length; j++) {
+				//skip class?
+				if(!cls[j]) continue;
+				//execute method
+				var tmp = this[i].classList[action](cls[j]);
+				//update result?
+				if(contains && res !== false) {
+					res = tmp;
+				}
+			}
+			//break?
+			if(contains) {
+				break;
 			}
 		}
+		//return
+		return contains ? (res || false) : this;
 	};
 
-	/* TICKS */
+	Fstage.prototype.addClass = function(cls) {
+		return this.hasClass(cls, 'add');
+	};
 
-	var ntProm, ntCur=[], ntNext=[];
+	Fstage.prototype.removeClass = function(cls) {
+		return this.hasClass(cls, 'remove');
+	};
 
-	Fstage.tick = function(fn, next = false) {
-		//register callback
-		next ? ntNext.push(fn) : ntCur.push(fn);
-		//create promise
-		ntProm = ntProm || Promise.resolve().then(function() {
-			//copy callbacks
-			var cb = ntCur.concat(ntNext);
-			//reset data
-			ntProm = null; ntCur = []; ntNext = [];
-			//execute callbacks
-			while(cb.length) cb.shift().call();
+	Fstage.prototype.toggleClass = function(cls) {
+		return this.hasClass(cls, 'toggle');
+	};
+
+	Fstage.prototype.css = function(key, val) {
+		//get value?
+		if(val === undefined) {
+			return this[0] ? (this[0].style[key] || '') : '';
+		}
+		//loop through elements
+		for(var i=0; i < this.length; i++) {
+			//set or remove?
+			if(val === null) {
+				this[i].style.removeProperty(key);
+			} else {
+				this[i].style.setProperty(key, val);
+			}
+		}
+		//chain it
+		return this;
+	};
+
+	Fstage.prototype.attr = function(key, val) {
+		//get value?
+		if(val === undefined) {
+			return this[0] ? this[0].getAttribute(key) : '';
+		}
+		//loop through elements
+		for(var i=0; i < this.length; i++) {
+			//set or remove?
+			if(val === null) {
+				this[i].removeAttribute(key);
+			} else {
+				this[i].setAttribute(key, val);
+			}
+		}
+		//chain it
+		return this;
+	};
+
+	//Dependencies: Fstage.toNodes
+	Fstage.prototype.append = function(html, action = 'append') {
+		//create nodes
+		var nodes = Fstage.toNodes(html);
+		//loop through elements
+		for(var i=0; i < this.length; i++) {
+			//loop through nodes
+			for(var j=0; j < nodes.length; j++) {
+				if(action === 'append') {
+					this[i].appendChild(nodes[j]);
+				} else if(action === 'prepend') {
+					this[i].insertBefore(nodes[j], this[i].firstChild);
+				} else if(action === 'before') {
+					this[i].parentNode.insertBefore(nodes[j], this[i]);
+				} else if(action === 'after') {
+					this[i].parentNode.insertBefore(nodes[j], this[i].nextSibling);
+				} else if(action === 'wrap') {
+					this[i].parentNode.insertBefore(nodes[j], this[i]);
+					nodes[j].appendChild(this[i]);
+				}
+			}
+		}
+		//chain it
+		return this;
+	};
+
+	Fstage.prototype.prepend = function(html) {
+		return this.append(html, 'prepend');
+	};
+
+	Fstage.prototype.after = function(html) {
+		return this.append(html, 'after');
+	};
+
+	Fstage.prototype.before = function(html) {
+		return this.append(html, 'before');
+	};
+
+	Fstage.prototype.wrap = function(html) {
+		return this.append(html, 'wrap');
+	};
+
+	Fstage.prototype.remove = function(node) {
+		//loop through elements
+		for(var i=0; i < this.length; i++) {
+			if(!node) {
+				this[i].parentNode.removeChild(this[i]);
+			} else if(node === true) {
+				this[i].innerHTML = '';
+			} else {
+				this[i].removeChild(node);
+			}
+		}
+		//chain it
+		return this;
+	};
+
+	Fstage.prototype.empty = function() {
+		return this.remove(true);
+	};
+
+	Fstage.prototype.html = function(val, action = 'innerHTML') {
+		//get value?
+		if(val === undefined) {
+			return this[0] ? this[0][action] : '';
+		}
+		//loop through elements
+		for(var i=0; i < this.length; i++) {
+			this[i][action] = val;
+		}
+		//chain it
+		return this;
+	};
+
+	Fstage.prototype.text = function(val) {
+		return this.html(val, 'textContent');
+	};
+
+	Fstage.prototype.val = function(val) {
+		//get value?
+		if(val === undefined) {
+			return this[0] ? (this[0].tagName === 'TEXTAREA' ? this[0].innerHTML : this[0].getAttribute('value')) : '';
+		}
+		//loop through elements
+		for(var i=0; i < this.length; i++) {
+			if(this[i].tagName === 'TEXTAREA') {
+				this[i].innerHTML = val;
+			} else {
+				this[i].setAttribute('value', val)
+			}
+		}
+		//chain it
+		return this;
+	};
+
+/* (6) DOM EFFECTS - requires #2, #4 */
+
+	//Polyfill: https://github.com/web-animations/web-animations-js
+	Fstage.prototype.animate = function(opts = {}) {
+		//can animate?
+		if(!Element.prototype.animate) {
+			throw new Error('Element.prototype.animate not supported by this browser');
+		}
+		//loop through elements
+		for(var i=0; i < this.length; i++) {
+			//create animation
+			var a = this[i].animate(opts.keyframes || [], opts);
+			//set event handlers
+			if(opts.onfinish) a.onfinish = opts.onfinish.bind(this[i]);
+			if(opts.oncancel) a.oncancel = opts.oncancel.bind(this[i]);
+		}
+		//chain it
+		return this;
+	};
+
+	Fstage.prototype.toggle = function(opts = {}, force = null) {
+		//loop through elements
+		for(var i=0; i < this.length; i++) {
+			//show or hide?
+			var toShow = (force === null) ? (this[i].style.display === 'none') : force;
+			//set keyframes?
+			opts.keyframes = opts.keyframes || [
+				{ opacity: toShow ? 0 : 100 },
+				{ opacity: toShow ? 100 : 0 }
+			];
+			//set finish handler?
+			opts.onfinish = opts.onfinish || function() {
+				this.style.display = toShow ? 'block' : 'none';
+			};
+			//animate
+			Fstage(this).animate(opts);
+		}
+		//chain it
+		return this;
+	};
+
+	Fstage.prototype.show = function(opts) {
+		return this.toggle(opts, true);
+	};
+
+	Fstage.prototype.hide = function(opts) {
+		return this.toggle(opts, false);
+	};
+
+	//Dependencies: Fstage.extend, Fstage.on, Fstage.off
+	Fstage.prototype.sliding = function(opts = {}) {
+		//set vars
+		var el, startX, startY;
+		//format opts
+		opts = Fstage.extend({
+			x: true,
+			y: false
+		}, opts);
+		//standardise event
+		var ev = function(e, prop) {
+			return e.touchMoves ?  e.touchMoves[0][prop] : e[prop];
+		};
+		//onStart listener
+		var onStart = function(e) {
+			//stop here?
+			if(el) return;
+			//set vars
+			el = this;
+			startX = ev(e, 'pageX');
+			startY = ev(e, 'pageY');
+			//make non-selectable
+			el.style.userSelect = 'none';
+			//add listeners
+			Fstage(document).on('mousemove touchmove', onMove).on('mouseup touchend', onEnd);
+			//execute callback?
+			opts.onStart && opts.onStart(el, { startX: startX, startY: startY });
+		};
+		//onMove listener
+		var onMove = function(e) {
+			//stop here?
+			if(!el) return;
+			//touch position
+			var pageX = ev(e, 'pageX');
+			var pageY = ev(e, 'pageY');
+			//new coordinates
+			var X = opts.x ? pageX - startX : startX;
+			var Y = opts.y ? pageY - startY : startY;
+			//update position
+			el.style.transform = 'translate3d(' + X + 'px, ' + Y + 'px, 0);';
+			//execute callback?
+			opts.onMove && opts.onMove(el, { startX: startX, startY: startY, pageX: pageX, pageY: pageY });
+		};
+		//onEnd listener
+		var onEnd = function(e) {
+			//stop here?
+			if(!el) return;
+			//remove mouse/touch listeners
+			Fstage(document).off('mousemove touchmove', onMove).off('mouseup touchend', onEnd);
+			//add transition
+			el.style.transition = 'transform 300ms ease-in-out';
+			//wait for next frame
+			requestAnimationFrame(function() {
+				//end now?
+				var endNow = typeof el.style.transform !== 'string';
+				//transitionend listener
+				var listen = function(e) {
+					//remove listener?
+					!endNow && el.removeEventListener('transitionend', listen);
+					//reset styles?
+					el && (el.style.transition = null);
+					el && (el.style.userSelect = null);
+					//reset vars
+					el = startX = startY = null;
+				};
+				//add listener?
+				!endNow && el.addEventListener('transitionend', listen);
+				//execute callback?
+				opts.onEnd && opts.onEnd(el, { startX: startX, startY: startY, pageX: ev(e, 'pageX'), pageY: ev(e, 'pageY') });
+				//reset transform?
+				el && (el.style.transform = null);
+				//end now?
+				endNow && listen();
+			});
+		};
+		//start slide
+		this.on('mousedown touchstart', onStart);
+	};
+
+	Fstage.transition = function(toEl, toEffect, fromEl, fromEffect, opts = {}) {
+		//reverse transition?
+		if(opts.reverse) {
+			var toTmp = toEffect;
+			toEffect = fromEffect;
+			fromEffect = toTmp;
+		}
+		//set vars
+		var listenEl = /none|hidden/.test(toEffect) ? fromEl : toEl,
+			headerEl = document.querySelector('header.fixed, #header.fixed'),
+			fixedEls = (opts.reverse ? fromEl : toEl).querySelectorAll('.fixed');
+		//add effect function
+		var addEffect = function(el, effect) {
+			//add effect
+			el.classList.add(effect);
+			//modify styling?
+			if(/fade|hidden|none/.test(effect) === false) {
+				el.style.position = 'fixed';
+				el.style.top = (headerEl ? headerEl.offsetHeight : 0) + 'px';
+				el.style.height = (window.innerHeight - (headerEl ? headerEl.offsetHeight : 0)) + 'px';
+				el.style.overflow = 'hidden';
+			}
+		};
+		//onStart listener
+		var onStart = function(e) {
+			//remove listener
+			listenEl.removeEventListener('transitionstart', onStart);
+			//onStart callback?
+			opts.onStart && opts.onStart(e);
+		};
+		//onEnd listener
+		var onEnd = function(e) {
+			//remove listener
+			listenEl.removeEventListener('transitionend', onEnd);
+			//reset fixed child elements
+			for(var i=0; i < fixedEls.length; i++) {
+				fixedEls[i].removeAttribute('style');
+			}
+			//FROM: reset styling
+			fromEl.classList.remove(fromEffect, 'animate', 'in', 'out');
+			fromEl.removeAttribute('style');
+			fromEl.classList.add('hidden');
+			//TO: reset styling
+			toEl.classList.remove(toEffect, 'animate', 'in', 'out');
+			toEl.removeAttribute('style');
+			//remove transitioning class
+			document.documentElement.classList.remove('transitioning');
+			//is not doing
+			Fstage.transition.doing--;
+			//onEnd callback?
+			opts.onEnd && opts.onEnd(e);
+		};
+		//mark as doing
+		Fstage.transition.doing = Fstage.transition.doing || 0;
+		Fstage.transition.doing++;
+		//add transitioning class
+		document.documentElement.classList.add('transitioning');
+		//add effects
+		addEffect(fromEl, fromEffect);
+		addEffect(toEl, toEffect);
+		//modify fixed child elements
+		for(var i=0; i < fixedEls.length; i++) {
+			fixedEls[i].style.position = 'absolute';
+		}
+		//register listeners
+		listenEl.addEventListener('transitionstart', onStart);
+		listenEl.addEventListener('transitionend', onEnd);
+		//wait for next frame
+		requestAnimationFrame(function() {
+			//FROM: animate
+			fromEl.classList.add('animate', 'out');
+			//TO: animate
+			toEl.classList.add('animate', 'in');
+			toEl.classList.remove('hidden');
 		});
 	};
 
-	Fstage.nextTick = function(fn) {
-		return Fstage.tick(fn, true);
-	};
+/* (7) SERVER CALLS - requires #2 */
 
-	/* CONNECTIVITY */
-
-	Fstage.online = function() {
-		return navigator.onLine;
-	};
-
+	//Dependencies: Fstage.extend
 	Fstage.ajax = function(url, opts = {}) {
 		//set vars
 		var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
@@ -359,6 +753,7 @@
 		return p;
 	};
 
+	//Dependencies: Fstage.extend
 	Fstage.websocket = function(url, opts = {}, isObj = false) {
 		//create obj?
 		if(isObj !== true) {
@@ -526,433 +921,60 @@
 		return self.open();
 	};
 
-	/* DOM HELPERS */
+/* (8) PUBSUB */
 
-	Fstage.prototype.find = function(s) {
-		//set vars
-		var res = [];
-		//loop through elements
-		for(var i=0; i < this.length; i++) {
-			//select with context
-			var tmp = Fstage.select(s, this[i]);
-			//add elements
-			for(var j=0; j < tmp.length; j++) {
-				res.push(tmp[j]);
+	var psCache = {};
+
+	Fstage.pub = function(id, args = {}) {
+		//loop through subscribers to call
+		for(var i=0; i < (psCache[id] || []).length; i++) {
+			psCache[id][i](args);
+		}
+	};
+
+	Fstage.sub = function(id, fn) {
+		//set array
+		psCache[id] = psCache[id] || [];
+		//add subscriber
+		psCache[id].push(fn);
+	};
+
+	Fstage.unsub = function(id, fn) {
+		//loop through subscribers
+		for(var i=0; i < (psCache[id] || []).length; i++) {
+			//remove subscriber?
+			if(psCache[id][i] === fn) {
+				psCache[id].splice(i);
 			}
 		}
-		//return
-		return Fstage(res);
 	};
 
-	Fstage.prototype.closest = Fstage.closest = function(s, target = null) {
-		//set vars
-		var res = [];
-		var els = target ? [ target ] : this;
-		//loop through elements
-		for(var i=0; i < els.length; i++) {
-			//set target
-			var t = els[i];
-			//traverse dom tree
-			while(t && t !== document) {
-				//match found?
-				if(t.matches(s)) {
-					res.push(t);
-					break;
-				}
-				//get parent
-				t = t.parentNode;
-			}
-		}
-		//return
-		return Fstage(res);
-	};
+/* (9) TICKS */
 
-	Fstage.prototype.parent = function() {
-		//loop through elements
-		for(var i=0; i < this.length; i++) {
-			this[i] = this[i].parentNode;
-		}
-		//chain it
-		return this;
-	};
+	var ntProm, ntCur=[], ntNext=[];
 
-	Fstage.prototype.hasClass = function(cls, action = 'contains') {
-		//set vars
-		var res = null;
-		var contains = (action === 'contains');
-		//split class list
-		cls = cls.trim().split(/\s+/);
-		//loop through elements
-		for(var i=0; i < this.length; i++) {
-			//loop through classes
-			for(var j=0; j < cls.length; j++) {
-				//skip class?
-				if(!cls[j]) continue;
-				//execute method
-				var tmp = this[i].classList[action](cls[j]);
-				//update result?
-				if(contains && res !== false) {
-					res = tmp;
-				}
-			}
-			//break?
-			if(contains) {
-				break;
-			}
-		}
-		//return
-		return contains ? (res || false) : this;
-	};
-
-	Fstage.prototype.addClass = function(cls) {
-		return this.hasClass(cls, 'add');
-	};
-
-	Fstage.prototype.removeClass = function(cls) {
-		return this.hasClass(cls, 'remove');
-	};
-
-	Fstage.prototype.toggleClass = function(cls) {
-		return this.hasClass(cls, 'toggle');
-	};
-
-	Fstage.prototype.css = function(key, val) {
-		//get value?
-		if(val === undefined) {
-			return this[0] ? (this[0].style[key] || '') : '';
-		}
-		//loop through elements
-		for(var i=0; i < this.length; i++) {
-			//set or remove?
-			if(val === null) {
-				this[i].style.removeProperty(key);
-			} else {
-				this[i].style.setProperty(key, val);
-			}
-		}
-		//chain it
-		return this;
-	};
-
-	Fstage.prototype.attr = function(key, val) {
-		//get value?
-		if(val === undefined) {
-			return this[0] ? this[0].getAttribute(key) : '';
-		}
-		//loop through elements
-		for(var i=0; i < this.length; i++) {
-			//set or remove?
-			if(val === null) {
-				this[i].removeAttribute(key);
-			} else {
-				this[i].setAttribute(key, val);
-			}
-		}
-		//chain it
-		return this;
-	};
-
-	Fstage.prototype.append = function(html, action = 'append') {
-		//create nodes
-		var nodes = Fstage.toNodes(html);
-		//loop through elements
-		for(var i=0; i < this.length; i++) {
-			//loop through nodes
-			for(var j=0; j < nodes.length; j++) {
-				if(action === 'append') {
-					this[i].appendChild(nodes[j]);
-				} else if(action === 'prepend') {
-					this[i].insertBefore(nodes[j], this[i].firstChild);
-				} else if(action === 'before') {
-					this[i].parentNode.insertBefore(nodes[j], this[i]);
-				} else if(action === 'after') {
-					this[i].parentNode.insertBefore(nodes[j], this[i].nextSibling);
-				} else if(action === 'wrap') {
-					this[i].parentNode.insertBefore(nodes[j], this[i]);
-					nodes[j].appendChild(this[i]);
-				}
-			}
-		}
-		//chain it
-		return this;
-	};
-
-	Fstage.prototype.prepend = function(html) {
-		return this.append(html, 'prepend');
-	};
-
-	Fstage.prototype.after = function(html) {
-		return this.append(html, 'after');
-	};
-
-	Fstage.prototype.before = function(html) {
-		return this.append(html, 'before');
-	};
-
-	Fstage.prototype.wrap = function(html) {
-		return this.append(html, 'wrap');
-	};
-
-	Fstage.prototype.remove = function(node) {
-		//loop through elements
-		for(var i=0; i < this.length; i++) {
-			if(!node) {
-				this[i].parentNode.removeChild(this[i]);
-			} else if(node === true) {
-				this[i].innerHTML = '';
-			} else {
-				this[i].removeChild(node);
-			}
-		}
-		//chain it
-		return this;
-	};
-
-	Fstage.prototype.empty = function() {
-		return this.remove(true);
-	};
-
-	Fstage.prototype.html = function(val, action = 'innerHTML') {
-		//get value?
-		if(val === undefined) {
-			return this[0] ? this[0][action] : '';
-		}
-		//loop through elements
-		for(var i=0; i < this.length; i++) {
-			this[i][action] = val;
-		}
-		//chain it
-		return this;
-	};
-
-	Fstage.prototype.text = function(val) {
-		return this.html(val, 'textContent');
-	};
-
-	Fstage.prototype.val = function(val) {
-		//get value?
-		if(val === undefined) {
-			return this[0] ? (this[0].tagName === 'TEXTAREA' ? this[0].innerHTML : this[0].getAttribute('value')) : '';
-		}
-		//loop through elements
-		for(var i=0; i < this.length; i++) {
-			if(this[i].tagName === 'TEXTAREA') {
-				this[i].innerHTML = val;
-			} else {
-				this[i].setAttribute('value', val)
-			}
-		}
-		//chain it
-		return this;
-	};
-
-	/* DOM ANIMATION */
-
-	Fstage.transition = function(toEl, toEffect, fromEl, fromEffect, opts = {}) {
-		//reverse transition?
-		if(opts.reverse) {
-			var toTmp = toEffect;
-			toEffect = fromEffect;
-			fromEffect = toTmp;
-		}
-		//set vars
-		var listenEl = /none|hidden/.test(toEffect) ? fromEl : toEl,
-			headerEl = document.querySelector('header.fixed, #header.fixed'),
-			fixedEls = (opts.reverse ? fromEl : toEl).querySelectorAll('.fixed');
-		//add effect function
-		var addEffect = function(el, effect) {
-			//add effect
-			el.classList.add(effect);
-			//modify styling?
-			if(/fade|hidden|none/.test(effect) === false) {
-				el.style.position = 'fixed';
-				el.style.top = (headerEl ? headerEl.offsetHeight : 0) + 'px';
-				el.style.height = (window.innerHeight - (headerEl ? headerEl.offsetHeight : 0)) + 'px';
-				el.style.overflow = 'hidden';
-			}
-		};
-		//onStart listener
-		var onStart = function(e) {
-			//remove listener
-			listenEl.removeEventListener('transitionstart', onStart);
-			//onStart callback?
-			opts.onStart && opts.onStart(e);
-		};
-		//onEnd listener
-		var onEnd = function(e) {
-			//remove listener
-			listenEl.removeEventListener('transitionend', onEnd);
-			//reset fixed child elements
-			for(var i=0; i < fixedEls.length; i++) {
-				fixedEls[i].removeAttribute('style');
-			}
-			//FROM: reset styling
-			fromEl.classList.remove(fromEffect, 'animate', 'in', 'out');
-			fromEl.removeAttribute('style');
-			fromEl.classList.add('hidden');
-			//TO: reset styling
-			toEl.classList.remove(toEffect, 'animate', 'in', 'out');
-			toEl.removeAttribute('style');
-			//remove transitioning class
-			document.documentElement.classList.remove('transitioning');
-			//is not doing
-			Fstage.transition.doing--;
-			//onEnd callback?
-			opts.onEnd && opts.onEnd(e);
-		};
-		//mark as doing
-		Fstage.transition.doing = Fstage.transition.doing || 0;
-		Fstage.transition.doing++;
-		//add transitioning class
-		document.documentElement.classList.add('transitioning');
-		//add effects
-		addEffect(fromEl, fromEffect);
-		addEffect(toEl, toEffect);
-		//modify fixed child elements
-		for(var i=0; i < fixedEls.length; i++) {
-			fixedEls[i].style.position = 'absolute';
-		}
-		//register listeners
-		listenEl.addEventListener('transitionstart', onStart);
-		listenEl.addEventListener('transitionend', onEnd);
-		//wait for next frame
-		requestAnimationFrame(function() {
-			//FROM: animate
-			fromEl.classList.add('animate', 'out');
-			//TO: animate
-			toEl.classList.add('animate', 'in');
-			toEl.classList.remove('hidden');
+	Fstage.tick = function(fn, next = false) {
+		//register callback
+		next ? ntNext.push(fn) : ntCur.push(fn);
+		//create promise
+		ntProm = ntProm || Promise.resolve().then(function() {
+			//copy callbacks
+			var cb = ntCur.concat(ntNext);
+			//reset data
+			ntProm = null; ntCur = []; ntNext = [];
+			//execute callbacks
+			while(cb.length) cb.shift().call();
 		});
 	};
 
-	Fstage.prototype.animate = function(opts = {}) {
-		//can animate?
-		if(!Element.prototype.animate) {
-			throw new Error('Element.prototype.animate not supported by this browser');
-		}
-		//loop through elements
-		for(var i=0; i < this.length; i++) {
-			//create animation
-			var a = this[i].animate(opts.keyframes || [], opts);
-			//set event handlers
-			if(opts.onfinish) a.onfinish = opts.onfinish.bind(this[i]);
-			if(opts.oncancel) a.oncancel = opts.oncancel.bind(this[i]);
-		}
-		//chain it
-		return this;
+	Fstage.nextTick = function(fn) {
+		return Fstage.tick(fn, true);
 	};
 
-	Fstage.prototype.toggle = function(opts = {}, force = null) {
-		//loop through elements
-		for(var i=0; i < this.length; i++) {
-			//show or hide?
-			var toShow = (force === null) ? (this[i].style.display === 'none') : force;
-			//set keyframes?
-			opts.keyframes = opts.keyframes || [
-				{ opacity: toShow ? 0 : 100 },
-				{ opacity: toShow ? 100 : 0 }
-			];
-			//set finish handler?
-			opts.onfinish = opts.onfinish || function() {
-				this.style.display = toShow ? 'block' : 'none';
-			};
-			//animate
-			Fstage(this).animate(opts);
-		}
-		//chain it
-		return this;
-	};
+/* (10) DOM DIFFING */
 
-	Fstage.prototype.show = function(opts) {
-		return this.toggle(opts, true);
-	};
-
-	Fstage.prototype.hide = function(opts) {
-		return this.toggle(opts, false);
-	};
-
-	Fstage.prototype.touch = function(opts = {}) {
-		//set vars
-		var el, startX, startY;
-		//format opts
-		opts = Fstage.extend({
-			x: true,
-			y: false
-		}, opts);
-		//standardise event
-		var ev = function(e, prop) {
-			return e.touchMoves ?  e.touchMoves[0][prop] : e[prop];
-		};
-		//onStart listener
-		var onStart = function(e) {
-			//stop here?
-			if(el) return;
-			//set vars
-			el = this;
-			startX = ev(e, 'pageX');
-			startY = ev(e, 'pageY');
-			//make non-selectable
-			el.style.userSelect = 'none';
-			//add listeners
-			Fstage(document).on('mousemove touchmove', onMove).on('mouseup touchend', onEnd);
-			//execute callback?
-			opts.onStart && opts.onStart(el, { startX: startX, startY: startY });
-		};
-		//onMove listener
-		var onMove = function(e) {
-			//stop here?
-			if(!el) return;
-			//touch position
-			var pageX = ev(e, 'pageX');
-			var pageY = ev(e, 'pageY');
-			//new coordinates
-			var X = opts.x ? pageX - startX : startX;
-			var Y = opts.y ? pageY - startY : startY;
-			//update position
-			el.style.transform = 'translate3d(' + X + 'px, ' + Y + 'px, 0);';
-			//execute callback?
-			opts.onMove && opts.onMove(el, { startX: startX, startY: startY, pageX: pageX, pageY: pageY });
-		};
-		//onEnd listener
-		var onEnd = function(e) {
-			//stop here?
-			if(!el) return;
-			//remove mouse/touch listeners
-			Fstage(document).off('mousemove touchmove', onMove).off('mouseup touchend', onEnd);
-			//add transition
-			el.style.transition = 'transform 300ms ease-in-out';
-			//wait for next frame
-			requestAnimationFrame(function() {
-				//end now?
-				var endNow = typeof el.style.transform !== 'string';
-				//transitionend listener
-				var listen = function(e) {
-					//remove listener?
-					!endNow && el.removeEventListener('transitionend', listen);
-					//reset styles?
-					el && (el.style.transition = null);
-					el && (el.style.userSelect = null);
-					//reset vars
-					el = startX = startY = null;
-				};
-				//add listener?
-				!endNow && el.addEventListener('transitionend', listen);
-				//execute callback?
-				opts.onEnd && opts.onEnd(el, { startX: startX, startY: startY, pageX: ev(e, 'pageX'), pageY: ev(e, 'pageY') });
-				//reset transform?
-				el && (el.style.transform = null);
-				//end now?
-				endNow && listen();
-			});
-		};
-		//start slide
-		this.on('mousedown touchstart', onStart);
-	};
-
-	/* DOM DIFFING */
-
-	//Fork of: https://github.com/patrick-steele-idem/morphdom
-	Fstage.updateDom = function(from, to, opts = {}) {
+	//Forked: https://github.com/patrick-steele-idem/morphdom
+	Fstage.syncDom = function(from, to, opts = {}) {
 		//update node function
 		var updateNode = function(from, to) {
 			//same node?
@@ -1183,8 +1205,9 @@
 		return updated;
 	};
 
-	/* DOM REACTIVITY */
+/* (11) DOM REACTIVITY - requires #2, #8, #9, #10 */
 
+	//Dependencies: Fstage.pub
 	Fstage.watch = function(obj, link = null) {
 		//format obj
 		obj = obj || {};
@@ -1225,6 +1248,7 @@
 		});
 	};
 
+	//Dependencies: Fstage.extend, Fstage.sub, Fstage.select, Fstage.copy, Fstage.stripHtml, Fstage.syncDom, Fstage.tick
 	Fstage.component = function(name, opts = {}) {
 		//set vars
 		var rendering, hasRendered, hasChanged, elCache;
@@ -1281,7 +1305,7 @@
 					var data = Fstage.copy(comp.data, {
 						skip: [ '__isProxy', '__link' ],
 						sanitize: function(str) {
-							return Fstage.nohtml(str, opts.sanitize !== 'strip');
+							return Fstage.stripHtml(str, opts.sanitize !== 'strip');
 						}
 					});
 					//generate html
@@ -1294,7 +1318,7 @@
 						var replace = el[i].cloneNode(false);
 						replace.innerHTML = html;
 						//patch changed dom nodes
-						Fstage.updateDom(el[i], replace, {
+						Fstage.syncDom(el[i], replace, {
 							onCanSkip: function(from, to) {
 								return from.getAttribute('data-component') && el[i] !== from;
 							}
@@ -1319,8 +1343,9 @@
 		return comp;
 	};
 
-	/* ROUTER */
-	
+/* (12) PAGE ROUTING - requires #4 */
+
+	//Dependencies: Fstage.on, Fstage.one
 	Fstage.router = new (function() {
 		//set vars
 		var self = this, started = false;
@@ -1429,9 +1454,9 @@
 		};
 	})();
 
-	/* CRYPTO */
+/* (13) CRYPTO */
 
-	Fstage.crypto = (typeof crypto === 'object') ? crypto.subtle || crypto : null;
+	Fstage.crypto = (typeof crypto === 'object' && crypto.subtle) ? crypto.subtle : null;
 
 	Fstage.hash = function(str) {
 		//create string?
@@ -1448,4 +1473,4 @@
 		return h >>> 0;
 	};
 
-})(window || global || this);
+})();
