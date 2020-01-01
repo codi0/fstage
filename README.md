@@ -8,11 +8,11 @@ compilation steps required. Any significant updates will be shared here, as the 
 It follows the jQuery syntax closely for DOM manipulation, though does not replicate all jQuery functions. All functions are split into
 modules that can easily be extracted and used in isolation or as part of the library (see fstage.js file for code and comments).
 
-# Browsers
+# Browser support
 
-Internet Explorer is not supported. It assumes support for Promise, fetch and Proxy; which are now well established in all major browsers.
+It assumes support for Promise, fetch and Proxy; which are now well established in all major browsers. Internet Explorer is not supported.
 
-# Modules
+# Modules API
 
 (1) CORE
 
