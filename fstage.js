@@ -56,7 +56,7 @@
 	Fstage.prototype.length = 0;
 	Fstage.prototype.splice = Array.prototype.splice;
 	Fstage.prototype.get = function(i) { return this[i]; };
-	Fstage.prototype.each = function(fn) { for(var i=0; i < this.length; i++) if(fn.call(arr[i], i, arr[i]) === false) break; };
+	Fstage.prototype.each = function(fn) { for(var i=0; i < this.length; i++) if(fn.call(this[i], i, this[i]) === false) break; };
 
 	if(typeof Symbol === 'function') {
 		Fstage.prototype[Symbol.iterator] = Array.prototype[Symbol.iterator];
@@ -690,13 +690,12 @@
 			//remove transitioning class
 			document.documentElement.classList.remove('transitioning');
 			//is not doing
-			Fstage.transition.doing--;
+			Fstage.transition.doing = false;
 			//onEnd callback?
 			opts.onEnd && opts.onEnd(e);
 		};
 		//mark as doing
-		Fstage.transition.doing = Fstage.transition.doing || 0;
-		Fstage.transition.doing++;
+		Fstage.transition.doing = true;
 		//add transitioning class
 		document.documentElement.classList.add('transitioning');
 		//add effects
@@ -1367,7 +1366,7 @@
 			return self;
 		};
 		//trigger route
-		self.trigger = function(name, action = 'push', data = {}) {
+		self.trigger = function(name, data = {}, action = 'push') {
 			//format data
 			data = Fstage.extend({ name: name, last: opts.last, trigger: null }, data);
 			data = opts.filterRoute ? opts.filterRoute(data) : data;
@@ -1380,17 +1379,26 @@
 			if(action && window.history) {
 				history[action + 'State']({ name: data.name, scrollY: window.pageYOffset }, '', self.url(data.name));
 			}
+			//update last
+			opts.last = data.name;
 			//loop through route keys
 			[ '*', (data.is404 ? opts.notfound : data.name) ].forEach(function(key) {
 				//loop through listeners
 				for(var i=0; i < (opts.routes[key] || []).length; i++) {
+					//execute callback
 					opts.routes[key][i](data);
+					//another route executed?
+					if(data.name !== opts.last) {
+						break;
+					}
 				}
 			});
-			//cache route
-			opts.last = data.name;
 			//success
 			return true;
+		};
+		//redirect route
+		self.redirect = function(name, data = {}) {
+			return self.trigger(name, data, 'replace');
 		};
 		//url helper
 		self.url = function(name, trim = false) {
@@ -1422,7 +1430,7 @@
 				name = opts.notfound;
 			}
 			//trigger initial route
-			self.trigger(name, 'replace');
+			self.redirect(name);
 			//listen to clicks
 			Fstage(window).on('click', '[' + opts.attr + ']', function(e) {
 				//route name
@@ -1436,18 +1444,18 @@
 						//listen to form submit
 						return form.one('submit', function(e) {
 							e.preventDefault();
-							self.trigger(name, 'push', { trigger: 'submit', event: e });
+							self.trigger(name, { trigger: 'submit', event: e });
 						});
 					}
 				}
 				//click trigger
 				e.preventDefault();
-				self.trigger(name, 'push', { trigger: 'click', event: e });
+				self.trigger(name, { trigger: 'click', event: e });
 			});
 			//listen to browser navigation
 			Fstage(window).on('popstate', function(e) {
 				if(e.state && e.state.name) {
-					self.trigger(e.state.name, null, { trigger: 'popstate', event: e, scrollY: e.state.scrollY });
+					self.trigger(e.state.name, { trigger: 'popstate', event: e, scrollY: e.state.scrollY }, null);
 				}
 			});
 			//chain it
