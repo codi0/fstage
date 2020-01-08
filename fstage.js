@@ -1348,8 +1348,12 @@
 	//Dependencies: Fstage.on, Fstage.one
 	Fstage.router = new (function() {
 		//set vars
-		var self = this, started = false;
+		var self = this, started = false, histId = 0;
 		var opts = { routes: {}, baseUrl: '', home: 'home', notfound: 'notfound', attr: 'data-route', filterRoute: null, isRoute: null };
+		//current route
+		self.current = function() {
+			return opts.last;
+		};
 		//has route
 		self.has = function(name) {
 			return opts.isRoute ? opts.isRoute(name, opts.routes) : (opts.routes[name] && opts.routes[name].length);
@@ -1366,7 +1370,7 @@
 			return self;
 		};
 		//trigger route
-		self.trigger = function(name, data = {}, action = 'push') {
+		self.trigger = function(name, data = {}, mode = 'push') {
 			//format data
 			data = Fstage.extend({ name: name, last: opts.last, trigger: null }, data);
 			data = opts.filterRoute ? opts.filterRoute(data) : data;
@@ -1376,13 +1380,13 @@
 				return false;
 			}
 			//update history?
-			if(action && window.history) {
-				history[action + 'State']({ name: data.name, scrollY: window.pageYOffset }, '', self.url(data.name));
+			if(mode && window.history) {
+				history[mode + 'State']({ id: ++histId, name: data.name, scrollY: window.pageYOffset }, '', self.url(data.name));
 			}
 			//update last
 			opts.last = data.name;
 			//loop through route keys
-			[ '*', (data.is404 ? opts.notfound : data.name) ].forEach(function(key) {
+			[ (data.is404 ? opts.notfound : data.name), '*' ].forEach(function(key) {
 				//loop through listeners
 				for(var i=0; i < (opts.routes[key] || []).length; i++) {
 					//execute callback
@@ -1455,7 +1459,9 @@
 			//listen to browser navigation
 			Fstage(window).on('popstate', function(e) {
 				if(e.state && e.state.name) {
-					self.trigger(e.state.name, { trigger: 'popstate', event: e, scrollY: e.state.scrollY }, null);
+					var isBack = (histId > e.state.id);
+					histId = e.state.id;
+					self.trigger(e.state.name, { trigger: 'popstate', event: e, isBack: isBack, scrollY: e.state.scrollY }, null);
 				}
 			});
 			//chain it
