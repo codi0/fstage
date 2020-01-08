@@ -1385,18 +1385,20 @@
 			}
 			//update last
 			opts.last = data.name;
-			//loop through route keys
-			[ (data.is404 ? opts.notfound : data.name), '*' ].forEach(function(key) {
+			//build route keys
+			var keys = [ (data.is404 ? opts.notfound : data.name), '*' ];
+			//loop through keys
+			for(var i=0; i < keys.length; i++) {
 				//loop through listeners
-				for(var i=0; i < (opts.routes[key] || []).length; i++) {
+				for(var j=0; j < (opts.routes[keys[i]] || []).length; j++) {
 					//execute callback
-					opts.routes[key][i](data);
-					//another route executed?
+					opts.routes[keys[i]][j](data);
+					//break early?
 					if(data.name !== opts.last) {
-						break;
+						return true;
 					}
 				}
-			});
+			}
 			//success
 			return true;
 		};
