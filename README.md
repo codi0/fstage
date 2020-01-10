@@ -102,9 +102,11 @@ It assumes support for Promise, fetch and Proxy; which are now well established 
 
 (12) PAGE ROUTING
 
+	Fstage.router.current()  //returns current route name
 	Fstage.router.has(name)  //check whether route has any registered callbacks
 	Fstage.router.on(name, callback)  //register route and add callback
 	Fstage.router.off(name, callback)  //remove route callback
-	Fstage.router.trigger(name)  //manually execute route
+	Fstage.router.trigger(name, data = {}, mode = 'push|replace|null')  //manually execute route with optional data and history API mode
+	Fstage.router.redirect(name, data = {})  //as trigger method, with mode set to 'replace' to overwrite last entry
 	Fstage.router.url(name)  //generates URL for given route
-	Fstage.router.start({ baseUrl: '', attr: 'data-route' })  //starts router with config opts, which must be called after all routes registered
+	Fstage.router.start({ baseUrl: '', attr: 'data-route', isRoute: null, filterRoute: null, home: '', notfound: '' })  //starts router
