@@ -173,6 +173,25 @@
 		document.addEventListener('DOMContentLoaded', fn);
 	};
 
+	Fstage.hash = function(str) {
+		//create string?
+		if(typeof str !== 'string') {
+			str = JSON.stringify(str);
+		}
+		//set vars
+		var h = 5381, i = str.length;
+		//loop
+		while(i) {
+			h = (h * 33) ^ str.charCodeAt(--i);
+		}
+		//return
+		return (h >>> 0).toString();
+	};
+
+	Fstage.deviceId = function(uid = '') {
+		return Fstage.hash(uid + navigator.userAgent.replace(/[0-9\.]/g, ''));
+	};
+
 /* (3) DOM SELECTION */
 
 	//Dependencies: Fstage.select
@@ -1393,6 +1412,8 @@
 				for(var j=0; j < (opts.routes[keys[i]] || []).length; j++) {
 					//execute callback
 					opts.routes[keys[i]][j](data);
+					//mark as loaded
+					opts.routes[keys[i]][j].loaded = true;
 					//break early?
 					if(data.name !== opts.last) {
 						return true;
@@ -1470,24 +1491,5 @@
 			return self;
 		};
 	})();
-
-/* (13) CRYPTO */
-
-	Fstage.crypto = (typeof crypto === 'object' && crypto.subtle) ? crypto.subtle : null;
-
-	Fstage.hash = function(str) {
-		//create string?
-		if(typeof str !== 'string') {
-			str = JSON.stringify(str);
-		}
-		//set vars
-		var h = 5381, i = str.length;
-		//loop
-		while(i) {
-			h = (h * 33) ^ str.charCodeAt(--i);
-		}
-		//return
-		return h >>> 0;
-	};
 
 })();

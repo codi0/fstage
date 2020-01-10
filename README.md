@@ -30,6 +30,8 @@ It assumes support for Promise, fetch and Proxy; which are now well established 
 	Fstage.copy(input)  //creates a deep copy of the input
 	Fstage.debounce(callback, waitMs = 100)  //limits the rate at which the callback is executed
 	Fstage.ready(callback)  //delays executing callback until DOM is ready
+	Fstage.hash(string|array|object)  //converts input into a numeric hash
+	Fstage.deviceId(uid = '')  //creates hash using versionless user agent and optional user identifier
 
 (3) DOM SELECTION
 
@@ -106,8 +108,3 @@ It assumes support for Promise, fetch and Proxy; which are now well established 
 	Fstage.router.trigger(name)  //manually execute route
 	Fstage.router.url(name)  //generates URL for given route
 	Fstage.router.start({ baseUrl: '', attr: 'data-route' })  //starts router with config opts, which must be called after all routes registered
-
-(13) CRYPTO
-
-	Fstage.crypto //simple wrapper for crypto.subtle
-	Fstage.hash(string|array|object)  //converts input into a numeric hash
