@@ -686,32 +686,32 @@
 		};
 		//onStart listener
 		var onStart = function(e) {
-			//remove listener
-			listenEl.removeEventListener('transitionstart', onStart);
 			//onStart callback?
 			opts.onStart && opts.onStart(e);
+			//remove listener
+			listenEl.removeEventListener('transitionstart', onStart);
 		};
 		//onEnd listener
 		var onEnd = function(e) {
-			//remove listener
-			listenEl.removeEventListener('transitionend', onEnd);
 			//reset fixed child elements
 			for(var i=0; i < fixedEls.length; i++) {
 				fixedEls[i].removeAttribute('style');
 			}
+			//TO: reset styling
+			toEl.classList.remove(toEffect, 'animate', 'in', 'out');
+			toEl.removeAttribute('style');
 			//FROM: reset styling
 			fromEl.classList.remove(fromEffect, 'animate', 'in', 'out');
 			fromEl.removeAttribute('style');
 			fromEl.classList.add('hidden');
-			//TO: reset styling
-			toEl.classList.remove(toEffect, 'animate', 'in', 'out');
-			toEl.removeAttribute('style');
 			//remove transitioning class
 			document.documentElement.classList.remove('transitioning');
 			//is not doing
 			Fstage.transition.doing = false;
 			//onEnd callback?
 			opts.onEnd && opts.onEnd(e);
+			//remove listener
+			listenEl.removeEventListener('transitionend', onEnd);
 		};
 		//mark as doing
 		Fstage.transition.doing = true;
@@ -1379,6 +1379,7 @@
 		};
 		//add route
 		self.on = function(name, fn) {
+			fn.runs = 0;
 			opts.routes[name] = opts.routes[name] || [];
 			opts.routes[name].push(fn);
 			return self;
@@ -1410,10 +1411,12 @@
 			for(var i=0; i < keys.length; i++) {
 				//loop through listeners
 				for(var j=0; j < (opts.routes[keys[i]] || []).length; j++) {
+					//get function
+					var fn = opts.routes[keys[i]][j];
 					//execute callback
-					opts.routes[keys[i]][j](data);
-					//mark as loaded
-					opts.routes[keys[i]][j].loaded = true;
+					fn(data, fn.runs);
+					//increment
+					fn.runs++;
 					//break early?
 					if(data.name !== opts.last) {
 						return true;
