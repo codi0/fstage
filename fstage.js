@@ -710,8 +710,9 @@
 			Fstage.transition.doing = false;
 			//onEnd callback?
 			opts.onEnd && opts.onEnd(e);
-			//remove listener
+			//remove listeners
 			listenEl.removeEventListener('transitionend', onEnd);
+			listenEl.removeEventListener('transitioncancel', onEnd);
 		};
 		//mark as doing
 		Fstage.transition.doing = true;
@@ -727,6 +728,7 @@
 		//register listeners
 		listenEl.addEventListener('transitionstart', onStart);
 		listenEl.addEventListener('transitionend', onEnd);
+		listenEl.addEventListener('transitioncancel', onEnd);
 		//wait for next frame
 		requestAnimationFrame(function() {
 			//FROM: animate
