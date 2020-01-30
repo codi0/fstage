@@ -700,6 +700,7 @@
 			//TO: reset styling
 			toEl.classList.remove(toEffect, 'animate', 'in', 'out');
 			toEl.removeAttribute('style');
+			toEl.classList.remove('hidden');
 			//FROM: reset styling
 			fromEl.classList.remove(fromEffect, 'animate', 'in', 'out');
 			fromEl.removeAttribute('style');
@@ -1370,14 +1371,14 @@
 	Fstage.router = new (function() {
 		//set vars
 		var self = this, started = false, histId = 0;
-		var opts = { routes: {}, baseUrl: '', home: 'home', notfound: 'notfound', attr: 'data-route', filterRoute: null, isRoute: null };
+		var opts = { routes: {}, baseUrl: '', home: 'home', notfound: 'notfound', attr: 'data-route', onFilter: null, onHas: null };
 		//current route
 		self.current = function() {
 			return opts.last;
 		};
 		//has route
 		self.has = function(name) {
-			return opts.isRoute ? opts.isRoute(name, opts.routes) : (opts.routes[name] && opts.routes[name].length);
+			return opts.onHas ? opts.onHas(name, opts.routes) : (opts.routes[name] && opts.routes[name].length);
 		};
 		//add route
 		self.on = function(name, fn) {
@@ -1395,7 +1396,7 @@
 		self.trigger = function(name, data = {}, mode = 'push') {
 			//format data
 			data = Fstage.extend({ name: name, last: opts.last, trigger: null }, data);
-			data = opts.filterRoute ? opts.filterRoute(data) : data;
+			data = opts.onFilter ? opts.onFilter(data) : data;
 			data.is404 = !self.has(data.name);
 			//valid route?
 			if(data.name === '*' || data.name === opts.last || (data.is404 && !self.has(opts.notfound))) {
