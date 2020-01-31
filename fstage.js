@@ -1382,9 +1382,15 @@
 		};
 		//add route
 		self.on = function(name, fn) {
-			fn.runs = 0;
-			opts.routes[name] = opts.routes[name] || [];
-			opts.routes[name].push(fn);
+			//format name
+			name = name.trim().split(/\s+/);
+			//loop through array
+			for(var i=0; i < name.length; i++) {
+				var tmp = fn.bind({}); tmp.runs = 0;
+				opts.routes[name[i]] = opts.routes[name[i]] || [];
+				opts.routes[name[i]].push(tmp);
+			}
+			//return
 			return self;
 		};
 		//remove route
