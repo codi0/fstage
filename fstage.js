@@ -1371,7 +1371,7 @@
 	Fstage.router = new (function() {
 		//set vars
 		var self = this, started = false, histId = 0;
-		var opts = { routes: {}, baseUrl: '', home: 'home', notfound: 'notfound', attr: 'data-route', onFilter: null, onHas: null };
+		var opts = { routes: {}, baseUrl: '', home: 'home', notfound: 'notfound', attr: 'data-route', history: true };
 		//current route
 		self.current = function() {
 			return opts.last;
@@ -1402,15 +1402,16 @@
 		self.trigger = function(name, data = {}, mode = 'push') {
 			//format data
 			data = Fstage.extend({ name: name, last: opts.last, trigger: null }, data);
-			data = opts.onFilter ? opts.onFilter(data) : data;
+			data = opts.onTrigger ? opts.onTrigger(data) : data;
 			data.is404 = !self.has(data.name);
 			//valid route?
 			if(data.name === '*' || data.name === opts.last || (data.is404 && !self.has(opts.notfound))) {
 				return false;
 			}
 			//update history?
-			if(mode && window.history) {
-				history[mode + 'State']({ id: ++histId, name: data.name, scrollY: window.pageYOffset }, '', self.url(data.name));
+			if(mode && opts.history) {
+				var scroll = ('scroll' in data) ? (data.scroll || 0) : window.pageYOffset;
+				history[mode + 'State']({ id: ++histId, name: data.name, scroll: scroll }, '', self.url(data.name));
 			}
 			//update last
 			opts.last = data.name;
@@ -1483,20 +1484,20 @@
 						//listen to form submit
 						return form.one('submit', function(e) {
 							e.preventDefault();
-							self.trigger(name, { trigger: 'submit', event: e });
+							self.trigger(name);
 						});
 					}
 				}
 				//click trigger
 				e.preventDefault();
-				self.trigger(name, { trigger: 'click', event: e });
+				self.trigger(name);
 			});
 			//listen to browser navigation
 			Fstage(window).on('popstate', function(e) {
 				if(e.state && e.state.name) {
 					var isBack = (histId > e.state.id);
 					histId = e.state.id;
-					self.trigger(e.state.name, { trigger: 'popstate', event: e, isBack: isBack, scrollY: e.state.scrollY }, null);
+					self.trigger(e.state.name, { isBack: isBack, scroll: e.state.scroll }, null);
 				}
 			});
 			//chain it
