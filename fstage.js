@@ -535,51 +535,49 @@
 
 /* (6) DOM EFFECTS - requires #2, #4 */
 
-	//Polyfill: https://github.com/web-animations/web-animations-js
-	Fstage.prototype.animate = function(opts = {}) {
-		//can animate?
-		if(!Element.prototype.animate) {
-			throw new Error('Element.prototype.animate not supported by this browser');
-		}
+	Fstage.prototype.animate = function(effect, opts = {}) {
 		//loop through elements
 		for(var i=0; i < this.length; i++) {
-			//create animation
-			var a = this[i].animate(opts.keyframes || [], opts);
-			//set event handlers
-			if(opts.onfinish) a.onfinish = opts.onfinish.bind(this[i]);
-			if(opts.oncancel) a.oncancel = opts.oncancel.bind(this[i]);
+			//use closure
+			(function(el) {
+				//onStart listener
+				var onStart = function(e) {
+					//onStart callback?
+					opts.onStart && opts.onStart(e);
+					//remove listener
+					el.removeEventListener('transitionstart', onStart);
+				};
+				//onEnd listener
+				var onEnd = function(e) {
+					//hide element?
+					if(/(\s|\-)out(\s|$)/.test(effect)) {
+						el.classList.add('hidden');
+					}
+					//reset classes
+					el.classList.remove('animate');
+					el.classList.remove.apply(el.classList, effect.split(' '));
+					//onEnd callback?
+					opts.onEnd && opts.onEnd(e);
+					//remove listeners
+					el.removeEventListener('transitionend', onEnd);
+					el.removeEventListener('transitioncancel', onEnd);
+				};
+				//register listeners
+				el.addEventListener('transitionstart', onStart);
+				el.addEventListener('transitionend', onEnd);
+				el.addEventListener('transitioncancel', onEnd);
+				//add effect
+				el.classList.remove('in', 'out');
+				el.classList.add.apply(el.classList, effect.split(' '));
+				//begin animation
+				requestAnimationFrame(function() {
+					el.classList.add('animate');
+					el.classList.remove('hidden');
+				});
+			})(this[i]);
 		}
 		//chain it
 		return this;
-	};
-
-	Fstage.prototype.toggle = function(opts = {}, force = null) {
-		//loop through elements
-		for(var i=0; i < this.length; i++) {
-			//show or hide?
-			var toShow = (force === null) ? (this[i].style.display === 'none') : force;
-			//set keyframes?
-			opts.keyframes = opts.keyframes || [
-				{ opacity: toShow ? 0 : 100 },
-				{ opacity: toShow ? 100 : 0 }
-			];
-			//set finish handler?
-			opts.onfinish = opts.onfinish || function() {
-				this.style.display = toShow ? 'block' : 'none';
-			};
-			//animate
-			Fstage(this).animate(opts);
-		}
-		//chain it
-		return this;
-	};
-
-	Fstage.prototype.show = function(opts) {
-		return this.toggle(opts, true);
-	};
-
-	Fstage.prototype.hide = function(opts) {
-		return this.toggle(opts, false);
 	};
 
 	//Dependencies: Fstage.extend, Fstage.on, Fstage.off

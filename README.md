@@ -68,10 +68,7 @@ It assumes support for Promise, fetch and Proxy; which are now well established 
 
 (6) DOM EFFECTS
 
-	Fstage(selector).animate(opts = {})  //applies Element.prototype.animate to each selected DOM node
-	Fstage(selector).show(opts = {})  //shows each selected DOM node
-	Fstage(selector).hide(opts = {})  //shows each selected DOM node
-	Fstage(selector).toggle(opts = {})  //toggles display of each selected DOM node
+	Fstage(selector).animate(effect, opts = {})  //applies one or more css classes to each selected DOM node, with managed transition
 	Fstage(selector).sliding({ x: true, y: false, onStart: null, onMove: null, onEnd: null })  //controls sliding via options provided
 	Fstage.transition(toEl, toEffect, fromEl, fromEffect, opts = {})  //executes page transition from one element to another
 
@@ -109,4 +106,4 @@ It assumes support for Promise, fetch and Proxy; which are now well established 
 	Fstage.router.trigger(name, data = {}, mode = 'push|replace|null')  //manually execute route with optional data and history API mode
 	Fstage.router.redirect(name, data = {})  //as trigger method, with mode set to 'replace' to overwrite last entry
 	Fstage.router.url(name)  //generates URL for given route
-	Fstage.router.start({ baseUrl: '', attr: 'data-route', isRoute: null, filterRoute: null, home: '', notfound: '' })  //starts router
+	Fstage.router.start({ baseUrl: '', attr: 'data-route', onHas: null, onTrigger: null, home: '', notfound: '' })  //starts router
