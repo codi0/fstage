@@ -26,7 +26,8 @@ It assumes support for Promise, fetch and Proxy; which are now well established 
 	Fstage.extend(obj1, obj2...)  //merges two or more objects together
 	Fstage.type(input)  //returns input type as a string (E.g. object, array, string, boolean)
 	Fstage.toNodes(html, first = false)  //converts HTML string to array of nodes
-	Fstage.stripHtml(str, encode = false)  //removes HTML from a string (or encodes it)
+	Fstage.stripHtml(str)  //strips HTML from a string
+	Fstage.escHtml(str)  //escapes HTML characters in a string
 	Fstage.copy(input)  //creates a deep copy of the input
 	Fstage.debounce(callback, waitMs = 100)  //limits the rate at which the callback is executed
 	Fstage.ready(callback)  //delays executing callback until DOM is ready

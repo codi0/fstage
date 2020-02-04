@@ -7,7 +7,7 @@
  * Source: https://github.com/codi0/fstage
  *
  * Assumes support for: Promise, fetch, Proxy (IE is dead)
- * Checks support for: Symbol.iterator, AbortController, Crypto.subtle, Element.prototype.animate
+ * Checks support for: Symbol.iterator, AbortController
 **/
 (function(undefined) {
 	'use strict';
@@ -119,10 +119,15 @@
 		return first ? (input[0] || null) : input;
 	};
 
-	Fstage.stripHtml = function(html, encode = false) {
+	Fstage.stripHtml = function(html) {
 		var el = document.createElement('div');
-		el[encode ? 'textContent' : 'innerHTML'] = html;
-		return el[encode ? 'innerHTML' : 'textContent'];
+		el.innerHTML = String(html);
+		return el.textContent;
+	};
+
+	Fstage.escHtml = function(html) {
+		var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '/': '&#x2F;' };
+		return String(html).replace(/&amp;/g, '&').replace(/[&<>"'\/]/g, function(s) { return map[s]; });
 	};
 
 	Fstage.copy = function(input, opts = {}) {
@@ -1268,7 +1273,7 @@
 		});
 	};
 
-	//Dependencies: Fstage.extend, Fstage.sub, Fstage.select, Fstage.copy, Fstage.stripHtml, Fstage.syncDom, Fstage.tick
+	//Dependencies: Fstage.extend, Fstage.sub, Fstage.select, Fstage.copy, Fstage.escHtml, Fstage.syncDom, Fstage.tick
 	Fstage.component = function(name, opts = {}) {
 		//set vars
 		var rendering, hasRendered, hasChanged, elCache;
@@ -1278,7 +1283,7 @@
 			parent: null,
 			data: {},
 			template: function(){},
-			sanitize: 'strip'
+			escape: Fstage.escHtml
 		}, opts);
 		//setup component
 		var comp = {
@@ -1324,9 +1329,7 @@
 					//sanitize copy of data
 					var data = Fstage.copy(comp.data, {
 						skip: [ '__isProxy', '__link' ],
-						sanitize: function(str) {
-							return Fstage.stripHtml(str, opts.sanitize !== 'strip');
-						}
+						sanitize: opts.escape
 					});
 					//generate html
 					var html = opts.template(data) || '';
