@@ -51,21 +51,22 @@ It assumes support for Promise, fetch and Proxy; which are now well established 
 (5) DOM MANIPULATION
 
 	Fstage(selector).hasClass(classNames)  //checks whether first selected DOM node contains one or more classes
-	Fstage(selector).addClass(classNames)  //adds one or more classes to each selected DOM node
+	Fstage(selector).addClass(classNames, esc = true)  //adds one or more classes to each selected DOM node
 	Fstage(selector).removeClass(classNames)  //remove one or more classes from each selected DOM node
-	Fstage(selector).toggleClass(classNames)  //toggles add or remove of one or more classes from each selected DOM node
-	Fstage(selector).css(key, val = undefined)  //gets or sets css style property on each selected DOM node
-	Fstage(selector).attr(key, val = undefined)  //gets or sets element attribute on each selected DOM node
+	Fstage(selector).toggleClass(classNames, esc = true)  //toggles add or remove of one or more classes from each selected DOM node
+	Fstage(selector).css(key, val = undefined, esc = true)  //gets or sets css style property on each selected DOM node
+	Fstage(selector).attr(key, val = undefined, esc = true)  //gets or sets element attribute on each selected DOM node
 	Fstage(selector).append(html)  //inserts html as last child of each selected DOM node
 	Fstage(selector).prepend(html)  //inserts html as first child of each selected DOM node
 	Fstage(selector).after(html)  //inserts html after each selected DOM node
 	Fstage(selector).before(html)  //inserts html before each selected DOM node
 	Fstage(selector).wrap(html)  //inserts html as parent of each selected DOM node
+	Fstage(selector).replaceWith(html)  //inserts html as replacement for each selected DOM node
 	Fstage(selector).remove()  //removes each selected DOM node from the document
 	Fstage(selector).empty()  //removes all child nodes from each selected DOM node
 	Fstage(selector).html(html)  //sets innerHTML of each selected DOM node
 	Fstage(selector).text(text)  //sets textContent of each selected DOM node
-	Fstage(selector).val(value)  //sets value of each selected DOM node
+	Fstage(selector).val(value, esc = true)  //sets value of each selected DOM node
 
 (6) DOM EFFECTS
 

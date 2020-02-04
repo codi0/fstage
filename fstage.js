@@ -126,8 +126,8 @@
 	};
 
 	Fstage.escHtml = function(html) {
-		var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '/': '&#x2F;' };
-		return String(html).replace(/&amp;/g, '&').replace(/[&<>"'\/]/g, function(s) { return map[s]; });
+		var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '/': '&#x2F;', ':': '&#58;' };
+		return String(html).replace(/&amp;/g, '&').replace(/[&<>"'\/:]/g, function(s) { return map[s]; });
 	};
 
 	Fstage.copy = function(input, opts = {}) {
@@ -263,7 +263,7 @@
 		//set handler guid
 		handler.guid = handler.guid || (++evGuid);
 		//split event types
-		types = types.trim().split(/\s+/);
+		types = types.trim().split(/\s+/g);
 		//loop through event types
 		for(var i=0; i < types.length; i++) {
 			//loop through elements
@@ -289,7 +289,7 @@
 						//add listener
 						el.addEventListener(type, listener, {
 							capture: false,
-							passive: /scroll|wheel|mouse|touch|pointer/g.test(type)
+							passive: /scroll|wheel|mouse|touch|pointer/.test(type)
 						});
 					}
 					//wrap handler
@@ -329,7 +329,7 @@
 			handler = delegate;
 		}
 		//split event types
-		types = types.trim().split(/\s+/);
+		types = types.trim().split(/\s+/g);
 		//loop through event types
 		for(var i=0; i < types.length; i++) {
 			//loop through elements
@@ -346,7 +346,7 @@
 
 	Fstage.prototype.trigger = function(types, data = {}) {
 		//split event types
-		types = types.trim().split(/\s+/);
+		types = types.trim().split(/\s+/g);
 		//loop through event types
 		for(var i=0; i < types.length; i++) {
 			//loop through elements
@@ -367,18 +367,23 @@
 
 /* (5) DOM MANIPULATION - requires #2 */
 
-	Fstage.prototype.hasClass = function(cls, action = 'contains') {
+	//Dependencies: Fstage.escHtml
+	Fstage.prototype.hasClass = function(cls, esc = true, action = 'contains') {
 		//set vars
 		var res = null;
 		var contains = (action === 'contains');
+		//escape input?
+		if(esc && cls) {
+			cls = Fstage.escHtml(cls);
+		}
 		//split class list
-		cls = cls.trim().split(/\s+/);
+		cls = cls.trim().split(/\s+/g);
 		//loop through elements
 		for(var i=0; i < this.length; i++) {
 			//loop through classes
 			for(var j=0; j < cls.length; j++) {
 				//skip class?
-				if(!cls[j]) continue;
+				if(cls[j] === '') continue;
 				//execute method
 				var tmp = this[i].classList[action](cls[j]);
 				//update result?
@@ -395,22 +400,28 @@
 		return contains ? (res || false) : this;
 	};
 
-	Fstage.prototype.addClass = function(cls) {
-		return this.hasClass(cls, 'add');
+	Fstage.prototype.addClass = function(cls, esc = true) {
+		return this.hasClass(cls, esc, 'add');
 	};
 
-	Fstage.prototype.removeClass = function(cls) {
-		return this.hasClass(cls, 'remove');
+	Fstage.prototype.removeClass = function(cls, esc = true) {
+		return this.hasClass(cls, esc, 'remove');
 	};
 
-	Fstage.prototype.toggleClass = function(cls) {
-		return this.hasClass(cls, 'toggle');
+	Fstage.prototype.toggleClass = function(cls, esc = true) {
+		return this.hasClass(cls, esc, 'toggle');
 	};
 
-	Fstage.prototype.css = function(key, val) {
+	//Dependencies: Fstage.escHtml
+	Fstage.prototype.css = function(key, val, esc = true) {
 		//get value?
 		if(val === undefined) {
 			return this[0] ? (this[0].style[key] || '') : '';
+		}
+		//escape input?
+		if(esc && val !== null) {
+			key = Fstage.escHtml(key);
+			val = Fstage.escHtml(val);
 		}
 		//loop through elements
 		for(var i=0; i < this.length; i++) {
@@ -425,10 +436,16 @@
 		return this;
 	};
 
-	Fstage.prototype.attr = function(key, val) {
+	//Dependencies: Fstage.escHtml
+	Fstage.prototype.attr = function(key, val, esc = true) {
 		//get value?
 		if(val === undefined) {
 			return this[0] ? this[0].getAttribute(key) : '';
+		}
+		//escape input?
+		if(esc && val !== null) {
+			key = Fstage.escHtml(key);
+			val = Fstage.escHtml(val);
 		}
 		//loop through elements
 		for(var i=0; i < this.length; i++) {
@@ -462,6 +479,8 @@
 				} else if(action === 'wrap') {
 					this[i].parentNode.insertBefore(nodes[j], this[i]);
 					nodes[j].appendChild(this[i]);
+				} else if(action === 'replace') {
+					this[i].parentNode.replaceChild(nodes[j], this[i]);
 				}
 			}
 		}
@@ -483,6 +502,10 @@
 
 	Fstage.prototype.wrap = function(html) {
 		return this.append(html, 'wrap');
+	};
+
+	Fstage.prototype.replaceWith = function(html) {
+		return this.append(html, 'replace');
 	};
 
 	Fstage.prototype.remove = function(node) {
@@ -521,18 +544,19 @@
 		return this.html(val, 'textContent');
 	};
 
-	Fstage.prototype.val = function(val) {
+	//Dependencies: Fstage.escHtml
+	Fstage.prototype.val = function(val, esc = true) {
 		//get value?
 		if(val === undefined) {
-			return this[0] ? (this[0].tagName === 'TEXTAREA' ? this[0].innerHTML : this[0].getAttribute('value')) : '';
+			return this[0] ? this[0].value : '';
+		}
+		//escape input?
+		if(esc && val) {
+			val = Fstage.escHtml(val);
 		}
 		//loop through elements
 		for(var i=0; i < this.length; i++) {
-			if(this[i].tagName === 'TEXTAREA') {
-				this[i].innerHTML = val;
-			} else {
-				this[i].setAttribute('value', val)
-			}
+			this[i].value = val || '';
 		}
 		//chain it
 		return this;
@@ -560,7 +584,7 @@
 					}
 					//reset classes
 					el.classList.remove('animate');
-					el.classList.remove.apply(el.classList, effect.split(' '));
+					el.classList.remove.apply(el.classList, effect.split(/\s+/g));
 					//onEnd callback?
 					opts.onEnd && opts.onEnd(e);
 					//remove listeners
@@ -573,7 +597,7 @@
 				el.addEventListener('transitioncancel', onEnd);
 				//add effect
 				el.classList.remove('in', 'out');
-				el.classList.add.apply(el.classList, effect.split(' '));
+				el.classList.add.apply(el.classList, effect.split(/\s+/g));
 				//begin animation
 				requestAnimationFrame(function() {
 					el.classList.add('animate');
@@ -1384,7 +1408,7 @@
 		//add route
 		self.on = function(name, fn) {
 			//format name
-			name = name.trim().split(/\s+/);
+			name = name.trim().split(/\s+/g);
 			//loop through array
 			for(var i=0; i < name.length; i++) {
 				var tmp = fn.bind({}); tmp.runs = 0;
@@ -1463,7 +1487,7 @@
 			opts = Fstage.extend(opts, conf);
 			var isRoute = false, fallback = opts.notfound;
 			var curPath = (location.pathname + location.search + location.hash).replace(/\/$/, '');
-			var name = curPath.split(/[^\w-]+/).pop();
+			var name = curPath.split(/[^\w-]+/g).pop();
 			//set initial route
 			if(curPath === self.url(opts.home, true)) {
 				name = opts.home;
