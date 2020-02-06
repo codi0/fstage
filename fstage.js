@@ -565,10 +565,19 @@
 /* (6) DOM EFFECTS - requires #2, #4 */
 
 	Fstage.prototype.animate = function(effect, opts = {}) {
+		//set vars
+		var isIn = /(^|\s|\-)in(\s|\-|$)/.test(effect);
+		var isOut = /(^|\s|\-)out(\s|\-|$)/.test(effect);
 		//loop through elements
 		for(var i=0; i < this.length; i++) {
 			//use closure
 			(function(el) {
+				//is hidden?
+				var isHidden = el.classList.contains('hidden');
+				//stop here?
+				if((isOut && isHidden) || (isIn && !isHidden)) {
+					return;
+				}
 				//onStart listener
 				var onStart = function(e) {
 					//onStart callback?
@@ -579,11 +588,9 @@
 				//onEnd listener
 				var onEnd = function(e) {
 					//hide element?
-					if(/(^|\s|\-)out(\s|\-|$)/.test(effect)) {
-						el.classList.add('hidden');
-					}
+					isOut && el.classList.add('hidden');
 					//reset classes
-					el.classList.remove('animate');
+					el.classList.remove('will-animate', 'animate');
 					el.classList.remove.apply(el.classList, effect.split(/\s+/g));
 					//onEnd callback?
 					opts.onEnd && opts.onEnd(e);
@@ -595,12 +602,14 @@
 				el.addEventListener('transitionstart', onStart);
 				el.addEventListener('transitionend', onEnd);
 				el.addEventListener('transitioncancel', onEnd);
-				//add effect
-				el.classList.remove('in', 'out');
-				el.classList.add.apply(el.classList, effect.split(/\s+/g));
-				//begin animation
-				el.classList.add('animate');
-				el.classList.remove('hidden');
+				//prep animation
+				el.classList.add('will-animate');
+				isOut ? el.classList.remove('hidden') : el.classList.add.apply(el.classList, effect.split(/\s+/g));
+				//start animation
+				requestAnimationFrame(function() {
+					el.classList.add('animate');
+					isOut ? el.classList.add.apply(el.classList, effect.split(/\s+/g)) : el.classList.remove('hidden');
+				});
 			})(this[i]);
 		}
 		//chain it
