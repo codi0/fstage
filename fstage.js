@@ -1430,11 +1430,11 @@
 			data = opts.onTrigger ? opts.onTrigger(data) : data;
 			data.is404 = !self.has(data.name);
 			//valid route?
-			if(data.name === '*' || data.name === opts.last || (data.is404 && !self.has(opts.notfound))) {
+			if(data.is404 && !self.has(opts.notfound)) {
 				return false;
 			}
 			//update history?
-			if(mode && opts.history) {
+			if(opts.history && mode) {
 				var scroll = ('scroll' in data) ? (data.scroll || 0) : window.pageYOffset;
 				history[mode + 'State']({ id: ++histId, name: data.name, scroll: scroll }, '', self.url(data.name));
 			}
