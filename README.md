@@ -12,6 +12,11 @@ modules that can easily be extracted and used in isolation or as part of the lib
 
 It assumes support for Promise, fetch and Proxy; which are now well established in all major browsers. Internet Explorer is not supported.
 
+# Other notes
+
+Animate methods apply specific classes (will-animate, animate, in, out, hidden) to generate smooth transitions, which must be defined using css.
+A sample animate.css file is provided for convenience.
+
 # Modules API
 
 (1) CORE
@@ -72,7 +77,7 @@ It assumes support for Promise, fetch and Proxy; which are now well established 
 
 	Fstage(selector).animate(effect, opts = {})  //applies one or more css classes to each selected DOM node, with managed transition
 	Fstage(selector).sliding({ x: true, y: false, onStart: null, onMove: null, onEnd: null })  //controls sliding via options provided
-	Fstage.transition(toEl, toEffect, fromEl, fromEffect, opts = {})  //executes page transition from one element to another
+	Fstage.pageTransition(toEl, toEffect, fromEl, fromEffect, opts = {})  //executes page transition from one element to another
 
 (7) SERVER CALLS
 

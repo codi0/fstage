@@ -1,0 +1,61 @@
+/* GENERAL */
+
+.will-animate {
+	will-change: transform, opacity;
+}
+
+.animate {
+	transition: transform 300ms ease-in-out, opacity 300ms ease-in-out;
+}
+
+.animate.none {
+	opacity: 0.99;
+}
+
+.static, .static * {
+	transition: none !important;
+}
+
+.hidden {
+	visibility: hidden;
+	width: 0 !important;
+	height: 0 !important;
+	margin: 0 !important;
+	padding: 0 !important;
+	font-size: 0 !important;
+	border: none !important;
+}
+
+.hidden > * {
+	display: none !important;
+}
+
+/* FADING */
+
+.fade.out, .fade.hidden {
+	opacity: 0
+}
+
+/* SCALING */
+
+.scale.out, .scale.hidden {
+	transform: scale3d(0, 0, 0);
+}
+
+/* SLIDING */
+
+.slide-from-left.out, .slide-from-left.hidden {
+	transform: translate3d(-100%, 0, 0);
+}
+
+.slide-from-right.out, .slide-from-right.hidden {
+	transform: translate3d(100%, 0, 0);
+}
+
+.slide-from-top.out, .slide-from-top.hidden {
+	transform: translate3d(0, -100%, 0);
+}
+
+.slide-from-bottom.out, .slide-from-bottom.hidden {
+	transform: translate3d(0, 100%, 0);
+}

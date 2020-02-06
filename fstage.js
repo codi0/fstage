@@ -695,82 +695,30 @@
 		this.on('mousedown touchstart', onStart);
 	};
 
-	Fstage.transition = function(toEl, toEffect, fromEl, fromEffect, opts = {}) {
-		//reverse transition?
-		if(opts.reverse) {
-			var toTmp = toEffect;
-			toEffect = fromEffect;
-			fromEffect = toTmp;
+	Fstage.pageTransition = function(toEl, toEffect, fromEl, fromEffect, opts = {}) {
+		//from element
+		if(fromEl) {
+			fromEl = Fstage(fromEl);
+			fromEl.css('z-index', opts.reverse ? 99 : 98);
+			fromEl.animate((opts.reverse ? toEffect : fromEffect) + ' out');
 		}
-		//set vars
-		var listenEl = /none|hidden/.test(toEffect) ? fromEl : toEl,
-			headerEl = document.querySelector('header.fixed, #header.fixed'),
-			fixedEls = (opts.reverse ? fromEl : toEl).querySelectorAll('.fixed');
-		//add effect function
-		var addEffect = function(el, effect) {
-			//add effect
-			el.classList.add(effect);
-			//modify styling?
-			if(/fade|hidden|none/.test(effect) === false) {
-				el.style.position = 'fixed';
-				el.style.top = (headerEl ? headerEl.offsetHeight : 0) + 'px';
-				el.style.height = (window.innerHeight - (headerEl ? headerEl.offsetHeight : 0)) + 'px';
-				el.style.overflow = 'hidden';
+		//to element
+		toEl = Fstage(toEl);
+		toEl.css('z-index', opts.reverse ? 98 : 99);
+		//run animation
+		toEl.animate((opts.reverse ? fromEffect : toEffect) + ' in', {
+			onStart: opts.onStart,
+			onEnd: function(e) {
+				//reset from?
+				if(fromEl) {
+					fromEl.addClass('hidden');
+					fromEl.attr('style', null);
+				}
+				//reset to
+				toEl.attr('style', null);
+				//callback
+				opts.onEnd && opts.onEnd(e);
 			}
-		};
-		//onStart listener
-		var onStart = function(e) {
-			//onStart callback?
-			opts.onStart && opts.onStart(e);
-			//remove listener
-			listenEl.removeEventListener('transitionstart', onStart);
-		};
-		//onEnd listener
-		var onEnd = function(e) {
-			//reset fixed child elements
-			for(var i=0; i < fixedEls.length; i++) {
-				fixedEls[i].removeAttribute('style');
-			}
-			//TO: reset styling
-			toEl.classList.remove(toEffect, 'animate', 'in', 'out');
-			toEl.removeAttribute('style');
-			toEl.classList.remove('hidden');
-			//FROM: reset styling
-			fromEl.classList.remove(fromEffect, 'animate', 'in', 'out');
-			fromEl.removeAttribute('style');
-			fromEl.classList.add('hidden');
-			//remove transitioning class
-			document.documentElement.classList.remove('transitioning');
-			//is not doing
-			Fstage.transition.doing = false;
-			//onEnd callback?
-			opts.onEnd && opts.onEnd(e);
-			//remove listeners
-			listenEl.removeEventListener('transitionend', onEnd);
-			listenEl.removeEventListener('transitioncancel', onEnd);
-		};
-		//mark as doing
-		Fstage.transition.doing = true;
-		//add transitioning class
-		document.documentElement.classList.add('transitioning');
-		//add effects
-		addEffect(fromEl, fromEffect);
-		addEffect(toEl, toEffect);
-		//modify fixed child elements
-		for(var i=0; i < fixedEls.length; i++) {
-			fixedEls[i].style.position = 'absolute';
-		}
-		//register listeners
-		listenEl.addEventListener('transitionstart', onStart);
-		listenEl.addEventListener('transitionend', onEnd);
-		listenEl.addEventListener('transitioncancel', onEnd);
-		//wait for next frame
-		requestAnimationFrame(function() {
-			//FROM: animate
-			fromEl.classList.add('animate', 'out');
-			//TO: animate
-			toEl.classList.add('animate', 'in');
-			toEl.classList.remove('hidden');
 		});
 	};
 
@@ -1502,7 +1450,7 @@
 				name = opts.notfound;
 			}
 			//trigger initial route
-			self.redirect(name);
+			self.redirect(name, { isInitial: true });
 			//listen to clicks
 			Fstage(window).on('click', '[' + opts.attr + ']', function(e) {
 				//route name
