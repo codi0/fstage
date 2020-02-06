@@ -579,7 +579,7 @@
 				//onEnd listener
 				var onEnd = function(e) {
 					//hide element?
-					if(/(\s|\-)out(\s|$)/.test(effect)) {
+					if(/(^|\s|\-)out(\s|\-|$)/.test(effect)) {
 						el.classList.add('hidden');
 					}
 					//reset classes
@@ -599,10 +599,8 @@
 				el.classList.remove('in', 'out');
 				el.classList.add.apply(el.classList, effect.split(/\s+/g));
 				//begin animation
-				requestAnimationFrame(function() {
-					el.classList.add('animate');
-					el.classList.remove('hidden');
-				});
+				el.classList.add('animate');
+				el.classList.remove('hidden');
 			})(this[i]);
 		}
 		//chain it
