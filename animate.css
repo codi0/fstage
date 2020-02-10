@@ -1,9 +1,5 @@
 /* GENERAL */
 
-.will-animate {
-	will-change: transform, opacity;
-}
-
 .animate {
 	transition: transform 300ms ease-in-out, opacity 300ms ease-in-out;
 }

@@ -278,6 +278,17 @@
 						el.events[type] = el.events[type] || {};
 						//create listener
 						var listener = function(e) {
+							//prevent double action?
+							if(type === 'click' || type === 'submit') {
+								if(listener._stopDbl) {
+									return e.preventDefault();
+								} else {
+									listener._stopDbl = true;
+								}
+								setTimeout(function() {
+									delete listener._stopDbl;
+								}, 300);
+							}
 							//loop through handlers
 							for(var i in el.events[type]) {
 								//call handler?
@@ -590,7 +601,7 @@
 					//hide element?
 					isOut && el.classList.add('hidden');
 					//reset classes
-					el.classList.remove('will-animate', 'animate');
+					el.classList.remove('animate');
 					el.classList.remove.apply(el.classList, effect.split(/\s+/g));
 					//onEnd callback?
 					opts.onEnd && opts.onEnd(e);
@@ -603,7 +614,6 @@
 				el.addEventListener('transitionend', onEnd);
 				el.addEventListener('transitioncancel', onEnd);
 				//prep animation
-				el.classList.add('will-animate');
 				isOut ? el.classList.remove('hidden') : el.classList.add.apply(el.classList, effect.split(/\s+/g));
 				//start animation
 				requestAnimationFrame(function() {

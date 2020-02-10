@@ -14,7 +14,7 @@ It assumes support for Promise, fetch and Proxy; which are now well established 
 
 # Other notes
 
-Animate methods apply specific classes (will-animate, animate, in, out, hidden) to generate smooth transitions, which must be defined using css.
+Animate methods apply specific classes (animate, in, out, hidden) to generate smooth transitions, which must be defined using css.
 A sample animate.css file is provided for convenience.
 
 # Modules API
