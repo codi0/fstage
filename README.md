@@ -14,8 +14,8 @@ It assumes support for Promise, fetch and Proxy; which are now well established 
 
 # Other notes
 
-Animate methods apply specific classes (animate, in, out, hidden) to generate smooth transitions, which must be defined using css.
-A sample animate.css file is provided for convenience.
+Some methods apply specific classes (e.g. animate, notice, hidden) to generate smooth transitions, which must be defined using css.
+A sample fstage.css file is provided for convenience.
 
 # Modules API
 
@@ -75,8 +75,9 @@ A sample animate.css file is provided for convenience.
 
 (6) DOM EFFECTS
 
-	Fstage(selector).animate(effect, opts = {})  //applies one or more css classes to each selected DOM node, with managed transition
+	Fstage(selector).animate(effect, opts = {})  //manages animation on each selected DOM node using classes (requires fstage.css)
 	Fstage(selector).sliding({ x: true, y: false, onStart: null, onMove: null, onEnd: null })  //controls sliding via options provided
+	Fstage(selector).notice(text, { type: 'info', animate: 'none', hide: 0 )  //shows and hides notices (requires fstage.css)
 	Fstage.pageTransition(toEl, toEffect, fromEl, fromEffect, opts = {})  //executes page transition from one element to another
 
 (7) SERVER CALLS

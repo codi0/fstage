@@ -130,6 +130,7 @@
 		return String(html).replace(/&amp;/g, '&').replace(/[&<>"'\/:]/g, function(s) { return map[s]; });
 	};
 
+	//Dependencies: Fstage.type, Fstage.each
 	Fstage.copy = function(input, opts = {}) {
 		//get type
 		var type = Fstage.type(input);
@@ -193,6 +194,7 @@
 		return (h >>> 0).toString();
 	};
 
+	//Dependencies: Fstage.hash
 	Fstage.deviceId = function(uid = '') {
 		return Fstage.hash(uid + navigator.userAgent.replace(/[0-9\.]/g, ''));
 	};
@@ -280,13 +282,13 @@
 						var listener = function(e) {
 							//prevent double action?
 							if(type === 'click' || type === 'submit') {
-								if(listener._stopDbl) {
+								if(listener._dblAction) {
 									return e.preventDefault();
 								} else {
-									listener._stopDbl = true;
+									listener._dblAction = true;
 								}
 								setTimeout(function() {
-									delete listener._stopDbl;
+									listener._dblAction = false;
 								}, 300);
 							}
 							//loop through handlers
@@ -305,8 +307,6 @@
 					}
 					//wrap handler
 					el.events[type][handler.guid] = function(e) {
-						//set context
-						var context = this;
 						//call once?
 						if(once) {
 							delete el.events[type][handler.guid];
@@ -318,7 +318,9 @@
 							//target found?
 							if(!target.length) return;
 							//update context
-							context = target[0];
+							var context = target[0];
+						} else {
+							var context = this;
 						}
 						//execute handler
 						return handler.call(context, e);
@@ -705,6 +707,34 @@
 		this.on('mousedown touchstart', onStart);
 	};
 
+	//Dependencies: Fstage.toNodes, Fstage.animate
+	Fstage.prototype.notice = function(text, opts = {}) {
+		//create notice
+		var notice = Fstage.toNodes('<div class="notice ' + (opts.type || 'info') + ' hidden">' + text + '</div>');
+		//loop through nodes
+		for(var i=0; i < this.length; i++) {
+			//clone notice
+			var n = notice[0].cloneNode(true);
+			//append notice
+			this[i].appendChild(n);
+			//show notice
+			var show = Fstage(n).animate((opts.animate || 'none') + ' in');
+			//hide notice later?
+			if(opts.hide && opts.hide > 0) {
+				setTimeout(function() {
+					show.animate((opts.animate || 'none') + ' out', {
+						onEnd: function() {
+							n.parentNode.removeChild(n);
+						}
+					});
+				}, opts.hide);
+			}
+		}
+		//chain it
+		return this;
+	};
+
+	//Dependencies: Fstage.css, Fstage.animate
 	Fstage.pageTransition = function(toEl, toEffect, fromEl, fromEffect, opts = {}) {
 		//from element
 		if(fromEl) {
@@ -981,6 +1011,7 @@
 		});
 	};
 
+	//Dependencies: Fstage.tick
 	Fstage.nextTick = function(fn) {
 		return Fstage.tick(fn, true);
 	};
@@ -1262,7 +1293,7 @@
 		});
 	};
 
-	//Dependencies: Fstage.extend, Fstage.sub, Fstage.select, Fstage.copy, Fstage.escHtml, Fstage.syncDom, Fstage.tick
+	//Dependencies: Fstage.extend, Fstage.sub, Fstage.select, Fstage.copy, Fstage.escHtml, Fstage.syncDom, Fstage.tick, Fstage.watch
 	Fstage.component = function(name, opts = {}) {
 		//set vars
 		var rendering, hasRendered, hasChanged, elCache;
@@ -1357,7 +1388,7 @@
 
 /* (12) PAGE ROUTING - requires #4 */
 
-	//Dependencies: Fstage.on, Fstage.one
+	//Dependencies: Fstage.extend, Fstage.on, Fstage.one, Fstage.closest
 	Fstage.router = new (function() {
 		//set vars
 		var self = this, started = false, histId = 0;
@@ -1398,6 +1429,10 @@
 			if(data.is404 && !self.has(opts.notfound)) {
 				return false;
 			}
+			//update route?
+			if(data.is404 && opts.notfound) {
+				data.name = opts.notfound;
+			}
 			//update history?
 			if(opts.history && mode) {
 				var scroll = ('scroll' in data) ? (data.scroll || 0) : window.pageYOffset;
@@ -1406,7 +1441,7 @@
 			//update last
 			opts.last = data.name;
 			//build route keys
-			var keys = [ (data.is404 ? opts.notfound : data.name), '*' ];
+			var keys = [ data.name, '*' ];
 			//loop through keys
 			for(var i=0; i < keys.length; i++) {
 				//loop through listeners
