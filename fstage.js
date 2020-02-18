@@ -218,7 +218,7 @@
 		return Fstage(res);
 	};
 
-	Fstage.prototype.closest = Fstage.closest = function(s, target = null) {
+	Fstage.prototype.closest = Fstage.closest = function(s, target = null, parent = null) {
 		//set vars
 		var res = [];
 		var els = target ? [ target ] : this;
@@ -231,6 +231,10 @@
 				//match found?
 				if(t.matches(s)) {
 					res.push(t);
+					break;
+				}
+				//stop here?
+				if(t === parent) {
 					break;
 				}
 				//get parent
@@ -314,7 +318,7 @@
 						//delegate?
 						if(delegate) {
 							//get target
-							var target = Fstage.closest(delegate, e.target);
+							var target = Fstage.closest(delegate, e.target, this);
 							//target found?
 							if(!target.length) return;
 							//update context
@@ -616,11 +620,15 @@
 				el.addEventListener('transitionend', onEnd);
 				el.addEventListener('transitioncancel', onEnd);
 				//prep animation
-				isOut ? el.classList.remove('hidden') : el.classList.add.apply(el.classList, effect.split(/\s+/g));
+				if(isOut) el.classList.add('animate');
+				if(!isOut) el.classList.add.apply(el.classList, effect.split(/\s+/g));
 				//start animation
 				requestAnimationFrame(function() {
-					el.classList.add('animate');
-					isOut ? el.classList.add.apply(el.classList, effect.split(/\s+/g)) : el.classList.remove('hidden');
+					if(isOut) el.classList.add.apply(el.classList, effect.split(/\s+/g));
+					if(!isOut) el.classList.add('animate');
+					requestAnimationFrame(function() {
+						if(!isOut) el.classList.remove('hidden');
+					});
 				});
 			})(this[i]);
 		}
@@ -1520,8 +1528,9 @@
 			//listen to browser navigation
 			Fstage(window).on('popstate', function(e) {
 				if(e.state && e.state.name) {
-					var isBack = (histId > e.state.id);
+					var isBack = (window._isBack || histId > e.state.id);
 					histId = e.state.id;
+					window._isBack = false;
 					self.trigger(e.state.name, { isBack: isBack, scroll: e.state.scroll }, null);
 				}
 			});
