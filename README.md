@@ -113,5 +113,6 @@ A sample fstage.css file is provided for convenience.
 	Fstage.router.off(name, callback)  //remove route callback
 	Fstage.router.trigger(name, data = {}, mode = 'push|replace|null')  //manually execute route with optional data and history API mode
 	Fstage.router.redirect(name, data = {})  //as trigger method, with mode set to 'replace' to overwrite last entry
+	Fstage.router.back()  //navigates back to the previous route
 	Fstage.router.url(name)  //generates URL for given route
 	Fstage.router.start({ baseUrl: '', attr: 'data-route', onHas: null, onTrigger: null, home: '', notfound: '' })  //starts router

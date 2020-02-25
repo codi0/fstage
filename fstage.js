@@ -1399,8 +1399,9 @@
 	//Dependencies: Fstage.extend, Fstage.on, Fstage.one, Fstage.closest
 	Fstage.router = new (function() {
 		//set vars
+		var isBack = false;
 		var self = this, started = false, histId = 0;
-		var opts = { routes: {}, baseUrl: '', home: 'home', notfound: 'notfound', attr: 'data-route', history: true };
+		var opts = { routes: {}, baseUrl: '', home: 'home', notfound: 'notfound', history: true };
 		//current route
 		self.current = function() {
 			return opts.last;
@@ -1473,6 +1474,15 @@
 		self.redirect = function(name, data = {}) {
 			return self.trigger(name, data, 'replace');
 		};
+		//go back
+		self.back = function() {
+			if(history.length > 2) {
+				isBack = true;
+				history.back();
+			} else {
+				self.trigger(opts.home, { isBack: true }, null);
+			}
+		};
 		//url helper
 		self.url = function(name, trim = false) {
 			//has base url?
@@ -1505,9 +1515,22 @@
 			//trigger initial route
 			self.redirect(name, { isInitial: true });
 			//listen to clicks
-			Fstage(window).on('click', '[' + opts.attr + ']', function(e) {
-				//route name
-				var name = this.getAttribute(opts.attr);
+			Fstage(window).on('click', '[data-route]', function(e) {
+				//route vars
+				var data = { params: {} };
+				var name = this.getAttribute('data-route');
+				var params = (this.getAttribute('data-params') || '').split(';');
+				//valid name?
+				if(!name || !name.length) {
+					return;
+				}
+				//parse params?
+				for(var i=0; i < params.length; i++) {
+					var tmp = params[i].split(':', 2);
+					if(tmp.length > 1) {
+						data.params[tmp[0].trim()] = tmp[1].trim();
+					}
+				}
 				//is form submit?
 				if(this.getAttribute('type') === 'submit') {
 					//check for form
@@ -1517,21 +1540,21 @@
 						//listen to form submit
 						return form.one('submit', function(e) {
 							e.preventDefault();
-							self.trigger(name);
+							self.trigger(name, data);
 						});
 					}
 				}
 				//click trigger
 				e.preventDefault();
-				self.trigger(name);
+				self.trigger(name, data);
 			});
 			//listen to browser navigation
 			Fstage(window).on('popstate', function(e) {
 				if(e.state && e.state.name) {
-					var isBack = (window._isBack || histId > e.state.id);
+					var goBack = (isBack || histId > e.state.id);
 					histId = e.state.id;
-					window._isBack = false;
-					self.trigger(e.state.name, { isBack: isBack, scroll: e.state.scroll }, null);
+					isBack = false;
+					self.trigger(e.state.name, { isBack: goBack, scroll: e.state.scroll }, null);
 				}
 			});
 			//chain it
