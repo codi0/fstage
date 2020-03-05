@@ -196,7 +196,7 @@
 
 	//Dependencies: Fstage.hash
 	Fstage.deviceId = function(uid = '') {
-		return Fstage.hash(uid + navigator.userAgent.replace(/[0-9\.]/g, ''));
+		return Fstage.hash(uid + navigator.userAgent.replace(/[0-9\.\s]/g, ''));
 	};
 
 /* (3) DOM SELECTION */
@@ -436,17 +436,16 @@
 			return this[0] ? (this[0].style[key] || '') : '';
 		}
 		//escape input?
-		if(esc && val !== null) {
+		if(esc && val) {
 			key = Fstage.escHtml(key);
 			val = Fstage.escHtml(val);
 		}
 		//loop through elements
 		for(var i=0; i < this.length; i++) {
-			//set or remove?
-			if(val === null) {
-				this[i].style.removeProperty(key);
-			} else {
+			if(val) {
 				this[i].style.setProperty(key, val);
+			} else {
+				this[i].style.removeProperty(key);
 			}
 		}
 		//chain it
@@ -460,17 +459,16 @@
 			return this[0] ? this[0].getAttribute(key) : '';
 		}
 		//escape input?
-		if(esc && val !== null) {
+		if(esc && val) {
 			key = Fstage.escHtml(key);
 			val = Fstage.escHtml(val);
 		}
 		//loop through elements
 		for(var i=0; i < this.length; i++) {
-			//set or remove?
-			if(val === null) {
-				this[i].removeAttribute(key);
-			} else {
+			if(val) {
 				this[i].setAttribute(key, val);
+			} else {
+				this[i].removeAttribute(key);
 			}
 		}
 		//chain it
@@ -723,8 +721,12 @@
 		for(var i=0; i < this.length; i++) {
 			//clone notice
 			var n = notice[0].cloneNode(true);
-			//append notice
-			this[i].appendChild(n);
+			//append pr prepend?
+			if(opts.prepend) {
+				this[i].insertBefore(n, this[i].firstChild);
+			} else {
+				this[i].appendChild(n);
+			}
 			//show notice
 			var show = Fstage(n).animate((opts.animate || 'none') + ' in');
 			//hide notice later?
@@ -1431,8 +1433,7 @@
 		//trigger route
 		self.trigger = function(name, data = {}, mode = 'push') {
 			//format data
-			data = Fstage.extend({ name: name, last: opts.last, trigger: null }, data);
-			data = opts.onTrigger ? opts.onTrigger(data) : data;
+			data = Fstage.extend({ name: name, last: opts.last, params: {} }, data);
 			data.is404 = !self.has(data.name);
 			//valid route?
 			if(data.is404 && !self.has(opts.notfound)) {
@@ -1442,15 +1443,9 @@
 			if(data.is404 && opts.notfound) {
 				data.name = opts.notfound;
 			}
-			//update history?
-			if(opts.history && mode) {
-				var scroll = ('scroll' in data) ? (data.scroll || 0) : window.pageYOffset;
-				history[mode + 'State']({ id: ++histId, name: data.name, scroll: scroll }, '', self.url(data.name));
-			}
-			//update last
-			opts.last = data.name;
-			//build route keys
-			var keys = [ data.name, '*' ];
+			//set vars
+			var last = opts.last;
+			var keys = [ ':before', data.name, ':after' ];
 			//loop through keys
 			for(var i=0; i < keys.length; i++) {
 				//loop through listeners
@@ -1458,15 +1453,25 @@
 					//get function
 					var fn = opts.routes[keys[i]][j];
 					//execute callback
-					fn(data, fn.runs);
+					var res = fn(data, fn.runs);
 					//increment
 					fn.runs++;
 					//break early?
-					if(data.name !== opts.last) {
-						return true;
+					if(res === false || last !== opts.last) {
+						return false;
+					} else if(res && res.name) {
+						data = res;
+						keys[1] = res.name;
 					}
 				}
 			}
+			//update history?
+			if(opts.history && mode) {
+				var scroll = ('scroll' in data) ? (data.scroll || 0) : window.pageYOffset;
+				history[mode + 'State']({ id: ++histId, name: data.name, scroll: scroll }, '', self.url(data.name));
+			}
+			//update last
+			opts.last = data.name;
 			//success
 			return true;
 		};
@@ -1513,7 +1518,7 @@
 				name = opts.notfound;
 			}
 			//trigger initial route
-			self.redirect(name, { isInitial: true });
+			self.redirect(name);
 			//listen to clicks
 			Fstage(window).on('click', '[data-route]', function(e) {
 				//route vars
