@@ -1461,7 +1461,7 @@
 						return false;
 					} else if(res && res.name) {
 						data = res;
-						keys[1] = res.name;
+						last = keys[1] = opts.last = res.name;
 					}
 				}
 			}
@@ -1511,11 +1511,9 @@
 			var isRoute = false, fallback = opts.notfound;
 			var curPath = (location.pathname + location.search + location.hash).replace(/\/$/, '');
 			var name = curPath.split(/[^\w-]+/g).pop();
-			//set initial route
-			if(curPath === self.url(opts.home, true)) {
+			//fallback to home?
+			if(!name || !self.has(name)) {
 				name = opts.home;
-			} else if(!name || !self.has(name)) {
-				name = opts.notfound;
 			}
 			//trigger initial route
 			self.redirect(name);
