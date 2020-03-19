@@ -1446,6 +1446,8 @@
 			//set vars
 			var last = opts.last;
 			var keys = [ ':before', data.name, ':after' ];
+			//set original
+			data.orig = data.name;
 			//loop through keys
 			for(var i=0; i < keys.length; i++) {
 				//loop through listeners
