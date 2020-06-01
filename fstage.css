@@ -38,6 +38,7 @@
 
 	--nav-height: 50px;
 	--footer-height: 2em;
+	--small-font-size: 0.875em;
 
 	--body-font-family: -apple-system, BlinkMacSystemFont, Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
 	--body-font-size: calc((var(--body-min-font) * 1px) + ((var(--body-max-font) - var(--body-min-font)) * ((100vw - (var(--body-min-width) * 1px)) / (var(--body-max-width) - var(--body-min-width)))));
@@ -80,7 +81,7 @@ body {
 }
 
 .small {
-	font-size: 0.875em;
+	font-size: var(--small-font-size);
 }
 
 .hidden {
@@ -154,7 +155,7 @@ textarea {
 label {
 	display: block;
 	margin-bottom: 4px;
-	font-size: 0.875em;
+	font-size: var(--small-font-size);
 }
 
 form .field {
@@ -182,7 +183,7 @@ form .error {
 }
 
 form .field .error {
-	font-size: 0.875em;
+	font-size: var(--small-font-size);
 }
 
 .has-error input, .has-error textarea, .has-error select {
@@ -275,7 +276,7 @@ footer {
 	width: 100%;
 	text-align: center;
 	min-height: var(--footer-height);
-	font-size: 0.875em;
+	font-size: var(--small-font-size);
 }
 
 main + footer {
@@ -346,8 +347,6 @@ nav i:after {
 
 @media screen and (min-width: 40em) {
 
-	/* Nav */
-
 	nav .toggle {
 		display: none;
 	}
@@ -364,14 +363,6 @@ nav i:after {
 	nav a {
 		flex-grow: 1;
 		text-align: center;
-	}
-
-	nav a:first-of-type {
-		padding-top: 0;
-	}
-
-	nav a:last-of-type {
-		padding-bottom: 0;
 	}
 
 	nav a.active {
