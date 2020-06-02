@@ -130,7 +130,7 @@
 		return String(html).replace(/&amp;/g, '&').replace(/[&<>"'\/:]/g, function(s) { return map[s]; });
 	};
 
-	//Dependencies: Fstage.type, Fstage.each
+	//Dependencies: type, each
 	Fstage.copy = function(input, opts = {}) {
 		//get type
 		var type = Fstage.type(input);
@@ -194,14 +194,14 @@
 		return (h >>> 0).toString();
 	};
 
-	//Dependencies: Fstage.hash
+	//Dependencies: hash
 	Fstage.deviceId = function(uid = '') {
 		return Fstage.hash(uid + navigator.userAgent.replace(/[0-9\.\s]/g, ''));
 	};
 
 /* (3) DOM SELECTION */
 
-	//Dependencies: Fstage.select
+	//Dependencies: select
 	Fstage.prototype.find = function(s) {
 		//set vars
 		var res = [];
@@ -245,20 +245,27 @@
 		return Fstage(res);
 	};
 
-	Fstage.prototype.parent = function() {
+	Fstage.prototype.parent = function(s = null) {
 		//loop through elements
 		for(var i=0; i < this.length; i++) {
-			this[i] = this[i].parentNode;
+			//get parent
+			var parent = this[i].parentNode;
+			//skip parent?
+			if(!parent || (s && !parent.matches(s))) {
+				continue;
+			}
+			//set parent
+			this[i] = parent;
 		}
 		//chain it
 		return this;
 	};
 
-/* (4) DOM EVENTS - requires #3 */
+/* (4) DOM EVENTS */
 
 	var evGuid = 0;
 
-	//Dependencies: Fstage.closest
+	//Dependencies: closest
 	Fstage.prototype.on = function(types, delegate, handler, once = false) {
 		//delegate is handler?
 		if(typeof delegate === 'function') {
@@ -382,9 +389,9 @@
 		return this;
 	};
 
-/* (5) DOM MANIPULATION - requires #2 */
+/* (5) DOM MANIPULATION */
 
-	//Dependencies: Fstage.escHtml
+	//Dependencies: escHtml
 	Fstage.prototype.hasClass = function(cls, esc = true, action = 'contains') {
 		//set vars
 		var res = null;
@@ -429,7 +436,7 @@
 		return this.hasClass(cls, esc, 'toggle');
 	};
 
-	//Dependencies: Fstage.escHtml
+	//Dependencies: escHtml
 	Fstage.prototype.css = function(key, val, esc = true) {
 		//get value?
 		if(val === undefined) {
@@ -452,7 +459,7 @@
 		return this;
 	};
 
-	//Dependencies: Fstage.escHtml
+	//Dependencies: escHtml
 	Fstage.prototype.attr = function(key, val, esc = true) {
 		//get value?
 		if(val === undefined) {
@@ -475,7 +482,7 @@
 		return this;
 	};
 
-	//Dependencies: Fstage.toNodes
+	//Dependencies: toNodes
 	Fstage.prototype.append = function(html, action = 'append') {
 		//create nodes
 		var nodes = Fstage.toNodes(html);
@@ -559,7 +566,7 @@
 		return this.html(val, 'textContent');
 	};
 
-	//Dependencies: Fstage.escHtml
+	//Dependencies: escHtml
 	Fstage.prototype.val = function(val, esc = true) {
 		//get value?
 		if(val === undefined) {
@@ -577,7 +584,7 @@
 		return this;
 	};
 
-/* (6) DOM EFFECTS - requires #2, #4 */
+/* (6) DOM EFFECTS */
 
 	Fstage.prototype.animate = function(effect, opts = {}) {
 		//set vars
@@ -634,7 +641,7 @@
 		return this;
 	};
 
-	//Dependencies: Fstage.extend, Fstage.on, Fstage.off
+	//Dependencies: extend, on, off
 	Fstage.prototype.sliding = function(opts = {}) {
 		//set vars
 		var el, startX, startY;
@@ -713,7 +720,7 @@
 		this.on('mousedown touchstart', onStart);
 	};
 
-	//Dependencies: Fstage.toNodes, Fstage.animate
+	//Dependencies: toNodes, animate
 	Fstage.prototype.notice = function(text, opts = {}) {
 		//create notice
 		var notice = Fstage.toNodes('<div class="notice ' + (opts.type || 'info') + ' hidden">' + text + '</div>');
@@ -744,7 +751,7 @@
 		return this;
 	};
 
-	//Dependencies: Fstage.css, Fstage.animate
+	//Dependencies: css, animate
 	Fstage.pageTransition = function(toEl, toEffect, fromEl, fromEffect, opts = {}) {
 		//from element
 		if(fromEl) {
@@ -772,9 +779,9 @@
 		});
 	};
 
-/* (7) SERVER CALLS - requires #2 */
+/* (7) SERVER CALLS */
 
-	//Dependencies: Fstage.extend
+	//Dependencies: extend
 	Fstage.ajax = function(url, opts = {}) {
 		//set vars
 		var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
@@ -807,7 +814,7 @@
 		return p;
 	};
 
-	//Dependencies: Fstage.extend
+	//Dependencies: extend
 	Fstage.websocket = function(url, opts = {}, isObj = false) {
 		//create obj?
 		if(isObj !== true) {
@@ -1021,7 +1028,7 @@
 		});
 	};
 
-	//Dependencies: Fstage.tick
+	//Dependencies: tick
 	Fstage.nextTick = function(fn) {
 		return Fstage.tick(fn, true);
 	};
@@ -1260,9 +1267,9 @@
 		return updated;
 	};
 
-/* (11) DOM REACTIVITY - requires #2, #8, #9, #10 */
+/* (11) DOM REACTIVITY */
 
-	//Dependencies: Fstage.pub
+	//Dependencies: pub
 	Fstage.watch = function(obj, link = null) {
 		//format obj
 		obj = obj || {};
@@ -1303,7 +1310,7 @@
 		});
 	};
 
-	//Dependencies: Fstage.extend, Fstage.sub, Fstage.select, Fstage.copy, Fstage.escHtml, Fstage.syncDom, Fstage.tick, Fstage.watch
+	//Dependencies: extend, sub, select, copy, escHtml, syncDom, tick, watch
 	Fstage.component = function(name, opts = {}) {
 		//set vars
 		var rendering, hasRendered, hasChanged, elCache;
@@ -1396,9 +1403,9 @@
 		return comp;
 	};
 
-/* (12) PAGE ROUTING - requires #4 */
+/* (12) PAGE ROUTING */
 
-	//Dependencies: Fstage.extend, Fstage.on, Fstage.one, Fstage.closest
+	//Dependencies: extend, on, one, closest
 	Fstage.router = new (function() {
 		//set vars
 		var isBack = false;
@@ -1566,5 +1573,125 @@
 			return self;
 		};
 	})();
+
+/* (13) FORM VALIDATION */
+
+	Fstage.form = function(name, opts = {}) {
+		//valid form?
+		if(!document[name]) {
+			throw new Error('Form not found in HTML:', name);
+		}
+		//set vars
+		var values = {};
+		var errors = {};
+		var form = document[name];
+		//ensure fields set
+		opts.fields = opts.fields || {};
+		//reset error helper
+		var resetError = function(field) {
+			//delete error node
+			var err = form[field].parentNode.querySelector('.error');
+			err && err.parentNode.removeChild(err);
+			//delete cache?
+			if(errors[field]) {
+				delete errors[field];
+			}
+		};
+		//Method: get errors
+		form.errors = function() {
+			return errors;
+		};
+		//Method: get values
+		form.values = function() {
+			return values;
+		};
+		//Method: clear values
+		form.clear = function(field = null, skip = []) {
+			//loop through fields
+			for(var k in fields) {
+				//clear field?
+				if(form[k] && !skip.includes(k)) {
+					if(!field || field === k) {
+						//reset value
+						form[k].value = values[k] = '';
+						//reset error
+						resetError(k);
+					}
+				}
+			}
+		};
+		//Method: validate values
+		form.isValid = function(key = null) {
+			//loop through fields
+			for(var k in opts.fields) {
+				//skip field?
+				if(key && k !== key) {
+					continue;
+				}
+				//field found?
+				if(form[k]) {
+					//get field value
+					var value = form[k].value;
+					//reset error
+					resetError(k);
+					//filter value?
+					if(opts.fields[k].filter) {
+						value = opts.fields[k].filter.call(form, value);
+					}
+					//validate value?
+					if(opts.fields[k].validator) {
+						//call validator
+						var res = opts.fields[k].validator.call(form, value);
+						//error returned?
+						if(res instanceof Error) {
+							errors[k] = res.message;
+						}
+					}
+					//cache value
+					values[k] = value;
+					//has error?
+					if(errors[k]) {
+						//build error node
+						var err = document.createElement('div');
+						err.classList.add('error');
+						err.innerHTML = errors[k];
+						//add error meta data
+						form[k].classList.add('has-error');
+						form[k].parentNode.classList.add('has-error');
+						form[k].parentNode.insertBefore(err, form[k].nextSibling);
+					} else {
+						//remove error meta data
+						form[k].classList.remove('has-error');
+						form[k].parentNode.classList.remove('has-error');				
+					}
+				}
+			}
+			//success callback?
+			if(!key && !errors.length && opts.onSuccess) {
+				opts.onSuccess(values, errors);
+			}
+			//error callback?
+			if(!key && errors.length && opts.onError) {
+				opts.onError(values, errors);
+			}
+			//is valid?
+			return errors.length;
+		};
+		//setup listeners
+		for(var k in opts.fields) {
+			//field exists?
+			if(!form[k]) continue;
+			//add focus listener
+			form[k].addEventListener('focus', function(e) {
+				resetError(k);
+			});
+			//add blur listener
+			form[k].addEventListener('blur', function(e) {
+				form.isValid(k);
+			});
+		}
+		//return
+		return form;
+	};
 
 })();

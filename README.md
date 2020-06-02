@@ -116,3 +116,11 @@ A sample fstage.css file is provided for convenience.
 	Fstage.router.back()  //navigates back to the previous route
 	Fstage.router.url(name)  //generates URL for given route
 	Fstage.router.start({ baseUrl: '', attr: 'data-route', onHas: null, home: '', notfound: '' })  //starts router
+	
+(13) FORM VALIDATION
+
+	Fstage.form(name, opts)  //returns an enhanced form element, opts contains 'fields' object (name, filter, validator)
+	Fstage.form.isValid(field = null)  //validates form values against fields object, and also fires onBlur for a given field
+	Fstage.form.errors()  //returns collection of error messages
+	Fstage.form.values()  //returns collection of filtered values
+	Fstage.form.clear(field = null, skip = [])  //clears values and errors

@@ -60,6 +60,8 @@
 }
 
 html {
+	width: 100%;
+	height: 100%;
 	font-size: 16px;
 	font-size: var(--body-font-size);
 	font-family: var(--body-font-family);
@@ -70,10 +72,10 @@ html {
 }
 
 body {
-	position: relative;
 	width: 100%;
 	min-width: calc(var(--body-min-width) * 1px);
-	min-height: 100vh;
+	min-height: 100%;
+	position: relative;
 	background: var(--body-background);
 	color: var(--body-color);
 	margin: 0;
@@ -220,6 +222,7 @@ button.alt, [type="button"].alt, [type="submit"].alt, [type="reset"].alt {
 
 	button, [type="button"], [type="submit"], [type="reset"] {
 		width: auto;
+		padding: 10px 20px;
 	}
 
 }
