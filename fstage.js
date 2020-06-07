@@ -179,6 +179,19 @@
 		document.addEventListener('DOMContentLoaded', fn);
 	};
 
+	Fstage.isEmpty = function(value) {
+		//has length?
+		if(value && ('length' in value)) {
+			return !value.length;
+		}
+		//is object?
+		if(value && value.constructor === Object) {
+			return !Object.keys(value).length;
+		}
+		//other options
+		return (value === null || value === false || value == 0);
+	};
+
 	Fstage.hash = function(str) {
 		//create string?
 		if(typeof str !== 'string') {
@@ -723,11 +736,11 @@
 	//Dependencies: toNodes, animate
 	Fstage.prototype.notice = function(text, opts = {}) {
 		//create notice
-		var notice = Fstage.toNodes('<div class="notice ' + (opts.type || 'info') + ' hidden">' + text + '</div>');
+		var notice = Fstage.toNodes('<div class="notice ' + (opts.type || 'info') + ' hidden">' + text + '</div>', true);
 		//loop through nodes
 		for(var i=0; i < this.length; i++) {
 			//clone notice
-			var n = notice[0].cloneNode(true);
+			var n = notice.cloneNode(true);
 			//append pr prepend?
 			if(opts.prepend) {
 				this[i].insertBefore(n, this[i].firstChild);
@@ -749,6 +762,26 @@
 		}
 		//chain it
 		return this;
+	};
+
+	//Dependencies: toNodes
+	Fstage.prototype.overlay = function(text, opts = {}) {
+		//overlay html
+		var html = '<div class="overlay">';
+		html += '<div class="inner" style="width:' + (opts.width || '90%') + ';">';
+		html += '<div class="head">';
+		html += '<div class="title">' + (opts.title || '') + '</div>';
+		if(opts.close !== false) {
+			html += '<div class="close" onclick="this.parentNode.parentNode.parentNode.remove()">X</div>';
+		}
+		html += '</div>';
+		html += '<div class="body">' + text + '</div>';
+		html += '</div>';
+		html += '</div>';
+		//loop through nodes
+		for(var i=0; i < this.length; i++) {
+			this[i].appendChild(Fstage.toNodes(html, true));
+		}
 	};
 
 	//Dependencies: css, animate
@@ -1410,7 +1443,7 @@
 		//set vars
 		var isBack = false;
 		var self = this, started = false, histId = 0;
-		var opts = { routes: {}, baseUrl: '', home: 'home', notfound: 'notfound', history: true };
+		var opts = { routes: {}, baseUrl: '', home: 'home', notfound: 'notfound', pageClass: 'page', history: true };
 		//current route
 		self.current = function() {
 			return opts.last;
@@ -1475,7 +1508,7 @@
 				}
 			}
 			//update history?
-			if(opts.history && mode) {
+			if(opts.history && mode && mode !== 'false') {
 				var scroll = ('scroll' in data) ? (data.scroll || 0) : window.pageYOffset;
 				history[mode + 'State']({ id: ++histId, name: data.name, scroll: scroll }, '', self.url(data.name));
 			}
@@ -1510,6 +1543,17 @@
 			//return
 			return trim ? url.replace(/\/$/, '') : url;
 		};
+		//show and hide helper
+		self.show = function(value, attr = 'data-if') {
+			//get current route
+			var route = self.current();
+			//continue?
+			if(route) {
+				var page = Fstage('.' + opts.pageClass + '.' + route);
+				page.find('[' + attr + ']').addClass('hidden');
+				page.find('[' + attr + '="' + value + '"]').removeClass('hidden');
+			}
+		}
 		//start helper
 		self.start = function(conf = {}) {
 			//has started
@@ -1532,6 +1576,7 @@
 				var data = { params: {} };
 				var name = this.getAttribute('data-route');
 				var params = (this.getAttribute('data-params') || '').split(';');
+				var mode = this.getAttribute('data-history') || 'push';
 				//valid name?
 				if(!name || !name.length) {
 					return;
@@ -1552,13 +1597,13 @@
 						//listen to form submit
 						return form.one('submit', function(e) {
 							e.preventDefault();
-							self.trigger(name, data);
+							self.trigger(name, data, mode);
 						});
 					}
 				}
 				//click trigger
 				e.preventDefault();
-				self.trigger(name, data);
+				self.trigger(name, data, mode);
 			});
 			//listen to browser navigation
 			Fstage(window).on('popstate', function(e) {
@@ -1576,64 +1621,95 @@
 
 /* (13) FORM VALIDATION */
 
+	//Dependencies: each
 	Fstage.form = function(name, opts = {}) {
 		//valid form?
 		if(!document[name]) {
 			throw new Error('Form not found in HTML:', name);
 		}
 		//set vars
+		var step = '';
 		var values = {};
 		var errors = {};
 		var form = document[name];
 		//ensure fields set
 		opts.fields = opts.fields || {};
-		//reset error helper
-		var resetError = function(field) {
+		//add error helper
+		var addError = function(field, message) {
+			//add error meta data
+			form[field].classList.add('has-error');
+			//add error node
+			var err = document.createElement('div');
+			err.classList.add('error'); err.innerHTML = message;
+			form[field].parentNode.insertBefore(err, form[field].nextSibling);
+			//add to cache
+			errors[field] = message;
+		};
+		//remove error helper
+		var removeError = function(field) {
 			//delete error node
 			var err = form[field].parentNode.querySelector('.error');
 			err && err.parentNode.removeChild(err);
+			//remove error meta data
+			form[field].classList.remove('has-error');
 			//delete cache?
 			if(errors[field]) {
 				delete errors[field];
 			}
 		};
+		//Method form step
+		form.step = function(name = null) {
+			//set step?
+			if(name) {
+				step = name;
+				Fstage(form).find('.step').addClass('hidden');
+				Fstage(form).find('.step.' + step).removeClass('hidden');
+			}
+			//return
+			return step;
+		};
 		//Method: get errors
-		form.errors = function() {
-			return errors;
+		form.err = function(field = null, message = null) {
+			//set error?
+			if(field && message) {
+				addError(field, message);
+			}
+			//return error(s)
+			return field ? (errors[field] || null) : errors;
 		};
 		//Method: get values
-		form.values = function() {
-			return values;
+		form.val = function(field = null) {
+			return field ? (values[field] || null) : values;
 		};
-		//Method: clear values
-		form.clear = function(field = null, skip = []) {
+		//Method: reset fields
+		form.reset = function(field = null, skip = []) {
 			//loop through fields
-			for(var k in fields) {
+			Fstage.each(opts.fields, function(k) {
 				//clear field?
-				if(form[k] && !skip.includes(k)) {
-					if(!field || field === k) {
-						//reset value
-						form[k].value = values[k] = '';
-						//reset error
-						resetError(k);
-					}
+				if(form[k] && !skip.includes(k) && (!field || field === k)) {
+					//reset value
+					form[k].value = values[k] = '';
+					//reset error
+					removeError(k);
 				}
-			}
+			});
 		};
 		//Method: validate values
 		form.isValid = function(key = null) {
+			//set vars
+			var hasErrors = false;
 			//loop through fields
-			for(var k in opts.fields) {
+			Fstage.each(opts.fields, function(k) {
 				//skip field?
 				if(key && k !== key) {
-					continue;
+					return;
 				}
 				//field found?
 				if(form[k]) {
 					//get field value
 					var value = form[k].value;
-					//reset error
-					resetError(k);
+					//remove error
+					removeError(k);
 					//filter value?
 					if(opts.fields[k].filter) {
 						value = opts.fields[k].filter.call(form, value);
@@ -1644,52 +1720,38 @@
 						var res = opts.fields[k].validator.call(form, value);
 						//error returned?
 						if(res instanceof Error) {
-							errors[k] = res.message;
+							addError(k, res.message);
+							hasErrors = true;
 						}
 					}
 					//cache value
 					values[k] = value;
-					//has error?
-					if(errors[k]) {
-						//build error node
-						var err = document.createElement('div');
-						err.classList.add('error');
-						err.innerHTML = errors[k];
-						//add error meta data
-						form[k].classList.add('has-error');
-						form[k].parentNode.classList.add('has-error');
-						form[k].parentNode.insertBefore(err, form[k].nextSibling);
-					} else {
-						//remove error meta data
-						form[k].classList.remove('has-error');
-						form[k].parentNode.classList.remove('has-error');				
-					}
 				}
-			}
+			});
 			//success callback?
-			if(!key && !errors.length && opts.onSuccess) {
+			if(!key && opts.onSuccess && !hasErrors) {
 				opts.onSuccess(values, errors);
 			}
 			//error callback?
-			if(!key && errors.length && opts.onError) {
+			if(!key && opts.onError && hasErrors) {
 				opts.onError(values, errors);
 			}
 			//is valid?
-			return errors.length;
+			return !hasErrors;
 		};
 		//setup listeners
-		for(var k in opts.fields) {
+		Fstage.each(opts.fields, function(k) {
 			//field exists?
-			if(!form[k]) continue;
+			if(!form[k]) return;
 			//add focus listener
 			form[k].addEventListener('focus', function(e) {
-				resetError(k);
+				removeError(k);
 			});
 			//add blur listener
 			form[k].addEventListener('blur', function(e) {
 				form.isValid(k);
 			});
-		}
+		});
 		//return
 		return form;
 	};

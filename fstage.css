@@ -188,6 +188,7 @@ form .field .error {
 	font-size: var(--small-font-size);
 }
 
+input.has-error, textarea.has-error, select.has-error,
 .has-error input, .has-error textarea, .has-error select {
 	border-width: 1px;
 	border-color: var(--input-error-color);
@@ -478,6 +479,48 @@ nav i:after {
 .notice .title {
 	font-size: 1.1em;
 	font-weight: bold;
+}
+
+
+/* OVERLAY */
+
+.overlay {
+	display: flex;
+	align-items: center;
+	position: fixed;
+	top: 0; left: 0;
+	width: 100%;
+	height: 100%;
+	background: rgba(0,0,0,0.5);
+	z-index: 10000
+}
+
+.overlay .inner {
+	width: 90%;
+	max-width: 500px;
+	margin: auto;
+	background: #fff;
+	color: #3c434a;
+}
+
+.overlay .head {
+	display: flex;
+	align-items: center;
+	padding: 6px 10px;
+	font-weight: bold;
+	line-height: 1.0;
+	background: #ddd;
+}
+
+.overlay .close {
+	cursor: pointer;
+	font-size: 1.4em;
+	font-weight: normal;
+	margin-left: auto;
+}
+
+.overlay .body {
+	padding: 10px;
 }
 
 

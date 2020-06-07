@@ -36,6 +36,7 @@ A sample fstage.css file is provided for convenience.
 	Fstage.copy(input)  //creates a deep copy of the input
 	Fstage.debounce(callback, waitMs = 100)  //limits the rate at which the callback is executed
 	Fstage.ready(callback)  //delays executing callback until DOM is ready
+	Fstage.isEmpty(input)  //checks whether javascript variable of any type is empty
 	Fstage.hash(string|array|object)  //converts input into a numeric hash
 	Fstage.deviceId(uid = '')  //creates hash using versionless user agent and optional user identifier
 
@@ -121,6 +122,7 @@ A sample fstage.css file is provided for convenience.
 
 	Fstage.form(name, opts)  //returns an enhanced form element, opts contains 'fields' object (name, filter, validator)
 	Fstage.form.isValid(field = null)  //validates form values against fields object, and also fires onBlur for a given field
-	Fstage.form.errors()  //returns collection of error messages
-	Fstage.form.values()  //returns collection of filtered values
-	Fstage.form.clear(field = null, skip = [])  //clears values and errors
+	Fstage.form.err(field = null, message = null)  //returns or sets error message[s]
+	Fstage.form.val(field = null)  //returns filtered value[s]
+	Fstage.form.reset(field = null, skip = [])  //clears values and errors
+	Fstage.form.step(name = null)  //returns current form step (if set), or sets step name
