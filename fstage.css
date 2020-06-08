@@ -527,7 +527,7 @@ nav i:after {
 /* ANIMATE */
 
 .animate {
-	transition: transform 300ms ease-in-out, opacity 3000ms ease-in-out;
+	transition: transform 300ms ease-in-out, opacity 300ms ease-in-out;
 }
 
 .animate.none {
