@@ -1,12 +1,11 @@
 /**
  * FSTAGE.css
  *
- * About: A lean css skeleton library for developing modern web apps
+ * About: A skeleton css library for developing modern web apps
  * Version: 0.0.2
  * License: MIT
  * Source: https://github.com/codi0/fstage
 **/
-
 :root {
 
 	--body-min-width: 320;
