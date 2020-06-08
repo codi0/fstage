@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+
+	<meta charset="utf-8">
+	<title>Fstage example html</title>
+	<meta name="viewport" content="viewport-fit=cover, width=device-width, initial-scale=1.0">
+
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.0.1/fstage.min.css"
+	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.0.1/fstage.min.js"></script>
+
+	<style>
+	#wrap {
+		padding: 10px;
+	}
+	</style>
+
+</head>
+<body>
+
+	<div id="wrap">
+
+		<p>Hi there!</p>
+		
+		<script>
+		document.addEventListener('DOMContentLoaded', function(e) {
+		
+			$('#wrap').append('<p>This is a skeleton Fstage html page.</p>')
+					  .append('<p class="hidden">Docs at <a href="https://github.com/codi0/fstage" target="_blank">github.com/codi0/fstage</a>.</p>');
+			
+			setTimeout(function() {
+				$('p.hidden').animate('fade in');
+			}, 1000);
+			
+		});
+		</script>
+
+	</div>
+
+</body>
+</html>

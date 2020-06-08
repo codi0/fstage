@@ -609,6 +609,10 @@
 			(function(el) {
 				//is hidden?
 				var isHidden = el.classList.contains('hidden');
+				//infer direction?
+				if(!isIn && !isOut) {
+					isOut = !isHidden;
+				}
 				//stop here?
 				if((isOut && isHidden) || (isIn && !isHidden)) {
 					return;
@@ -638,14 +642,15 @@
 				el.addEventListener('transitionend', onEnd);
 				el.addEventListener('transitioncancel', onEnd);
 				//prep animation
-				if(isOut) el.classList.add('animate');
-				if(!isOut) el.classList.add.apply(el.classList, effect.split(/\s+/g));
+				isOut && el.classList.add('animate');
+				!isOut && el.classList.add.apply(el.classList, effect.split(/\s+/g));
 				//start animation
 				requestAnimationFrame(function() {
-					if(isOut) el.classList.add.apply(el.classList, effect.split(/\s+/g));
-					if(!isOut) el.classList.add('animate');
 					requestAnimationFrame(function() {
-						if(!isOut) el.classList.remove('hidden');
+						isOut && el.classList.add.apply(el.classList, effect.split(/\s+/g));
+						isOut && el.classList.add('out');
+						!isOut && el.classList.add('animate');
+						!isOut && el.classList.remove('hidden');
 					});
 				});
 			})(this[i]);

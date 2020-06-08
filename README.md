@@ -8,6 +8,11 @@ compilation steps required. Any significant updates will be shared here, as the 
 It follows the jQuery syntax closely for DOM manipulation, though does not replicate all jQuery functions. All functions are split into
 modules that can easily be extracted and used in isolation or as part of the library (see fstage.js file for code and comments).
 
+# CDN links
+
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.0.1/fstage.min.css">
+	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.0.1/fstage.min.js"></script>
+
 # Browser support
 
 It assumes support for Promise, fetch and Proxy; which are now well established in all major browsers. Internet Explorer is not supported.
