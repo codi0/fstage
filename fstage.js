@@ -1712,7 +1712,7 @@
 				//field found?
 				if(form[k]) {
 					//get field value
-					var value = form[k].value;
+					var value = form[k].value.trim();
 					//remove error
 					removeError(k);
 					//filter value?
