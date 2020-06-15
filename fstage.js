@@ -2,7 +2,7 @@
  * FSTAGE.js
  *
  * About: A lean javascript library for developing modern web apps
- * Version: 0.1.0
+ * Version: 0.1.1
  * License: MIT
  * Source: https://github.com/codi0/fstage
  *
@@ -662,6 +662,7 @@
 	};
 
 	//Dependencies: extend, on, off
+	//Dependencies: extend, on, off
 	Fstage.prototype.sliding = function(opts = {}) {
 		//set vars
 		var el, startX, startY;
@@ -715,10 +716,11 @@
 			//wait for next frame
 			requestAnimationFrame(function() {
 				//end now?
-				var endNow = typeof el.style.transform !== 'string';
+				var endNow = !el.style.transform;
 				//transitionend listener
 				var listen = function(e) {
 					//reset styles
+					el.style.removeProperty('transform');
 					el.style.removeProperty('transition');
 					el.style.removeProperty('user-select');
 					//remove listener?
@@ -730,8 +732,6 @@
 				!endNow && el.addEventListener('transitionend', listen);
 				//execute callback?
 				opts.onEnd && opts.onEnd(el, { startX: startX, startY: startY, pageX: ev(e, 'pageX'), pageY: ev(e, 'pageY') });
-				//reset transform?
-				el && (el.style.transform = null);
 				//end now?
 				endNow && listen();
 			});
