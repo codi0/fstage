@@ -2,7 +2,7 @@
  * FSTAGE.js
  *
  * About: A lean javascript library for developing modern web apps
- * Version: 0.0.9
+ * Version: 0.1.0
  * License: MIT
  * Source: https://github.com/codi0/fstage
  *
@@ -718,11 +718,11 @@
 				var endNow = typeof el.style.transform !== 'string';
 				//transitionend listener
 				var listen = function(e) {
+					//reset styles
+					el.style.removeProperty('transition');
+					el.style.removeProperty('user-select');
 					//remove listener?
 					!endNow && el.removeEventListener('transitionend', listen);
-					//reset styles?
-					el && (el.style.transition = null);
-					el && (el.style.userSelect = null);
 					//reset vars
 					el = startX = startY = null;
 				};
