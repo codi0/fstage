@@ -1639,6 +1639,43 @@
 		var form = document[name];
 		//ensure fields set
 		opts.fields = opts.fields || {};
+		//validate helper
+		var validate = function(field) {
+			//set vars
+			var isValid = true;
+			//loop through fields
+			Fstage.each(opts.fields, function(k) {
+				//skip field?
+				if(field && k !== field) {
+					return;
+				}
+				//field found?
+				if(form[k]) {
+					//get field value
+					var value = form[k].value.trim();
+					//remove error
+					removeError(k);
+					//filter value?
+					if(opts.fields[k].filter) {
+						value = opts.fields[k].filter.call(form, value);
+					}
+					//validate value?
+					if(opts.fields[k].validator) {
+						//call validator
+						var res = opts.fields[k].validator.call(form, value);
+						//error returned?
+						if(res instanceof Error) {
+							addError(k, res.message);
+							isValid = false;
+						}
+					}
+					//cache value
+					values[k] = value;
+				}
+			});
+			//return
+			return isValid;	
+		};
 		//add error helper
 		var addError = function(field, message) {
 			//stop here?
@@ -1714,52 +1751,22 @@
 				}
 			});
 		};
-		//Method: validate values
+		//Method: validate form
 		form.isValid = function(key = null) {
 			//set vars
-			var hasErrors = false;
-			//loop through fields
-			Fstage.each(opts.fields, function(k) {
-				//skip field?
-				if(key && k !== key) {
-					return;
-				}
-				//field found?
-				if(form[k]) {
-					//get field value
-					var value = form[k].value.trim();
-					//remove error
-					removeError(k);
-					//filter value?
-					if(opts.fields[k].filter) {
-						value = opts.fields[k].filter.call(form, value);
-					}
-					//validate value?
-					if(opts.fields[k].validator) {
-						//call validator
-						var res = opts.fields[k].validator.call(form, value);
-						//error returned?
-						if(res instanceof Error) {
-							addError(k, res.message);
-							hasErrors = true;
-						}
-					}
-					//cache value
-					values[k] = value;
-				}
-			});
+			var isValid = validate(key);
 			//success callback?
-			if(!key && opts.onSuccess && !hasErrors) {
+			if(!key && opts.onSuccess && isValid) {
 				opts.onSuccess(values, errors);
 			}
 			//error callback?
-			if(!key && opts.onError && hasErrors) {
+			if(!key && opts.onError && !isValid) {
 				opts.onError(values, errors);
 			}
-			//is valid?
-			return !hasErrors;
+			//return
+			return isValid;
 		};
-		//setup listeners
+		//add focus listeners
 		Fstage.each(opts.fields, function(k) {
 			//stop here?
 			if(!form[k] || !form[k].addEventListener) {
@@ -1771,9 +1778,15 @@
 			});
 			//add blur listener
 			form[k].addEventListener('blur', function(e) {
-				form.isValid(k);
+				validate(k);
 			});
 		});
+		//add submit listener
+		form.addEventListener('click', function(e) {
+			if(e.target.type === 'submit') {
+				validate();
+			}
+		}, true);
 		//return
 		return form;
 	};
