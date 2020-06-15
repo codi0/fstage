@@ -1641,6 +1641,10 @@
 		opts.fields = opts.fields || {};
 		//add error helper
 		var addError = function(field, message) {
+			//stop here?
+			if(!form[field] || !form[field].parentNode) {
+				return;
+			}
 			//add error meta data
 			form[field].classList.add('has-error');
 			//add error node
@@ -1652,6 +1656,10 @@
 		};
 		//remove error helper
 		var removeError = function(field) {
+			//stop here?
+			if(!form[field] || !form[field].parentNode) {
+				return;
+			}
 			//delete error node
 			var err = form[field].parentNode.querySelector('.error');
 			err && err.parentNode.removeChild(err);
@@ -1692,6 +1700,13 @@
 			Fstage.each(opts.fields, function(k) {
 				//reset field?
 				if(form[k] && !skip.includes(k) && (!field || field === k)) {
+					//is checked?
+					if(form[k] instanceof NodeList) {
+						//loop through nodes
+						for(var i=0; i < form[k].length; i++) {
+							form[k][i].checked = form[k][i].defaultChecked;
+						}
+					}
 					//default value
 					form[k].value = values[k] = form[k].defaultValue;
 					//clear error
@@ -1746,8 +1761,10 @@
 		};
 		//setup listeners
 		Fstage.each(opts.fields, function(k) {
-			//field exists?
-			if(!form[k]) return;
+			//stop here?
+			if(!form[k] || !form[k].addEventListener) {
+				return;
+			}
 			//add focus listener
 			form[k].addEventListener('focus', function(e) {
 				removeError(k);
