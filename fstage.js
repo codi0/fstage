@@ -1578,14 +1578,18 @@
 			//listen to clicks
 			Fstage(window).on('click', '[data-route]', function(e) {
 				//route vars
-				var data = { params: {} };
 				var name = this.getAttribute('data-route');
-				var params = (this.getAttribute('data-params') || '').split(';');
 				var mode = this.getAttribute('data-history') || 'push';
+				var params = (this.getAttribute('data-params') || '').split(';');
 				//valid name?
 				if(!name || !name.length) {
 					return;
 				}
+				//set data
+				var data = {
+					params: {},
+					isBack: this.getAttribute('data-back') === 'true'
+				};
 				//parse params?
 				for(var i=0; i < params.length; i++) {
 					var tmp = params[i].split(':', 2);
