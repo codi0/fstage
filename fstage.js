@@ -1690,11 +1690,11 @@
 		form.reset = function(field = null, skip = []) {
 			//loop through fields
 			Fstage.each(opts.fields, function(k) {
-				//clear field?
+				//reset field?
 				if(form[k] && !skip.includes(k) && (!field || field === k)) {
-					//reset value
-					form[k].value = values[k] = '';
-					//reset error
+					//default value
+					form[k].value = values[k] = form[k].defaultValue;
+					//clear error
 					removeError(k);
 				}
 			});
