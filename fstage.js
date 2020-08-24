@@ -2,7 +2,7 @@
  * FSTAGE.js
  *
  * About: A lean javascript library for developing modern web apps
- * Version: 0.1.1
+ * Version: 0.1.2
  * License: MIT
  * Source: https://github.com/codi0/fstage
  *
@@ -111,7 +111,9 @@
 	Fstage.toNodes = function(input, first = false) {
 		//parse html string?
 		if(typeof input === 'string') {
-			input = new DOMParser().parseFromString(input, 'text/html').body.childNodes;
+			var d = document.createElement('template');
+			d.innerHTML = input;
+			input = d.content.childNodes;
 		} else {
 			input = (input && input.tagName) ? [ input ] : (input || []);
 		}
@@ -190,6 +192,10 @@
 		}
 		//other options
 		return (value === null || value === false || value == 0);
+	};
+
+	Fstage.isUrl = function(value) {
+		return value.match(/(http(s)?:\/\/.)?(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)/g) !== null;
 	};
 
 	Fstage.hash = function(str) {
@@ -830,6 +836,10 @@
 			timeout: 5000,
 			signal: controller && controller.signal
 		}, opts);
+		//format body?
+		if(opts.body && typeof opts.body !== 'string') {
+			opts.body = new URLSearchParams(opts.body);
+		}
 		//wrap fetch in timeout promise
 		var p = new Promise(function(resolve, reject) {
 			//create timer

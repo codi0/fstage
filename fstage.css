@@ -2,7 +2,7 @@
  * FSTAGE.css
  *
  * About: A skeleton css library for developing modern web apps
- * Version: 0.1.1
+ * Version: 0.1.2
  * License: MIT
  * Source: https://github.com/codi0/fstage
 **/
@@ -136,7 +136,7 @@ a.right {
 
 /* INPUT */
 
-input, textarea, select, button {
+input, textarea, select, button, .button {
 	display: inline-block;
 	width: 100%;
 	height: var(--input-height);
@@ -150,7 +150,6 @@ input, textarea, select, button {
 	border-radius: var(--input-border-radius);
 	overflow: visible;
 	outline: none;
-	appearance: none;
 	vertical-align: middle;
 	text-transform: none;
 }
@@ -210,7 +209,7 @@ input:focus, textarea:focus, select:focus {
 	border-color: var(--input-active-color);
 }
 
-button, [type="button"], [type="submit"], [type="reset"] {
+button, .button, [type="button"], [type="submit"], [type="reset"] {
 	background: var(--button-background);
 	border-width: 1px;
 	border-color: rgba(0, 0, 0, .2);
@@ -220,16 +219,25 @@ button, [type="button"], [type="submit"], [type="reset"] {
 	cursor: pointer;
 }
 
-button.alt, [type="button"].alt, [type="submit"].alt, [type="reset"].alt {
+button.alt, .button.alt, [type="button"].alt, [type="submit"].alt, [type="reset"].alt {
 	background: var(--button-alt-background);
 	color: var(--button-alt-color);
 }
 
+button + button, [type="submit"] + [type="button"] {
+	margin-top: 10px;
+}
+
 @media screen and (min-width: 40em) {
 
-	button, [type="button"], [type="submit"], [type="reset"] {
+	button, .button, [type="button"], [type="submit"], [type="reset"] {
 		width: auto;
 		padding: 10px 20px;
+	}
+
+	button + button, [type="submit"] + [type="button"] {
+		margin-top: 0;
+		margin-left: 10px;
 	}
 
 }
@@ -243,7 +251,7 @@ button.alt, [type="button"].alt, [type="submit"].alt, [type="reset"].alt {
 
 [type="radio"] + label, [type="checkbox"] + label {
 	display: inline;
-	margin: 0 10px 0 2px;
+	margin: 0 10px 0 5px;
 	vertical-align: middle;
 }
 
@@ -527,6 +535,8 @@ nav i:after {
 
 .overlay .body {
 	padding: 10px;
+    max-height: calc(100vh - 20px);
+    overflow-y: auto;
 }
 
 

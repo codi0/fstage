@@ -10,8 +10,8 @@ modules that can easily be extracted and used in isolation or as part of the lib
 
 # CDN links
 
-	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.1.1/fstage.min.css">
-	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.1.1/fstage.min.js"></script>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.1.2/fstage.min.css">
+	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.1.2/fstage.min.js"></script>
 
 # Browser support
 
@@ -42,6 +42,7 @@ A sample fstage.css file is provided for convenience.
 	Fstage.debounce(callback, waitMs = 100)  //limits the rate at which the callback is executed
 	Fstage.ready(callback)  //delays executing callback until DOM is ready
 	Fstage.isEmpty(input)  //checks whether javascript variable of any type is empty
+	Fstage.isUrl(input)  //checks whether javascript variable is a valid http(s) URL
 	Fstage.hash(string|array|object)  //converts input into a numeric hash
 	Fstage.deviceId(uid = '')  //creates hash using versionless user agent and optional user identifier
 
