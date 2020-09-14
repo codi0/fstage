@@ -2,7 +2,7 @@
  * FSTAGE.js
  *
  * About: A lean javascript library for developing modern web apps
- * Version: 0.1.2
+ * Version: 0.1.3
  * License: MIT
  * Source: https://github.com/codi0/fstage
  *
@@ -833,11 +833,25 @@
 		var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
 		//format opts
 		opts = Fstage.extend({
+			method: 'GET',
+			headers: {},
+			body: '',
 			timeout: 5000,
 			signal: controller && controller.signal
 		}, opts);
-		//format body?
+		//set default content type?
+		if(opts.method === 'POST' && !opts.headers['Content-Type']) {
+			opts.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+		}
+		//remove undefined param values?
 		if(opts.body && typeof opts.body !== 'string') {
+			//remove undefined params
+			for(var i in opts.body) {
+				if(opts.body[i] === undefined) {
+					delete opts.body[i];
+				}
+			}
+			//convert to string
 			opts.body = new URLSearchParams(opts.body);
 		}
 		//wrap fetch in timeout promise
@@ -853,13 +867,17 @@
 			}).then(resolve, reject);
 		});
 		//success callback?
-		opts.success && (p = p.then(function(response) {
-			opts.success(response);
-		}));
+		if(opts.success) {
+			p = p.then(function(response) {
+				opts.success(response);
+			});
+		}
 		//error callback?
-		opts.error && (p = p.catch(function(err) {
-			opts.error(err);
-		}));
+		if(opts.error) {
+			p = p.catch(function(err) {
+				opts.error(err);
+			});
+		}
 		//return
 		return p;
 	};
