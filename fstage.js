@@ -2,7 +2,7 @@
  * FSTAGE.js
  *
  * About: A lean javascript library for developing modern web apps
- * Version: 0.1.3
+ * Version: 0.1.4
  * License: MIT
  * Source: https://github.com/codi0/fstage
  *
@@ -24,7 +24,7 @@
 		//selector string?
 		if(typeof s === 'string') {
 			//search DOM
-			if(/^#[\w-]*$/.test(s)) {
+			if(/^#[\w-]*$/.test(s) && ctx === document) {
 				s = ctx.getElementById(s.substr(1));
 			} else if(/^\.[\w-]*$/.test(s)) {
 				s = ctx.getElementsByClassName(s.substr(1));
