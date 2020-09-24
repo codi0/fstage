@@ -2,7 +2,7 @@
  * FSTAGE.css
  *
  * About: A skeleton css library for developing modern web apps
- * Version: 0.1.4
+ * Version: 0.1.5
  * License: MIT
  * Source: https://github.com/codi0/fstage
 **/
@@ -27,6 +27,7 @@
 	--button-background: #aaa;
 	--button-alt-color: var(--button-background);
 	--button-alt-background: var(--button-color);
+	--button-border-color: rgba(0, 0, 0, 0.25);
 	--button-border-radius: 4px;
 
 	--nav-color: #141412;
@@ -39,6 +40,8 @@
 	--input-height: 42px;
 	--input-border-radius: 4px;
 	--input-font-size: 18px;
+	--input-border-color: rgba(0, 0, 0, 0.25);
+	--input-hover-color: rgba(0, 0, 0, 0.35);
 	--input-active-color: #0288d1;
 	--input-error-color: #d32f2f;
 
@@ -143,8 +146,7 @@ input, textarea, select, button, .button {
 	margin: 0;
 	padding: 10px 12px;
 	background: #fff;
-	border: 1px solid rgba(0, 0, 0, .2);
-	box-shadow: 0 1px 1px rgba(0, 0, 0, .1);
+	border: 1px solid var(--input-border-color);
 	font-family: inherit;
 	font-size: var(--input-font-size);
 	border-radius: var(--input-border-radius);
@@ -195,24 +197,20 @@ form .field .error {
 
 input.has-error, textarea.has-error, select.has-error,
 .has-error input, .has-error textarea, .has-error select {
-	border-width: 1px;
 	border-color: var(--input-error-color);
 }
 
 input:hover, textarea:hover, select:hover {
-	border-width: 0.5px;
-	border-color: var(--input-active-color);
+	border-color: var(--input-hover-color);
 }
 
 input:focus, textarea:focus, select:focus {
-	border-width: 1px;
 	border-color: var(--input-active-color);
 }
 
 button, .button, [type="button"], [type="submit"], [type="reset"] {
 	background: var(--button-background);
-	border-width: 1px;
-	border-color: rgba(0, 0, 0, .2);
+	border-color: var(--button-border-color);
 	border-radius: var(--button-border-radius);
 	color: var(--button-color);
 	text-align: center;
@@ -457,7 +455,6 @@ nav i:after {
 	border: 0px solid #000;
 	border-left-width: 4px;
 	border-right-width: 4px;
-	box-shadow: 0 1px 1px rgba(0,0,0,.04);
 }
 
 .notice.pinned {
@@ -505,7 +502,7 @@ nav i:after {
 	top: 0; left: 0;
 	width: 100%;
 	height: 100%;
-	background: rgba(0,0,0,0.5);
+	background: rgba(0, 0, 0, 0.5);
 	z-index: 10000
 }
 
