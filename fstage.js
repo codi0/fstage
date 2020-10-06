@@ -2,7 +2,7 @@
  * FSTAGE.js
  *
  * About: A lean javascript library for developing modern web apps
- * Version: 0.1.5
+ * Version: 0.1.6
  * License: MIT
  * Source: https://github.com/codi0/fstage
  *
@@ -10,9 +10,6 @@
  * Checks support for: Symbol.iterator, AbortController
 **/
 (function(undefined) {
-	'use strict';
-
-/* (1) CORE */
 
 	var Fstage = function(s, ctx) {
 		if(Fstage.win && s === window) return Fstage.win;
@@ -73,7 +70,12 @@
 		define('fstage', [], function() { return Fstage; });
 	}
 
-/* (2) UTILITY HELPERS */
+})();
+
+/**
+ * HELPERS
+**/
+(function(undefined) {
 
 	Fstage.each = function(arr, fn) {
 		if('length' in arr) {
@@ -132,7 +134,6 @@
 		return String(html).replace(/&amp;/g, '&').replace(/[&<>"'\/:]/g, function(s) { return map[s]; });
 	};
 
-	//Dependencies: type, each
 	Fstage.copy = function(input, opts = {}) {
 		//get type
 		var type = Fstage.type(input);
@@ -213,78 +214,81 @@
 		return (h >>> 0).toString();
 	};
 
-	//Dependencies: hash
 	Fstage.deviceId = function(uid = '') {
 		return Fstage.hash(uid + navigator.userAgent.replace(/[0-9\.\s]/g, ''));
 	};
 
-/* (3) DOM SELECTION */
+})();
 
-	//Dependencies: select
-	Fstage.prototype.find = function(s) {
-		//set vars
-		var res = [];
-		//loop through elements
-		for(var i=0; i < this.length; i++) {
-			//select with context
-			var tmp = Fstage.select(s, this[i]);
-			//add elements
-			for(var j=0; j < tmp.length; j++) {
-				res.push(tmp[j]);
-			}
-		}
-		//return
-		return Fstage(res);
+/**
+ * TICKS
+**/
+(function(undefined) {
+
+	var ntProm = null
+	var ntCur = [];
+	var ntNext = [];
+
+	Fstage.tick = function(fn, next = false) {
+		//register callback
+		next ? ntNext.push(fn) : ntCur.push(fn);
+		//create promise
+		ntProm = ntProm || Promise.resolve().then(function() {
+			//copy callbacks
+			var cb = ntCur.concat(ntNext);
+			//reset data
+			ntProm = null; ntCur = []; ntNext = [];
+			//execute callbacks
+			while(cb.length) cb.shift().call();
+		});
 	};
 
-	Fstage.prototype.closest = Fstage.closest = function(s, target = null, parent = null) {
-		//set vars
-		var res = [];
-		var els = target ? [ target ] : this;
-		//loop through elements
-		for(var i=0; i < els.length; i++) {
-			//set target
-			var t = els[i];
-			//traverse dom tree
-			while(t && t !== document) {
-				//match found?
-				if(t.matches(s)) {
-					res.push(t);
-					break;
-				}
-				//stop here?
-				if(t === parent) {
-					break;
-				}
-				//get parent
-				t = t.parentNode;
-			}
-		}
-		//return
-		return Fstage(res);
+	Fstage.nextTick = function(fn) {
+		return Fstage.tick(fn, true);
 	};
 
-	Fstage.prototype.parent = function(s = null) {
-		//loop through elements
-		for(var i=0; i < this.length; i++) {
-			//get parent
-			var parent = this[i].parentNode;
-			//skip parent?
-			if(!parent || (s && !parent.matches(s))) {
-				continue;
-			}
-			//set parent
-			this[i] = parent;
+})();
+
+/**
+ * PUBSUB
+**/
+(function(undefined) {
+
+	var psCache = {};
+
+	Fstage.pub = function(id, args = {}) {
+		//loop through subscribers to call
+		for(var i=0; i < (psCache[id] || []).length; i++) {
+			psCache[id][i](args);
 		}
-		//chain it
-		return this;
 	};
 
-/* (4) DOM EVENTS */
+	Fstage.sub = function(id, fn) {
+		//set array
+		psCache[id] = psCache[id] || [];
+		//add subscriber
+		psCache[id].push(fn);
+	};
+
+	Fstage.unsub = function(id, fn) {
+		//loop through subscribers
+		for(var i=0; i < (psCache[id] || []).length; i++) {
+			//remove subscriber?
+			if(psCache[id][i] === fn) {
+				psCache[id].splice(i);
+			}
+		}
+	};
+
+})();
+
+/**
+ * DOM EVENTS
+**/
+(function(undefined) {
 
 	var evGuid = 0;
 
-	//Dependencies: closest
 	Fstage.prototype.on = function(types, delegate, handler, once = false) {
 		//delegate is handler?
 		if(typeof delegate === 'function') {
@@ -410,9 +414,79 @@
 		return this;
 	};
 
-/* (5) DOM MANIPULATION */
+})();
 
-	//Dependencies: escHtml
+/**
+ * DOM SELECTION
+**/
+(function(undefined) {
+
+	Fstage.prototype.find = function(s) {
+		//set vars
+		var res = [];
+		//loop through elements
+		for(var i=0; i < this.length; i++) {
+			//select with context
+			var tmp = Fstage.select(s, this[i]);
+			//add elements
+			for(var j=0; j < tmp.length; j++) {
+				res.push(tmp[j]);
+			}
+		}
+		//return
+		return Fstage(res);
+	};
+
+	Fstage.prototype.closest = Fstage.closest = function(s, target = null, parent = null) {
+		//set vars
+		var res = [];
+		var els = target ? [ target ] : this;
+		//loop through elements
+		for(var i=0; i < els.length; i++) {
+			//set target
+			var t = els[i];
+			//traverse dom tree
+			while(t && t !== document) {
+				//match found?
+				if(t.matches(s)) {
+					res.push(t);
+					break;
+				}
+				//stop here?
+				if(t === parent) {
+					break;
+				}
+				//get parent
+				t = t.parentNode;
+			}
+		}
+		//return
+		return Fstage(res);
+	};
+
+	Fstage.prototype.parent = function(s = null) {
+		//loop through elements
+		for(var i=0; i < this.length; i++) {
+			//get parent
+			var parent = this[i].parentNode;
+			//skip parent?
+			if(!parent || (s && !parent.matches(s))) {
+				continue;
+			}
+			//set parent
+			this[i] = parent;
+		}
+		//chain it
+		return this;
+	};
+
+})();
+
+/**
+ * DOM MANIPULATION
+**/
+(function(undefined) {
+
 	Fstage.prototype.hasClass = function(cls, esc = true, action = 'contains') {
 		//set vars
 		var res = null;
@@ -457,7 +531,6 @@
 		return this.hasClass(cls, esc, 'toggle');
 	};
 
-	//Dependencies: escHtml
 	Fstage.prototype.css = function(key, val, esc = true) {
 		//get value?
 		if(val === undefined) {
@@ -480,7 +553,6 @@
 		return this;
 	};
 
-	//Dependencies: escHtml
 	Fstage.prototype.attr = function(key, val, esc = true) {
 		//get value?
 		if(val === undefined) {
@@ -503,7 +575,6 @@
 		return this;
 	};
 
-	//Dependencies: toNodes
 	Fstage.prototype.append = function(html, action = 'append') {
 		//create nodes
 		var nodes = Fstage.toNodes(html);
@@ -511,19 +582,22 @@
 		for(var i=0; i < this.length; i++) {
 			//loop through nodes
 			for(var j=0; j < nodes.length; j++) {
+				//clone node
+				var n = nodes[j].cloneNode(true);
+				//selection action
 				if(action === 'append') {
-					this[i].appendChild(nodes[j]);
+					this[i].appendChild(n);
 				} else if(action === 'prepend') {
-					this[i].insertBefore(nodes[j], this[i].firstChild);
+					this[i].insertBefore(n, this[i].firstChild);
 				} else if(action === 'before') {
-					this[i].parentNode.insertBefore(nodes[j], this[i]);
+					this[i].parentNode.insertBefore(n, this[i]);
 				} else if(action === 'after') {
-					this[i].parentNode.insertBefore(nodes[j], this[i].nextSibling);
+					this[i].parentNode.insertBefore(n, this[i].nextSibling);
 				} else if(action === 'wrap') {
-					this[i].parentNode.insertBefore(nodes[j], this[i]);
-					nodes[j].appendChild(this[i]);
+					this[i].parentNode.insertBefore(n, this[i]);
+					n.appendChild(this[i]);
 				} else if(action === 'replace') {
-					this[i].parentNode.replaceChild(nodes[j], this[i]);
+					this[i].parentNode.replaceChild(n, this[i]);
 				}
 			}
 		}
@@ -587,7 +661,6 @@
 		return this.html(val, 'textContent');
 	};
 
-	//Dependencies: escHtml
 	Fstage.prototype.val = function(val, esc = true) {
 		//get value?
 		if(val === undefined) {
@@ -605,12 +678,37 @@
 		return this;
 	};
 
-/* (6) DOM EFFECTS */
+})();
+
+/**
+ * DOM EFFECTS
+**/
+(function(undefined) {
 
 	Fstage.prototype.animate = function(effect, opts = {}) {
 		//set vars
 		var isIn = /(^|\s|\-)in(\s|\-|$)/.test(effect);
 		var isOut = /(^|\s|\-)out(\s|\-|$)/.test(effect);
+		//onStart listener
+		var onStart = function(e) {
+			//onStart callback?
+			opts.onStart && opts.onStart(e);
+			//remove listener
+			this.removeEventListener('transitionstart', onStart);
+		};
+		//onEnd listener
+		var onEnd = function(e) {
+			//hide element?
+			isOut && this.classList.add('hidden');
+			//reset classes
+			this.classList.remove('animate');
+			this.classList.remove.apply(this.classList, effect.split(/\s+/g));
+			//onEnd callback?
+			opts.onEnd && opts.onEnd(e);
+			//remove listeners
+			this.removeEventListener('transitionend', onEnd);
+			this.removeEventListener('transitioncancel', onEnd);
+		};
 		//loop through elements
 		for(var i=0; i < this.length; i++) {
 			//use closure
@@ -625,26 +723,6 @@
 				if((isOut && isHidden) || (isIn && !isHidden)) {
 					return;
 				}
-				//onStart listener
-				var onStart = function(e) {
-					//onStart callback?
-					opts.onStart && opts.onStart(e);
-					//remove listener
-					el.removeEventListener('transitionstart', onStart);
-				};
-				//onEnd listener
-				var onEnd = function(e) {
-					//hide element?
-					isOut && el.classList.add('hidden');
-					//reset classes
-					el.classList.remove('animate');
-					el.classList.remove.apply(el.classList, effect.split(/\s+/g));
-					//onEnd callback?
-					opts.onEnd && opts.onEnd(e);
-					//remove listeners
-					el.removeEventListener('transitionend', onEnd);
-					el.removeEventListener('transitioncancel', onEnd);
-				};
 				//register listeners
 				el.addEventListener('transitionstart', onStart);
 				el.addEventListener('transitionend', onEnd);
@@ -667,19 +745,21 @@
 		return this;
 	};
 
-	//Dependencies: extend, on, off
-	//Dependencies: extend, on, off
 	Fstage.prototype.sliding = function(opts = {}) {
 		//set vars
-		var el, startX, startY;
+		var el, startX, startY, pageX, pageY;
 		//format opts
 		opts = Fstage.extend({
 			x: true,
-			y: false
+			y: false,
+			delegate: null
 		}, opts);
 		//standardise event
 		var ev = function(e, prop) {
-			return e.touchMoves ?  e.touchMoves[0][prop] : e[prop];
+			if(!e.targetTouches) {
+				return e[prop] || null;
+			}
+			return e.targetTouches.length ? e.targetTouches[0][prop] : null;
 		};
 		//onStart listener
 		var onStart = function(e) {
@@ -687,8 +767,8 @@
 			if(el) return;
 			//set vars
 			el = this;
-			startX = ev(e, 'pageX');
-			startY = ev(e, 'pageY');
+			startX = pageX = ev(e, 'pageX');
+			startY = pageY = ev(e, 'pageY');
 			//make non-selectable
 			el.style.userSelect = 'none';
 			//add listeners
@@ -700,13 +780,13 @@
 		var onMove = function(e) {
 			//stop here?
 			if(!el) return;
-			//touch position
-			var pageX = ev(e, 'pageX');
-			var pageY = ev(e, 'pageY');
+			//update position
+			pageX = ev(e, 'pageX');
+			pageY = ev(e, 'pageY');
 			//new coordinates
 			var X = opts.x ? pageX - startX : startX;
 			var Y = opts.y ? pageY - startY : startY;
-			//update position
+			//transform target
 			el.style.transform = 'translate3d(' + X + 'px, ' + Y + 'px, 0);';
 			//execute callback?
 			opts.onMove && opts.onMove(el, { startX: startX, startY: startY, pageX: pageX, pageY: pageY });
@@ -732,21 +812,47 @@
 					//remove listener?
 					!endNow && el.removeEventListener('transitionend', listen);
 					//reset vars
-					el = startX = startY = null;
+					el = startX = startY = pageX = pageY = null;
 				};
 				//add listener?
 				!endNow && el.addEventListener('transitionend', listen);
 				//execute callback?
-				opts.onEnd && opts.onEnd(el, { startX: startX, startY: startY, pageX: ev(e, 'pageX'), pageY: ev(e, 'pageY') });
+				opts.onEnd && opts.onEnd(el, { startX: startX, startY: startY, pageX: pageX, pageY: pageY });
 				//end now?
 				endNow && listen();
 			});
 		};
 		//start slide
-		this.on('mousedown touchstart', onStart);
+		this.on('mousedown touchstart', opts.delegate, onStart);
 	};
 
-	//Dependencies: toNodes, animate
+	Fstage.pageTransition = function(toEl, toEffect, fromEl, fromEffect, opts = {}) {
+		//from element
+		if(fromEl) {
+			fromEl = Fstage(fromEl);
+			fromEl.css('z-index', opts.reverse ? 99 : 98);
+			fromEl.animate((opts.reverse ? toEffect : fromEffect) + ' out');
+		}
+		//to element
+		toEl = Fstage(toEl);
+		toEl.css('z-index', opts.reverse ? 98 : 99);
+		//run animation
+		toEl.animate((opts.reverse ? fromEffect : toEffect) + ' in', {
+			onStart: opts.onStart,
+			onEnd: function(e) {
+				//reset from?
+				if(fromEl) {
+					fromEl.addClass('hidden');
+					fromEl.attr('style', null);
+				}
+				//reset to
+				toEl.attr('style', null);
+				//callback
+				opts.onEnd && opts.onEnd(e);
+			}
+		});
+	};
+
 	Fstage.prototype.notice = function(text, opts = {}) {
 		//create notice
 		var notice = Fstage.toNodes('<div class="notice ' + (opts.type || 'info') + ' hidden">' + text + '</div>', true);
@@ -777,331 +883,43 @@
 		return this;
 	};
 
-	//Dependencies: toNodes
 	Fstage.prototype.overlay = function(text, opts = {}) {
+		//set vars
+		var html = '';
+		var that = this;
 		//overlay html
-		var html = '<div class="overlay">';
+		html += '<div class="overlay">';
 		html += '<div class="inner" style="width:' + (opts.width || '90%') + ';">';
 		html += '<div class="head">';
 		html += '<div class="title">' + (opts.title || '') + '</div>';
 		if(opts.close !== false) {
-			html += '<div class="close" onclick="this.parentNode.parentNode.parentNode.remove()">X</div>';
+			html += '<div class="close" data-close="true">X</div>';
 		}
 		html += '</div>';
 		html += '<div class="body">' + text + '</div>';
 		html += '</div>';
 		html += '</div>';
+		//convert to nodes
+		var node = Fstage.toNodes(html, true);
 		//loop through nodes
 		for(var i=0; i < this.length; i++) {
-			this[i].appendChild(Fstage.toNodes(html, true));
+			this[i].appendChild(node.cloneNode(true));
 		}
-	};
-
-	//Dependencies: css, animate
-	Fstage.pageTransition = function(toEl, toEffect, fromEl, fromEffect, opts = {}) {
-		//from element
-		if(fromEl) {
-			fromEl = Fstage(fromEl);
-			fromEl.css('z-index', opts.reverse ? 99 : 98);
-			fromEl.animate((opts.reverse ? toEffect : fromEffect) + ' out');
-		}
-		//to element
-		toEl = Fstage(toEl);
-		toEl.css('z-index', opts.reverse ? 98 : 99);
-		//run animation
-		toEl.animate((opts.reverse ? fromEffect : toEffect) + ' in', {
-			onStart: opts.onStart,
-			onEnd: function(e) {
-				//reset from?
-				if(fromEl) {
-					fromEl.addClass('hidden');
-					fromEl.attr('style', null);
-				}
-				//reset to
-				toEl.attr('style', null);
-				//callback
-				opts.onEnd && opts.onEnd(e);
-			}
+		//wait for next frame
+		requestAnimationFrame(function() {
+			//add close listener
+			$(that).find('.overlay [data-close]').on('click', function(e) {
+				$(this).closest('.overlay').remove();
+			});
 		});
 	};
 
-/* (7) SERVER CALLS */
+})();
 
-	//Dependencies: extend
-	Fstage.ajax = function(url, opts = {}) {
-		//set vars
-		var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
-		//format opts
-		opts = Fstage.extend({
-			method: 'GET',
-			headers: {},
-			body: '',
-			timeout: 5000,
-			signal: controller && controller.signal
-		}, opts);
-		//set default content type?
-		if(opts.method === 'POST' && !opts.headers['Content-Type']) {
-			opts.headers['Content-Type'] = 'application/x-www-form-urlencoded';
-		}
-		//remove undefined param values?
-		if(opts.body && typeof opts.body !== 'string') {
-			//remove undefined params
-			for(var i in opts.body) {
-				if(opts.body[i] === undefined) {
-					delete opts.body[i];
-				}
-			}
-			//convert to string
-			opts.body = new URLSearchParams(opts.body);
-		}
-		//wrap fetch in timeout promise
-		var p = new Promise(function(resolve, reject) {
-			//create timer
-			var timer = opts.timeout && setTimeout(function() {
-				reject(new Error("Ajax request timeout"));
-				controller && controller.abort();
-			}, opts.timeout);
-			//fetch with timer
-			fetch(url, opts).finally(function() {
-				timer && clearTimeout(timer);
-			}).then(resolve, reject);
-		});
-		//success callback?
-		if(opts.success) {
-			p = p.then(function(response) {
-				opts.success(response);
-			});
-		}
-		//error callback?
-		if(opts.error) {
-			p = p.catch(function(err) {
-				opts.error(err);
-			});
-		}
-		//return
-		return p;
-	};
-
-	//Dependencies: extend
-	Fstage.websocket = function(url, opts = {}, isObj = false) {
-		//create obj?
-		if(isObj !== true) {
-			return new Fstage.websocket(url, opts, true);
-		}
-		//format opts
-		opts = Fstage.extend({
-			protocols: [],
-			retries: 50,
-			wait: 2000
-		}, opts);
-		//set vars
-		var self = this, conn = false, tries = 0, guid = 0, listenQ = {}, sendQ = [], subbed = {};
-		//update listener queue
-		var updateListenQ = function(listener, event = 'message', channel = null, remove = false) {
-			//event queue
-			listenQ[event] = listenQ[event] || [];
-			//de-dupe queue
-			listenQ[event] = listenQ[event].filter(function(item) {
-				return item.listener !== listener || item.channel !== channel;
-			});
-			//add to queue?
-			if(!remove) {
-				listenQ[event].push({ listener: listener, channel: channel });
-			}
-		};
-		//run listen queue
-		var runListenQ = function(event, e) {
-			//loop through listeners
-			for(var i=0; i < (listenQ[event] || []).length; i++) {
-				//set vars
-				var json, opts = listenQ[event][i];
-				//raw socket?
-				if(!event || [ 'open', 'message', 'error', 'close' ].includes(event)) {
-					return opts.listener(e);
-				}
-				//parse data?
-				try {
-					json = JSON.parse(e.data);
-				} catch (Ex) {
-					//do nothing
-				}
-				//event matched?
-				if(!json || json.event !== event) {
-					return;
-				}
-				//channel matched?
-				if(!opts.channel || json.channel === opts.channel) {
-					opts.listener(json.data || json.message || json, e);
-				}
-			}
-		};
-		//open
-		self.open = function() {
-			//has socket?
-			if(self.ws) return;
-			//create socket
-			self.ws = new WebSocket(url.replace(/^http/i, 'ws'), opts.protocols);
-			//onOpen listener
-			self.ws.addEventListener('open', function(e) {
-				//set vars
-				var q = sendQ; sendQ = []; conn = true;
-				//loop through send queue
-				for(var i=0; i < q.length; i++) {
-					self.send.apply(self, q[i]);
-				}
-				//open queue
-				runListenQ('open', e);
-			});
-			//onMessage listener
-			self.ws.addEventListener('message', function(e) {
-				//message queue
-				runListenQ('message', e);
-				//process custom events
-				for(var event in listenQ) {
-					//run queue?
-					if(listenQ.hasOwnProperty(event) && ![ 'open', 'message', 'error', 'close' ].includes(event)) {
-						runListenQ(event, e);
-					}
-				}
-			});
-			//onError listener
-			self.ws.addEventListener('error', function(e) {
-				runListenQ('error', e);
-			});
-			//onClose listener
-			self.ws.addEventListener('close', function(e) {
-				//reset socket
-				self.ws = null; conn = false; subbed = {};
-				//close queue
-				runListenQ('close', e);
-				//stop here?
-				if(e.code === 1000 || (tries > 0 && tries >= opts.retries)) {
-					return;
-				}
-				//try to reconnect
-				setTimeout(function() {
-					tries++; self.connect();
-				}, opts.wait);
-			});
-			//chain it
-			return self;
-		};
-		//close
-		self.close = function(code = 1000, reason = '') {
-			//close connection?
-			self.ws && self.ws.close(code, reason);
-			//chain it
-			return self;
-		};
-		//send
-		self.send = function(data, opts = {}) {
-			//can send now?
-			conn && self.ws.send(opts.encode ? JSON.stringify(data) : data);
-			//de-dupe queue
-			sendQ = sendQ.filter(function(item) {
-				return item[0] !== data;
-			});
-			//add to queue?
-			if(!conn || opts.queue) {
-				sendQ.push([ data, opts ]);
-			}
-			//chain it
-			return self;
-		};
-		//on
-		self.on = function(event, listener) {
-			updateListenQ(listener, event);
-			return self;
-		};
-		//off
-		self.off = function(event, listener) {
-			updateListenQ(listener, event, null, true);
-			return self;
-		};
-		//trigger
-		self.trigger = function(event, data) {
-			return self.send({ event: event, data: data }, { encode: true });
-		};
-		//subscribe
-		self.sub = function(channel, listener, remove = false) {
-			//update listener queue
-			updateListenQ(listener, 'publish', channel, remove);
-			//send message to server?
-			if(!subbed[channel]) {
-				self.send({ event: 'subscribe', channel: channel }, { encode: true, queue: !remove });
-				subbed[channel] = true;
-			}
-			//chain it
-			return self;
-		}
-		//unsubscribe
-		self.unsub = function(channel, listener) {
-			return self.sub(channel, listener, true);
-		};
-		//publish
-		self.pub = function(channel, data) {
-			return self.send({ event: 'publish', channel: channel, data: data }, { encode: true });
-		}
-		//close gracefully
-		window.addEventListener('beforeunload', function(e) {
-			self.close();
-		});
-		//open socket
-		return self.open();
-	};
-
-/* (8) PUBSUB */
-
-	var psCache = {};
-
-	Fstage.pub = function(id, args = {}) {
-		//loop through subscribers to call
-		for(var i=0; i < (psCache[id] || []).length; i++) {
-			psCache[id][i](args);
-		}
-	};
-
-	Fstage.sub = function(id, fn) {
-		//set array
-		psCache[id] = psCache[id] || [];
-		//add subscriber
-		psCache[id].push(fn);
-	};
-
-	Fstage.unsub = function(id, fn) {
-		//loop through subscribers
-		for(var i=0; i < (psCache[id] || []).length; i++) {
-			//remove subscriber?
-			if(psCache[id][i] === fn) {
-				psCache[id].splice(i);
-			}
-		}
-	};
-
-/* (9) TICKS */
-
-	var ntProm, ntCur=[], ntNext=[];
-
-	Fstage.tick = function(fn, next = false) {
-		//register callback
-		next ? ntNext.push(fn) : ntCur.push(fn);
-		//create promise
-		ntProm = ntProm || Promise.resolve().then(function() {
-			//copy callbacks
-			var cb = ntCur.concat(ntNext);
-			//reset data
-			ntProm = null; ntCur = []; ntNext = [];
-			//execute callbacks
-			while(cb.length) cb.shift().call();
-		});
-	};
-
-	//Dependencies: tick
-	Fstage.nextTick = function(fn) {
-		return Fstage.tick(fn, true);
-	};
-
-/* (10) DOM DIFFING */
+/**
+ * DOM DIFFING
+**/
+(function(undefined) {
 
 	//Forked: https://github.com/patrick-steele-idem/morphdom
 	Fstage.syncDom = function(from, to, opts = {}) {
@@ -1292,9 +1110,16 @@
 		var updated = from;
 		//convert string to node?
 		if(typeof to === 'string') {
-			var tmp = document.createElement('div');
-			tmp.innerHTML = to;
-			to = tmp.firstChild;
+			//wrap html?
+			if(opts.wrapHtml) {
+				var tmp = from.cloneNode(false);
+				tmp.innerHTML = to;
+				to = tmp;
+			} else {
+				var tmp = document.createElement('div');
+				tmp.innerHTML = to;
+				to = tmp.firstChild;
+			}
 		}
         //is element?
 		if(updated.nodeType === 1) {
@@ -1335,9 +1160,13 @@
 		return updated;
 	};
 
-/* (11) DOM REACTIVITY */
+})();
 
-	//Dependencies: pub
+/**
+ * DOM REACTIVITY
+**/
+(function(undefined) {
+
 	Fstage.watch = function(obj, link = null) {
 		//format obj
 		obj = obj || {};
@@ -1378,7 +1207,6 @@
 		});
 	};
 
-	//Dependencies: extend, sub, select, copy, escHtml, syncDom, tick, watch
 	Fstage.component = function(name, opts = {}) {
 		//set vars
 		var rendering, hasRendered, hasChanged, elCache;
@@ -1442,11 +1270,9 @@
 					for(var i=0; i < el.length; i++) {
 						//mark as component
 						el[i].setAttribute('data-component', comp.name);
-						//create replacement node
-						var replace = el[i].cloneNode(false);
-						replace.innerHTML = html;
 						//patch changed dom nodes
-						Fstage.syncDom(el[i], replace, {
+						Fstage.syncDom(el[i], html, {
+							wrapHtml: true,
 							onCanSkip: function(from, to) {
 								return from.getAttribute('data-component') && el[i] !== from;
 							}
@@ -1471,24 +1297,47 @@
 		return comp;
 	};
 
-/* (12) PAGE ROUTING */
+})();
 
-	//Dependencies: extend, on, one, closest
-	Fstage.router = new (function() {
-		//set vars
-		var isBack = false;
-		var self = this, started = false, histId = 0;
-		var opts = { routes: {}, baseUrl: '', home: 'home', notfound: 'notfound', pageClass: 'page', history: true };
-		//current route
-		self.current = function() {
-			return opts.last;
-		};
-		//has route
-		self.has = function(name) {
-			return opts.onHas ? opts.onHas(name, opts.routes) : (opts.routes[name] && opts.routes[name].length);
-		};
-		//add route
-		self.on = function(name, fn) {
+/**
+ * VIEW ROUTING
+**/
+(function(undefined) {
+
+	//private vars
+	var histId = 0;
+	var isBack = false;
+	var started = false;
+
+	//default opts
+	var opts = {
+		routes: {},
+		views: {},
+		baseUrl: '',
+		home: 'home',
+		notfound: 'notfound',
+		pageCss: '.page.{name}',
+		sectionCss: '.{name}',
+		history: true,
+		domDiff: false
+	};
+
+	//public api
+	Fstage.router = {
+
+		current: function() {
+			return opts.last || null;
+		},
+
+		is: function(name) {
+			return opts.last == name;
+		},
+
+		has: function(name) {
+			return opts.routes[name] && opts.routes[name].length;
+		},
+
+		on: function(name, fn) {
 			//format name
 			name = name.trim().split(/\s+/g);
 			//loop through array
@@ -1498,20 +1347,24 @@
 				opts.routes[name[i]].push(tmp);
 			}
 			//return
-			return self;
-		};
-		//remove route
-		self.off = function(name, fn) {
+			return this;
+		},
+
+		off: function(name, fn) {
 			opts.routes[name] = (opts.routes[name] || []).filter(function(item) { return item !== fn; });
-			return self;
-		};
-		//trigger route
-		self.trigger = function(name, data = {}, mode = 'push') {
+			return this;
+		},
+
+		trigger: function(name, data = {}, mode = 'push') {
+			//replace stats?
+			if(mode === 'replace') {
+				data.params = data.params || opts.lastParams || {};
+			}
 			//format data
-			data = Fstage.extend({ name: name, last: opts.last, params: {} }, data);
-			data.is404 = !self.has(data.name);
+			data = Fstage.extend({ name: name, last: opts.last, params: {}, mode: mode }, data);
+			data.is404 = !this.has(data.name);
 			//valid route?
-			if(data.is404 && !self.has(opts.notfound)) {
+			if(data.is404 && !this.has(opts.notfound)) {
 				return false;
 			}
 			//update route?
@@ -1521,7 +1374,7 @@
 			//set vars
 			var last = opts.last;
 			var keys = [ ':before', data.name, ':after' ];
-			//set original
+			//cache orig route
 			data.orig = data.name;
 			//loop through keys
 			for(var i=0; i < keys.length; i++) {
@@ -1536,7 +1389,9 @@
 					//break early?
 					if(res === false || last !== opts.last) {
 						return false;
-					} else if(res && res.name) {
+					}
+					//update name?
+					if(res && res.name) {
 						data = res;
 						last = keys[1] = opts.last = res.name;
 					}
@@ -1544,29 +1399,57 @@
 			}
 			//update history?
 			if(opts.history && mode && mode !== 'false') {
-				var scroll = ('scroll' in data) ? (data.scroll || 0) : window.pageYOffset;
-				history[mode + 'State']({ id: ++histId, name: data.name, scroll: scroll }, '', self.url(data.name));
+				//replace state?
+				if(opts.lastState && mode === 'replace') {
+					var state = opts.lastState;
+				} else {
+					var state = {
+						id: ++histId,
+						last: data.last,
+						params: data.params,
+						scroll: ('scroll' in data) ? (data.scroll || 0) : window.pageYOffset
+					};
+				}
+				//cache state
+				opts.lastState = state;
+				state.name = data.name;
+				//log history
+				history[mode + 'State'](state, '', this.url(data.name));
 			}
 			//update last
 			opts.last = data.name;
+			opts.lastParams = data.params;
 			//success
 			return true;
-		};
-		//redirect route
-		self.redirect = function(name, data = {}) {
-			return self.trigger(name, data, 'replace');
-		};
-		//go back
-		self.back = function() {
+		},
+
+		redirect: function(name, data = {}) {
+			return this.trigger(name, data, 'replace');
+		},
+
+		back: function() {
 			if(history.length > 2) {
 				isBack = true;
 				history.back();
 			} else {
-				self.trigger(opts.home, { isBack: true }, null);
+				this.trigger(opts.last, { isBack: true }, null);
 			}
-		};
-		//url helper
-		self.url = function(name, trim = false) {
+		},
+
+		show: function(value, attr = 'data-if') {
+			//get current route
+			var route = this.current();
+			//stop here?
+			if(!route) return;
+			//get page
+			var css = opts.pageCss.replace('{name}', route);
+			var page = Fstage(css);
+			//update classes
+			page.find('[' + attr + ']').addClass('hidden');
+			page.find('[' + attr + '="' + value + '"]').removeClass('hidden');
+		},
+
+		url: function(name, trim = false) {
 			//has base url?
 			if(!opts.baseUrl) {
 				return location.pathname + location.search;
@@ -1577,30 +1460,143 @@
 			var url = (opts.baseUrl + (name ? sep + name : '')).replace(/\/\//, '/');
 			//return
 			return trim ? url.replace(/\/$/, '') : url;
-		};
-		//show and hide helper
-		self.show = function(value, attr = 'data-if') {
-			//get current route
-			var route = self.current();
-			//continue?
-			if(route) {
-				var page = Fstage('.' + opts.pageClass + '.' + route);
-				page.find('[' + attr + ']').addClass('hidden');
-				page.find('[' + attr + '="' + value + '"]').removeClass('hidden');
-			}
-		}
-		//start helper
-		self.start = function(conf = {}) {
-			//has started
-			if(started) return self;
+		},
+
+		views: function(views) {
 			//set vars
+			var self = this;
+			var prev = null;
+			//object promise helper
+			var objPromise = function(obj) {
+				return Promise.all(Object.values(obj)).then(function(vals) {
+					var res = {}, keys = Object.keys(obj);
+					for(var i = 0; i < keys.length; i++) {
+						res[keys[i]] = vals[i];
+					}
+					return res;
+				});
+			};
+			//default render helper
+			var defRender = function(template = 'page', conf = {}) {
+				//set vars
+				var view = this;
+				//default conf
+				conf = Fstage.extend({
+					state: { ...view.state },
+					selector: opts.sectionCss,
+					domDiff: opts.domDiff
+				}, conf);
+				//template exists?
+				if(!view.templates[template]) {
+					console.warn('Template not found: ' + template);
+					return false;
+				}
+				//loop through state
+				for(var i in conf.state) {
+					//call function?
+					if(typeof conf.state[i] === 'function') {
+						conf.state[i] = conf.state[i]();
+					}
+				}
+				//return data
+				return objPromise(conf.state).then(async function(data) {
+					//stop here?
+					if(!self.is(view.route.name)) {
+						return view.close(true);
+					}
+					//build html
+					var html = await view.templates[template](data);
+					var selector = conf.selector.replace('{name}', template);
+					var el = (template === 'page') ? view.page : view.page.find(selector);
+					//dom diff?
+					if(conf.domDiff) {
+						Fstage.syncDom(el[0], html, { wrapHtml: true });
+					} else {
+						el.html(html);
+					}
+					//return
+					return data;
+				});
+			};
+			//loop through views
+			Fstage.each(views, function(name, view) {
+				//format route name
+				var routeName = name.replace(/[\w]([A-Z])/g, function(m) {
+					return m[0] + '-' + m[1];
+				}).toLowerCase();
+				//register route
+				self.on(routeName, function(route, runs) {
+					//call close?
+					if(prev && views[prev].close) {
+						views[prev].close(false);
+					}
+					//cache vars
+					prev = name;
+					//set route
+					view.route = route;
+					view.page = Fstage(opts.pageCss.replace('{name}', route.name));
+					view.render = view.render || defRender.bind(view);
+					view.close = view.close || function() {};
+					//set defaults
+					view.state = view.state || {};
+					view.events = view.events || {};
+					view.templates = view.templates || {};
+					//init view
+					requestAnimationFrame(function() {
+						//call pre-render
+						view.preRender();
+						//stop here?
+						if(!self.is(view.route.name)) {
+							return view.close(true);
+						}
+						//call render
+						return view.render().then(function(data) {
+							//stop here?
+							if(!self.is(view.route.name)) {
+								return view.close(true);
+							}
+							//call post-render
+							view.postRender(data);
+							//stop here?
+							if(!self.is(view.route.name)) {
+								return view.close(true);
+							}
+							//register events
+							requestAnimationFrame(function() {
+								//loop through events
+								for(var key in view.events) {
+									//register event?
+									if(!runs || key.indexOf('Once') === -1) {
+										view.events[key]();
+									}
+								}
+							});
+						});
+					});
+				});
+			});
+		},
+
+		start: function(conf = {}) {
+			//has started?
+			if(started) {
+				return this;
+			}
+			//cache vars
 			started = true;
 			opts = Fstage.extend(opts, conf);
-			var isRoute = false, fallback = opts.notfound;
+			//set local vars
+			var self = this;
+			var isRoute = false;
+			var fallback = opts.notfound;
 			var curPath = (location.pathname + location.search + location.hash).replace(/\/$/, '');
 			var name = curPath.split(/[^\w-]+/g).pop();
+			//load views?
+			if(conf.views && self.views) {
+				self.views(conf.views);
+			}
 			//fallback to home?
-			if(!name || !self.has(name)) {
+			if(!name || self.has(name)) {
 				name = opts.home;
 			}
 			//trigger initial route
@@ -1646,26 +1642,34 @@
 			});
 			//listen to browser navigation
 			Fstage(window).on('popstate', function(e) {
-				if(e.state && e.state.name) {
-					var goBack = (isBack || histId > e.state.id);
-					histId = e.state.id;
-					isBack = false;
-					self.trigger(e.state.name, { isBack: goBack, scroll: e.state.scroll }, null);
+				//stop here?
+				if(!e.state || !e.state.name) {
+					return;
 				}
+				//set vars
+				var goBack = (isBack || histId > e.state.id);
+				var data = { isBack: goBack, scroll: e.state.scroll, params: e.state.params };
+				//update cached vars
+				isBack = false;
+				histId = e.state.id;
+				opts.lastState = e.state;
+				//trigger route (no history)
+				self.trigger(e.state.name, data, null);
 			});
 			//chain it
 			return self;
-		};
-	})();
-
-/* (13) FORM VALIDATION */
-
-	//Dependencies: each
-	Fstage.form = function(name, opts = {}) {
-		//valid form?
-		if(!document[name]) {
-			throw new Error('Form not found in HTML:', name);
 		}
+
+	};
+
+})();
+
+/**
+ * FORM VALIDATION
+**/
+(function(undefined) {
+
+	Fstage.form = function(name, opts = {}) {
 		//set vars
 		var step = '';
 		var values = {};
@@ -1673,6 +1677,10 @@
 		var form = document[name];
 		//ensure fields set
 		opts.fields = opts.fields || {};
+		//valid form?
+		if(!form) {
+			throw new Error('Form not found:' + name);
+		}
 		//validate helper
 		var validate = function(field) {
 			//set vars
@@ -1787,18 +1795,7 @@
 		};
 		//Method: validate form
 		form.isValid = function(key = null) {
-			//set vars
-			var isValid = validate(key);
-			//success callback?
-			if(!key && opts.onSuccess && isValid) {
-				opts.onSuccess(values, errors);
-			}
-			//error callback?
-			if(!key && opts.onError && !isValid) {
-				opts.onError(values, errors);
-			}
-			//return
-			return isValid;
+			return validate(key);
 		};
 		//add focus listeners
 		Fstage.each(opts.fields, function(k) {
@@ -1817,12 +1814,253 @@
 		});
 		//add submit listener
 		form.addEventListener('click', function(e) {
-			if(e.target.type === 'submit') {
-				validate();
+			//is submit?
+			if(e.target.type !== 'submit') {
+				return;
+			}
+			//prevent default
+			e.preventDefault();
+			//is valid?
+			if(form.isValid()) {
+				if(opts.onSuccess) {
+					opts.onSuccess.call(form, values, errors);
+				}
+			} else {
+				if(opts.onError) {
+					opts.onError.call(form, values, errors);
+				}
 			}
 		}, true);
 		//return
 		return form;
+	};
+
+})();
+
+/**
+ * SERVER CALLS
+**/
+(function(undefined) {
+
+	Fstage.ajax = function(url, opts = {}) {
+		//set vars
+		var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+		//format opts
+		opts = Fstage.extend({
+			method: 'GET',
+			headers: {},
+			body: '',
+			timeout: 5000,
+			signal: controller && controller.signal
+		}, opts);
+		//set default content type?
+		if(opts.method === 'POST' && !opts.headers['Content-Type']) {
+			opts.headers['Content-Type'] = 'application/x-www-form-urlencoded';
+		}
+		//remove undefined param values?
+		if(opts.body && typeof opts.body !== 'string') {
+			//remove undefined params
+			for(var i in opts.body) {
+				if(opts.body[i] === undefined) {
+					delete opts.body[i];
+				}
+			}
+			//convert to string
+			opts.body = new URLSearchParams(opts.body);
+		}
+		//wrap fetch in timeout promise
+		var p = new Promise(function(resolve, reject) {
+			//create timer
+			var timer = opts.timeout && setTimeout(function() {
+				reject(new Error("Ajax request timeout"));
+				controller && controller.abort();
+			}, opts.timeout);
+			//fetch with timer
+			fetch(url, opts).finally(function() {
+				timer && clearTimeout(timer);
+			}).then(resolve, reject);
+		});
+		//success callback?
+		if(opts.success) {
+			p = p.then(function(response) {
+				opts.success(response);
+			});
+		}
+		//error callback?
+		if(opts.error) {
+			p = p.catch(function(err) {
+				opts.error(err);
+			});
+		}
+		//return
+		return p;
+	};
+
+	Fstage.websocket = function(url, opts = {}, isObj = false) {
+		//create obj?
+		if(isObj !== true) {
+			return new Fstage.websocket(url, opts, true);
+		}
+		//format opts
+		opts = Fstage.extend({
+			protocols: [],
+			retries: 50,
+			wait: 2000
+		}, opts);
+		//set vars
+		var self = this, conn = false, tries = 0, guid = 0, listenQ = {}, sendQ = [], subbed = {};
+		//update listener queue
+		var updateListenQ = function(listener, event = 'message', channel = null, remove = false) {
+			//event queue
+			listenQ[event] = listenQ[event] || [];
+			//de-dupe queue
+			listenQ[event] = listenQ[event].filter(function(item) {
+				return item.listener !== listener || item.channel !== channel;
+			});
+			//add to queue?
+			if(!remove) {
+				listenQ[event].push({ listener: listener, channel: channel });
+			}
+		};
+		//run listen queue
+		var runListenQ = function(event, e) {
+			//loop through listeners
+			for(var i=0; i < (listenQ[event] || []).length; i++) {
+				//set vars
+				var json, opts = listenQ[event][i];
+				//raw socket?
+				if(!event || [ 'open', 'message', 'error', 'close' ].includes(event)) {
+					return opts.listener(e);
+				}
+				//parse data?
+				try {
+					json = JSON.parse(e.data);
+				} catch (Ex) {
+					//do nothing
+				}
+				//event matched?
+				if(!json || json.event !== event) {
+					return;
+				}
+				//channel matched?
+				if(!opts.channel || json.channel === opts.channel) {
+					opts.listener(json.data || json.message || json, e);
+				}
+			}
+		};
+		//open
+		self.open = function() {
+			//has socket?
+			if(self.ws) return;
+			//create socket
+			self.ws = new WebSocket(url.replace(/^http/i, 'ws'), opts.protocols);
+			//onOpen listener
+			self.ws.addEventListener('open', function(e) {
+				//set vars
+				var q = sendQ; sendQ = []; conn = true;
+				//loop through send queue
+				for(var i=0; i < q.length; i++) {
+					self.send.apply(self, q[i]);
+				}
+				//open queue
+				runListenQ('open', e);
+			});
+			//onMessage listener
+			self.ws.addEventListener('message', function(e) {
+				//message queue
+				runListenQ('message', e);
+				//process custom events
+				for(var event in listenQ) {
+					//run queue?
+					if(listenQ.hasOwnProperty(event) && ![ 'open', 'message', 'error', 'close' ].includes(event)) {
+						runListenQ(event, e);
+					}
+				}
+			});
+			//onError listener
+			self.ws.addEventListener('error', function(e) {
+				runListenQ('error', e);
+			});
+			//onClose listener
+			self.ws.addEventListener('close', function(e) {
+				//reset socket
+				self.ws = null; conn = false; subbed = {};
+				//close queue
+				runListenQ('close', e);
+				//stop here?
+				if(e.code === 1000 || (tries > 0 && tries >= opts.retries)) {
+					return;
+				}
+				//try to reconnect
+				setTimeout(function() {
+					tries++; self.connect();
+				}, opts.wait);
+			});
+			//chain it
+			return self;
+		};
+		//close
+		self.close = function(code = 1000, reason = '') {
+			//close connection?
+			self.ws && self.ws.close(code, reason);
+			//chain it
+			return self;
+		};
+		//send
+		self.send = function(data, opts = {}) {
+			//can send now?
+			conn && self.ws.send(opts.encode ? JSON.stringify(data) : data);
+			//de-dupe queue
+			sendQ = sendQ.filter(function(item) {
+				return item[0] !== data;
+			});
+			//add to queue?
+			if(!conn || opts.queue) {
+				sendQ.push([ data, opts ]);
+			}
+			//chain it
+			return self;
+		};
+		//on
+		self.on = function(event, listener) {
+			updateListenQ(listener, event);
+			return self;
+		};
+		//off
+		self.off = function(event, listener) {
+			updateListenQ(listener, event, null, true);
+			return self;
+		};
+		//trigger
+		self.trigger = function(event, data) {
+			return self.send({ event: event, data: data }, { encode: true });
+		};
+		//subscribe
+		self.sub = function(channel, listener, remove = false) {
+			//update listener queue
+			updateListenQ(listener, 'publish', channel, remove);
+			//send message to server?
+			if(!subbed[channel]) {
+				self.send({ event: 'subscribe', channel: channel }, { encode: true, queue: !remove });
+				subbed[channel] = true;
+			}
+			//chain it
+			return self;
+		}
+		//unsubscribe
+		self.unsub = function(channel, listener) {
+			return self.sub(channel, listener, true);
+		};
+		//publish
+		self.pub = function(channel, data) {
+			return self.send({ event: 'publish', channel: channel, data: data }, { encode: true });
+		}
+		//close gracefully
+		window.addEventListener('beforeunload', function(e) {
+			self.close();
+		});
+		//open socket
+		return self.open();
 	};
 
 })();

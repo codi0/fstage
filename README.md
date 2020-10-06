@@ -10,8 +10,8 @@ modules that can easily be extracted and used in isolation or as part of the lib
 
 # CDN links
 
-	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.1.5/fstage.min.css">
-	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.1.5/fstage.min.js"></script>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.1.6/fstage.min.css">
+	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.1.6/fstage.min.js"></script>
 
 # Browser support
 
@@ -30,7 +30,7 @@ A sample fstage.css file is provided for convenience.
 	Fstage(selector).get(index)  //returns selected DOM node by array index
 	Fstage(selector).each(callback)  //executes callback for each selected DOM node
 
-(2) UTILITY HELPERS
+(2) HELPERS
 
 	Fstage.each(array|object, callback)  //executes callback on every key of the array/object
 	Fstage.extend(obj1, obj2...)  //merges two or more objects together
@@ -46,21 +46,32 @@ A sample fstage.css file is provided for convenience.
 	Fstage.hash(string|array|object)  //converts input into a numeric hash
 	Fstage.deviceId(uid = '')  //creates hash using versionless user agent and optional user identifier
 
-(3) DOM SELECTION
+(3) TICKS
 
-	Fstage.select(selector, context = document)  //returns array of DOM nodes
-	Fstage(selector).find(selector)  //returns all matching children of each selected DOM node
-	Fstage(selector).closest(selector)  //returns first matching child of each selected DOM node
-	Fstage(selector).parent()  //returns parent node of each selected DOM node
+	Fstage.tick(callback)  //registers callback to execute at end of current tick
+	Fstage.nextTick(callback)  //registers callback to execute at start of next tick
 
-(4) DOM EVENTS
+(4) PUBSUB
+
+	Fstage.pub(id, data = {})  //publishes event with specified ID, and optional data
+	Fstage.sub(id, callback)  //subscribes to event with specified ID
+	Fstage.unsub(id, callback)  //unsubscribes to event with specified ID
+
+(5) DOM EVENTS
 
 	Fstage(selector).on(eventTypes, delegatedSelector, callback)  //attaches event callback to each selected DOM node
 	Fstage(selector).one(eventTypes, delegatedSelector, callback)  //event callback will only ever be called once
 	Fstage(selector).off(eventTypes, callback)  //detaches event callback from each selected DOM node
 	Fstage(selector).trigger(eventTypes, data = {})  //triggers custom event, with optional data passed
 
-(5) DOM MANIPULATION
+(6) DOM SELECTION
+
+	Fstage.select(selector, context = document)  //returns array of DOM nodes
+	Fstage(selector).find(selector)  //returns all matching children of each selected DOM node
+	Fstage(selector).closest(selector)  //returns first matching child of each selected DOM node
+	Fstage(selector).parent()  //returns parent node of each selected DOM node
+
+(7) DOM MANIPULATION
 
 	Fstage(selector).hasClass(classNames)  //checks whether first selected DOM node contains one or more classes
 	Fstage(selector).addClass(classNames, esc = true)  //adds one or more classes to each selected DOM node
@@ -80,39 +91,23 @@ A sample fstage.css file is provided for convenience.
 	Fstage(selector).text(text)  //sets textContent of each selected DOM node
 	Fstage(selector).val(value, esc = true)  //sets value of each selected DOM node
 
-(6) DOM EFFECTS
+(8) DOM EFFECTS
 
 	Fstage(selector).animate(effect, opts = {})  //manages animation on each selected DOM node using classes (requires fstage.css)
 	Fstage(selector).sliding({ x: true, y: false, onStart: null, onMove: null, onEnd: null })  //controls sliding via options provided
 	Fstage(selector).notice(text, { type: 'info', animate: 'none', prepend: false, hide: 0 })  //shows and hides notices (requires fstage.css)
 	Fstage.pageTransition(toEl, toEffect, fromEl, fromEffect, opts = {})  //executes page transition from one element to another
 
-(7) SERVER CALLS
-
-	Fstage.ajax(url, opts = {})  //retrieves response from server URL
-	Fstage.websocket(url)  //creates websocket object, with auto-reconnect and on/off/trigger methods to listen and send messages
-
-(8) PUBSUB
-
-	Fstage.pub(id, data = {})  //publishes event with specified ID, and optional data
-	Fstage.sub(id, callback)  //subscribes to event with specified ID
-	Fstage.unsub(id, callback)  //unsubscribes to event with specified ID
-
-(9) TICKS
-
-	Fstage.tick(callback)  //registers callback to execute at end of current tick
-	Fstage.nextTick(callback)  //registers callback to execute at start of next tick
-
-(10) DOM DIFFING
+(9) DOM DIFFING
 
 	Fstage.syncDom(fromNode, toNode|toHtml, opts = {})  //updates specified DOM node to new state with the minimum necessary changes
 
-(11) DOM REACTIVITY
+(10) DOM REACTIVITY
 
 	Fstage.watch(input)  //creates proxy of input and emits any changes via Fstage.pub('watch')
 	Fstage.component(name, { el: null, parent: null, data: null, template: null })  //renders html and automatically updates if data changes
 
-(12) PAGE ROUTING
+(11) VIEW ROUTING
 
 	Fstage.router.current()  //returns current route name
 	Fstage.router.has(name)  //check whether route has any registered callbacks
@@ -122,9 +117,10 @@ A sample fstage.css file is provided for convenience.
 	Fstage.router.redirect(name, data = {})  //as trigger method, with mode set to 'replace' to overwrite last entry
 	Fstage.router.back()  //navigates back to the previous route
 	Fstage.router.url(name)  //generates URL for given route
-	Fstage.router.start({ baseUrl: '', attr: 'data-route', onHas: null, home: '', notfound: '' })  //starts router
-	
-(13) FORM VALIDATION
+	Fstage.router.views(views)  //registers a collection of view objects as routes
+	Fstage.router.start({ baseUrl: '', attr: 'data-route', home: '', notfound: '', pageCss: '', sectionCss: '' })  //starts router
+
+(12) FORM VALIDATION
 
 	Fstage.form(name, opts)  //returns an enhanced form element, opts contains 'fields' object (name, filter, validator)
 	Fstage.form.isValid(field = null)  //validates form values against fields object, and also fires onBlur for a given field
@@ -132,3 +128,8 @@ A sample fstage.css file is provided for convenience.
 	Fstage.form.val(field = null)  //returns filtered value[s]
 	Fstage.form.reset(field = null, skip = [])  //clears values and errors
 	Fstage.form.step(name = null)  //returns current form step (if set), or sets step name
+
+(13) SERVER CALLS
+
+	Fstage.ajax(url, opts = {})  //retrieves response from server URL
+	Fstage.websocket(url)  //creates websocket object, with auto-reconnect and on/off/trigger methods to listen and send messages
