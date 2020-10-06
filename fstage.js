@@ -1535,7 +1535,8 @@
 					//set route
 					view.route = route;
 					view.page = Fstage(opts.pageCss.replace('{name}', route.name));
-					view.render = view.render || defRender.bind(view);
+					view.defRender = defRender.bind(view);
+					view.render = view.render || view.defRender;
 					view.close = view.close || function() {};
 					//set defaults
 					view.state = view.state || {};
