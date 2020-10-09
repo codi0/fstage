@@ -1329,6 +1329,42 @@
 			return opts.last || null;
 		},
 
+		state: function(replace = null) {
+			//replace last state?
+			if(opts.lastState && replace) {
+				//loop through props
+				for(var i in replace) {
+					//update prop
+					opts.lastState[i] = replace[i];
+					//update last?
+					if(i === 'name') {
+						opts.last = replace[i];
+					}
+					//update last params?
+					if(i === 'params') {
+						opts.lastParams = replace[i];
+					}
+				}
+				//replace state
+				history.replaceState(opts.lastState, '', this.url(opts.lastState.name));
+			}
+			//return
+			return opts.lastState;	
+		},
+
+		url: function(name, trim = false) {
+			//has base url?
+			if(!opts.baseUrl) {
+				return location.pathname + location.search;
+			}
+			//set vars
+			var sep = /\?|\#/.test(opts.baseUrl) ? '' : '/';
+			var name = (opts.home === name && sep === '/') ? '' : name;
+			var url = (opts.baseUrl + (name ? sep + name : '')).replace(/\/\//, '/');
+			//return
+			return trim ? url.replace(/\/$/, '') : url;
+		},
+
 		is: function(name) {
 			return opts.last == name;
 		},
@@ -1356,12 +1392,13 @@
 		},
 
 		trigger: function(name, data = {}, mode = 'push') {
-			//replace stats?
-			if(mode === 'replace') {
-				data.params = data.params || opts.lastParams || {};
-			}
 			//format data
-			data = Fstage.extend({ name: name, last: opts.last, params: {}, mode: mode }, data);
+			data = Fstage.extend({
+				name: name,
+				params: {},
+				mode: mode
+			}, data);
+			//does route exist?
 			data.is404 = !this.has(data.name);
 			//valid route?
 			if(data.is404 && !this.has(opts.notfound)) {
@@ -1374,8 +1411,10 @@
 			//set vars
 			var last = opts.last;
 			var keys = [ ':before', data.name, ':after' ];
-			//cache orig route
+			//sync props
 			data.orig = data.name;
+			data.last = opts.last;
+			data.lastParams = opts.lastParams;
 			//loop through keys
 			for(var i=0; i < keys.length; i++) {
 				//loop through listeners
@@ -1405,13 +1444,13 @@
 				} else {
 					var state = {
 						id: ++histId,
-						last: data.last,
 						params: data.params,
 						scroll: ('scroll' in data) ? (data.scroll || 0) : window.pageYOffset
 					};
 				}
 				//cache state
 				opts.lastState = state;
+				//set name
 				state.name = data.name;
 				//log history
 				history[mode + 'State'](state, '', this.url(data.name));
@@ -1432,7 +1471,10 @@
 				isBack = true;
 				history.back();
 			} else {
-				this.trigger(opts.last, { isBack: true }, null);
+				this.trigger(opts.last, {
+					isBack: true,
+					params: opts.lastParams || {}
+				}, null);
 			}
 		},
 
@@ -1447,19 +1489,6 @@
 			//update classes
 			page.find('[' + attr + ']').addClass('hidden');
 			page.find('[' + attr + '="' + value + '"]').removeClass('hidden');
-		},
-
-		url: function(name, trim = false) {
-			//has base url?
-			if(!opts.baseUrl) {
-				return location.pathname + location.search;
-			}
-			//set vars
-			var sep = /\?|\#/.test(opts.baseUrl) ? '' : '/';
-			var name = (opts.home === name && sep === '/') ? '' : name;
-			var url = (opts.baseUrl + (name ? sep + name : '')).replace(/\/\//, '/');
-			//return
-			return trim ? url.replace(/\/$/, '') : url;
 		},
 
 		views: function(views) {
@@ -1477,7 +1506,7 @@
 				});
 			};
 			//default render helper
-			var defRender = function(template = 'page', conf = {}) {
+			var defRender = function(template = 'page', conf = {}, isInit = false) {
 				//set vars
 				var view = this;
 				//default conf
@@ -1486,36 +1515,63 @@
 					selector: opts.sectionCss,
 					domDiff: opts.domDiff
 				}, conf);
-				//template exists?
-				if(!view.templates[template]) {
-					console.warn('Template not found: ' + template);
-					return false;
-				}
-				//loop through state
-				for(var i in conf.state) {
-					//call function?
-					if(typeof conf.state[i] === 'function') {
-						conf.state[i] = conf.state[i]();
+				//wrap in promise
+				return new Promise(function(resolve) {
+					//template exists?
+					if(!view.templates[template]) {
+						console.warn('Template not found: ' + template);
+						return resolve(false);
 					}
-				}
-				//return data
-				return objPromise(conf.state).then(async function(data) {
-					//stop here?
-					if(!self.is(view.route.name)) {
-						return view.close(true);
+					//call pre-render?
+					if(view.preRender) {
+						//execute
+						view.preRender(template, isInit);
+						//stop here?
+						if(!self.is(view.route.name)) {
+							view.close(true);
+							return resolve(false);
+						}
 					}
-					//build html
-					var html = await view.templates[template](data);
-					var selector = conf.selector.replace('{name}', template);
-					var el = (template === 'page') ? view.page : view.page.find(selector);
-					//dom diff?
-					if(conf.domDiff) {
-						Fstage.syncDom(el[0], html, { wrapHtml: true });
-					} else {
-						el.html(html);
+					//loop through state
+					for(var i in conf.state) {
+						//call function?
+						if(typeof conf.state[i] === 'function') {
+							conf.state[i] = conf.state[i]();
+						}
 					}
-					//return
-					return data;
+					//return data
+					return objPromise(conf.state).then(async function(data) {
+						//stop here?
+						if(!self.is(view.route.name)) {
+							view.close(true);
+							return resolve(false);
+						}
+						//build html
+						var html = await view.templates[template](data);
+						var selector = conf.selector.replace('{name}', template);
+						var el = (template === 'page') ? view.page : view.page.find(selector);
+						//dom diff?
+						if(conf.domDiff) {
+							Fstage.syncDom(el[0], html, { wrapHtml: true });
+						} else {
+							el.html(html);
+						}
+						//handle post-render
+						requestAnimationFrame(function() {
+							//call post-render?
+							if(view.postRender) {
+								//execute
+								view.postRender(template, data, isInit);
+								//stop here?
+								if(!self.is(view.route.name)) {
+									view.close(true);
+									return resolve(false);
+								}
+							}
+							//success
+							return resolve(data);
+						});
+					});
 				});
 			};
 			//loop through views
@@ -1535,32 +1591,29 @@
 					//set route
 					view.route = route;
 					view.page = Fstage(opts.pageCss.replace('{name}', route.name));
+					//set default methods
 					view.defRender = defRender.bind(view);
 					view.render = view.render || view.defRender;
-					view.close = view.close || function() {};
-					//set defaults
+					//set default props
 					view.state = view.state || {};
 					view.events = view.events || {};
 					view.templates = view.templates || {};
 					//init view
 					requestAnimationFrame(function() {
-						//call pre-render
-						view.preRender();
-						//stop here?
-						if(!self.is(view.route.name)) {
-							return view.close(true);
-						}
-						//call render
-						return view.render().then(function(data) {
+						//call open?
+						if(view.open) {
+							//execute
+							view.open();
 							//stop here?
 							if(!self.is(view.route.name)) {
 								return view.close(true);
 							}
-							//call post-render
-							view.postRender(data);
+						}
+						//call render
+						return view.render('page', {}, true).then(function(data) {
 							//stop here?
-							if(!self.is(view.route.name)) {
-								return view.close(true);
+							if(data === false) {
+								return;
 							}
 							//register events
 							requestAnimationFrame(function() {
@@ -1568,9 +1621,11 @@
 								for(var key in view.events) {
 									//register event?
 									if(!runs || key.indexOf('Once') === -1) {
-										view.events[key]();
+										view.events[key](view);
 									}
 								}
+								//mark as run
+								view.hasRun = true;
 							});
 						});
 					});
