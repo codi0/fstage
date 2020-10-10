@@ -1313,6 +1313,7 @@
 	var opts = {
 		routes: {},
 		views: {},
+		state: {},
 		baseUrl: '',
 		home: 'home',
 		notfound: 'notfound',
@@ -1326,36 +1327,33 @@
 	Fstage.router = {
 
 		current: function() {
-			return opts.last || null;
+			return opts.state.name || null;
 		},
 
-		state: function(replace = null) {
-			//replace last state?
-			if(opts.lastState && replace) {
-				//loop through props
-				for(var i in replace) {
-					//update prop
-					opts.lastState[i] = replace[i];
-					//update last?
-					if(i === 'name') {
-						opts.last = replace[i];
-					}
-					//update last params?
-					if(i === 'params') {
-						opts.lastParams = replace[i];
-					}
+		state: function(data = null, mode='replace') {
+			//set state?
+			if(data) {
+				//update props
+				for(var i in data) {
+					opts.state[i] = data[i];
 				}
-				//replace state
-				history.replaceState(opts.lastState, '', this.url(opts.lastState.name));
+				//update history?
+				if(opts.history && mode) {
+					history[mode + 'State'](opts.state, '', this.url(opts.state.name || ''));
+				}
 			}
 			//return
-			return opts.lastState;	
+			return opts.state;
 		},
 
-		url: function(name, trim = false) {
+		url: function(name = null, trim = false) {
 			//has base url?
 			if(!opts.baseUrl) {
 				return location.pathname + location.search;
+			}
+			//get name?
+			if(name === null) {
+				name = opts.state.name || '';
 			}
 			//set vars
 			var sep = /\?|\#/.test(opts.baseUrl) ? '' : '/';
@@ -1366,7 +1364,7 @@
 		},
 
 		is: function(name) {
-			return opts.last == name;
+			return opts.state.name == name;
 		},
 
 		has: function(name) {
@@ -1396,68 +1394,61 @@
 			data = Fstage.extend({
 				name: name,
 				params: {},
-				mode: mode
+				mode: mode,
+				last: opts.state.name,
+				is404: !this.has(name)
 			}, data);
-			//does route exist?
-			data.is404 = !this.has(data.name);
-			//valid route?
-			if(data.is404 && !this.has(opts.notfound)) {
-				return false;
-			}
-			//update route?
-			if(data.is404 && opts.notfound) {
+			//is 404?
+			if(data.is404) {
+				//update name
 				data.name = opts.notfound;
+				//valid route?
+				if(!this.has(opts.notfound)) {
+					return false;
+				}
 			}
 			//set vars
-			var last = opts.last;
-			var keys = [ ':before', data.name, ':after' ];
-			//sync props
-			data.orig = data.name;
-			data.last = opts.last;
-			data.lastParams = opts.lastParams;
-			//loop through keys
-			for(var i=0; i < keys.length; i++) {
+			var last = opts.state.name;
+			var routes = [ ':before', data.name, ':after' ];
+			//loop through routes
+			for(var i=0; i < routes.length; i++) {
+				//get listeners
+				var route = routes[i];
+				var listeners = opts.routes[route] || [];
 				//loop through listeners
-				for(var j=0; j < (opts.routes[keys[i]] || []).length; j++) {
+				for(var j=0; j < listeners.length; j++) {
 					//get function
-					var fn = opts.routes[keys[i]][j];
+					var fn = listeners[j];
 					//execute callback
 					var res = fn(data, fn.runs);
 					//increment
 					fn.runs++;
 					//break early?
-					if(res === false || last !== opts.last) {
+					if(res === false || last !== opts.state.name) {
 						return false;
 					}
-					//update name?
+					//update result?
 					if(res && res.name) {
 						data = res;
-						last = keys[1] = opts.last = res.name;
+						routes[1] = res.name;
 					}
 				}
 			}
-			//update history?
-			if(opts.history && mode && mode !== 'false') {
-				//replace state?
-				if(opts.lastState && mode === 'replace') {
-					var state = opts.lastState;
-				} else {
-					var state = {
-						id: ++histId,
-						params: data.params,
-						scroll: ('scroll' in data) ? (data.scroll || 0) : window.pageYOffset
-					};
-				}
-				//cache state
-				opts.lastState = state;
-				//set name
+			//replace state?
+			if(mode === 'replace') {
+				var state = opts.state;
 				state.name = data.name;
-				//log history
-				history[mode + 'State'](state, '', this.url(data.name));
+			} else {
+				var state = {
+					id: data.id || (++histId),
+					name: data.name,
+					params: data.params,
+					scroll: ('scroll' in data) ? (data.scroll || 0) : window.pageYOffset
+				};
 			}
-			//update last
-			opts.last = data.name;
-			opts.lastParams = data.params;
+			//update cache
+			opts.state = {};
+			this.state(state, mode);
 			//success
 			return true;
 		},
@@ -1471,9 +1462,9 @@
 				isBack = true;
 				history.back();
 			} else {
-				this.trigger(opts.last, {
+				this.trigger(opts.state.name, {
 					isBack: true,
-					params: opts.lastParams || {}
+					params: opts.state.params || {}
 				}, null);
 			}
 		},
@@ -1704,11 +1695,10 @@
 				}
 				//set vars
 				var goBack = (isBack || histId > e.state.id);
-				var data = { isBack: goBack, scroll: e.state.scroll, params: e.state.params };
-				//update cached vars
+				var data = { id: e.state.id, params: e.state.params, isBack: goBack, scroll: e.state.scroll };
+				//reset cache
 				isBack = false;
 				histId = e.state.id;
-				opts.lastState = e.state;
 				//trigger route (no history)
 				self.trigger(e.state.name, data, null);
 			});
