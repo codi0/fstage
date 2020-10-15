@@ -1519,7 +1519,7 @@
 						view.preRender(template, isInit);
 						//stop here?
 						if(!self.is(view.route.name)) {
-							view.close(true);
+							view.stop(true);
 							return resolve(false);
 						}
 					}
@@ -1534,7 +1534,7 @@
 					return objPromise(conf.state).then(async function(data) {
 						//stop here?
 						if(!self.is(view.route.name)) {
-							view.close(true);
+							view.stop(true);
 							return resolve(false);
 						}
 						//build html
@@ -1555,7 +1555,7 @@
 								view.postRender(template, data, isInit);
 								//stop here?
 								if(!self.is(view.route.name)) {
-									view.close(true);
+									view.stop(true);
 									return resolve(false);
 								}
 							}
@@ -1573,9 +1573,9 @@
 				}).toLowerCase();
 				//register route
 				self.on(routeName, function(route, runs) {
-					//call close?
-					if(prev && views[prev].close) {
-						views[prev].close(false);
+					//stop previous?
+					if(prev && views[prev]) {
+						views[prev].stop(false);
 					}
 					//cache vars
 					prev = name;
@@ -1591,13 +1591,13 @@
 					view.templates = view.templates || {};
 					//init view
 					requestAnimationFrame(function() {
-						//call open?
-						if(view.open) {
+						//call start?
+						if(view.start) {
 							//execute
-							view.open();
+							view.start();
 							//stop here?
 							if(!self.is(view.route.name)) {
-								return view.close(true);
+								return view.stop(true);
 							}
 						}
 						//call render
