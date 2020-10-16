@@ -1421,12 +1421,12 @@
 					var fn = listeners[j];
 					//execute callback
 					var res = fn(data, fn.runs);
-					//increment
-					fn.runs++;
 					//break early?
 					if(res === false || last !== opts.state.name) {
 						return false;
 					}
+					//increment
+					fn.runs++;
 					//update result?
 					if(res && res.name) {
 						data = res;
@@ -1435,7 +1435,7 @@
 				}
 			}
 			//replace state?
-			if(mode === 'replace') {
+			if(mode === 'replace' && opts.state.name) {
 				var state = opts.state;
 				state.name = data.name;
 			} else {
@@ -1458,12 +1458,14 @@
 		},
 
 		back: function() {
+			//set flag
+			isBack = true;
+			//use history?
 			if(history.length > 2) {
-				isBack = true;
 				history.back();
 			} else {
 				this.trigger(opts.state.name, {
-					isBack: true,
+					isBack: isBack,
 					params: opts.state.params || {}
 				}, null);
 			}
@@ -1647,7 +1649,7 @@
 				name = opts.home;
 			}
 			//trigger initial route
-			self.redirect(name);
+			self.trigger(name);
 			//listen to clicks
 			Fstage(window).on('click', '[data-route]', function(e) {
 				//route vars
