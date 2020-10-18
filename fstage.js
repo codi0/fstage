@@ -1389,7 +1389,7 @@
 			return this;
 		},
 
-		trigger: function(name, data = {}, mode = 'push') {
+		trigger: async function(name, data = {}, mode = 'push') {
 			//format data
 			data = Fstage.extend({
 				name: name,
@@ -1420,7 +1420,7 @@
 					//get function
 					var fn = listeners[j];
 					//execute callback
-					var res = fn(data, fn.runs);
+					var res = await fn(data, fn.runs);
 					//break early?
 					if(res === false || last !== opts.state.name) {
 						return false;
@@ -1458,17 +1458,21 @@
 		},
 
 		back: function() {
-			//set flag
+			//set vars
 			isBack = true;
-			//use history?
-			if(history.length > 2) {
-				history.back();
-			} else {
-				this.trigger(opts.state.name, {
-					isBack: isBack,
+			var that = this;
+			//try history
+			history.back();
+			//set fallback
+			setTimeout(function() {
+				//stop here?
+				if(!isBack) return;
+				//trigger back
+				that.trigger(opts.state.name || opts.home, {
+					isBack: true,
 					params: opts.state.params || {}
 				}, null);
-			}
+			}, 400);
 		},
 
 		show: function(value, attr = 'data-if') {
@@ -1649,7 +1653,7 @@
 				name = opts.home;
 			}
 			//trigger initial route
-			self.trigger(name);
+			self.redirect(name);
 			//listen to clicks
 			Fstage(window).on('click', '[data-route]', function(e) {
 				//route vars
@@ -1693,10 +1697,11 @@
 			Fstage(window).on('popstate', function(e) {
 				//stop here?
 				if(!e.state || !e.state.name) {
+					isBack = false;
 					return;
 				}
 				//set vars
-				var goBack = (isBack || histId > e.state.id);
+				var goBack = (isBack || histId > e.state.id || (e.state.id - histId) > 1);
 				var data = { id: e.state.id, params: e.state.params, isBack: goBack, scroll: e.state.scroll };
 				//reset cache
 				isBack = false;
