@@ -47,6 +47,7 @@
 
 	--nav-height: 50px;
 	--footer-height: 2em;
+	--image-crop-height: 200px;
 	--small-font-size: 0.875em;
 
 	--body-font-family: -apple-system, BlinkMacSystemFont, Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
@@ -119,7 +120,7 @@ a {
 	cursor: pointer;
 }
 
-a:hover, a:active {
+a:hover, a:active, a.active {
 	color: var(--link-hover-color);
 }
 
@@ -406,6 +407,7 @@ nav i:after {
 @media(min-width: 40em) {
 
 	.grid .item {
+		display: flex;
 		flex-basis: 50%;
 	}
 
@@ -537,6 +539,33 @@ nav i:after {
 }
 
 
+/* CROPPED IMAGE */
+
+.crop {
+	position: relative;
+	display: block;
+	width: 100%;
+	height: auto;
+	max-height: var(--image-crop-height);
+	overflow: hidden;
+}
+
+.crop:before {
+	content: ""; 
+	display: block; 
+	padding-top: 100%;  
+}
+
+.crop img {
+    position: absolute;
+	top: 50%; left: 0;
+	transform: translate(0, -50%);
+	width: 100%;
+	height: auto;
+    border: 0;
+}
+
+
 /* ANIMATE */
 
 .animate {
@@ -579,3 +608,41 @@ nav i:after {
 	opacity: 0;
 	transform: translate3d(0, 50px, 0);
 }
+
+
+/* ICONS: https://fontello.com */
+
+@font-face {
+	font-family: 'fontello';
+	font-weight: normal;
+	font-style: normal;
+	src: url('fonts/fontello.woff2?26687926') format('woff2'),
+		 url('fonts/fontello.woff?26687926') format('woff');
+}
+
+[class^="icon-"]:before, [class*=" icon-"]:before {
+	display: inline-block;
+	font-family: "fontello";
+	font-style: normal;
+	font-weight: normal;
+	font-variant: normal;
+	text-transform: none;
+	text-decoration: inherit;
+	text-align: center;
+	width: 1em;
+	line-height: 1em;
+	speak: never;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+}
+
+.icon-search:before { content: '\1f50d'; }
+.icon-email:before { content: '\2709'; }
+.icon-twitter:before { content: '\f099'; }
+.icon-facebook:before { content: '\f09a'; }
+.icon-linkedin:before { content: '\f0e1'; }
+.icon-youtube:before { content: '\f16a'; }
+.icon-instagram:before { content: '\f16d'; }
+.icon-pinterest:before { content: '\f231'; }
+.icon-whatsapp:before { content: '\f232'; }
+.icon-reddit:before { content: '\f281'; }
