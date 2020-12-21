@@ -2,7 +2,7 @@
  * FSTAGE.js
  *
  * About: A lean javascript library for developing modern web apps
- * Version: 0.1.6
+ * Version: 0.1.7
  * License: MIT
  * Source: https://github.com/codi0/fstage
  *
@@ -50,10 +50,10 @@
 	Fstage.doc = Fstage(document);
 	Fstage.fn = Fstage.prototype = Fstage.select.prototype;
 
-	Fstage.prototype.length = 0;
-	Fstage.prototype.splice = Array.prototype.splice;
-	Fstage.prototype.get = function(i) { return this[i]; };
-	Fstage.prototype.each = function(fn) { for(var i=0; i < this.length; i++) if(fn.call(this[i], i, this[i]) === false) break; };
+	Fstage.fn.length = 0;
+	Fstage.fn.splice = Array.prototype.splice;
+	Fstage.fn.get = function(i) { return this[i]; };
+	Fstage.fn.each = function(fn) { for(var i=0; i < this.length; i++) if(fn.call(this[i], i, this[i]) === false) break; };
 
 	if(typeof Symbol === 'function') {
 		Fstage.prototype[Symbol.iterator] = Array.prototype[Symbol.iterator];
@@ -173,7 +173,7 @@
 		};
 	};
 
-	Fstage.ready = Fstage.prototype.ready = function(fn) {
+	Fstage.ready = Fstage.fn.ready = function(fn) {
 		//execute now?
 		if(/comp|inter|loaded/.test(document.readyState)) {
 			return fn();
@@ -289,7 +289,7 @@
 
 	var evGuid = 0;
 
-	Fstage.prototype.on = function(types, delegate, handler, once = false) {
+	Fstage.fn.on = function(types, delegate, handler, once = false) {
 		//delegate is handler?
 		if(typeof delegate === 'function') {
 			once = once || handler;
@@ -366,11 +366,11 @@
 		return this;
 	};
 
-	Fstage.prototype.one = function(types, delegate, handler) {
+	Fstage.fn.one = function(types, delegate, handler) {
 		return this.on(types, delegate, handler, true);
 	};
 
-	Fstage.prototype.off = function(types, delegate, handler) {
+	Fstage.fn.off = function(types, delegate, handler) {
 		//delegate is handler?
 		if(typeof delegate === 'function') {
 			handler = delegate;
@@ -393,7 +393,7 @@
 		return this;
 	};
 
-	Fstage.prototype.trigger = function(types, data = {}) {
+	Fstage.fn.trigger = function(types, data = {}) {
 		//split event types
 		types = types.trim().split(/\s+/g);
 		//loop through event types
@@ -421,7 +421,7 @@
 **/
 (function(undefined) {
 
-	Fstage.prototype.find = function(s) {
+	Fstage.fn.find = function(s) {
 		//set vars
 		var res = [];
 		//loop through elements
@@ -437,7 +437,7 @@
 		return Fstage(res);
 	};
 
-	Fstage.prototype.closest = Fstage.closest = function(s, target = null, parent = null) {
+	Fstage.fn.closest = Fstage.closest = function(s, target = null, parent = null) {
 		//set vars
 		var res = [];
 		var els = target ? [ target ] : this;
@@ -464,7 +464,7 @@
 		return Fstage(res);
 	};
 
-	Fstage.prototype.parent = function(s = null) {
+	Fstage.fn.parent = function(s = null) {
 		//loop through elements
 		for(var i=0; i < this.length; i++) {
 			//get parent
@@ -487,7 +487,7 @@
 **/
 (function(undefined) {
 
-	Fstage.prototype.hasClass = function(cls, esc = true, action = 'contains') {
+	Fstage.fn.hasClass = function(cls, esc = true, action = 'contains') {
 		//set vars
 		var res = null;
 		var contains = (action === 'contains');
@@ -519,19 +519,19 @@
 		return contains ? (res || false) : this;
 	};
 
-	Fstage.prototype.addClass = function(cls, esc = true) {
+	Fstage.fn.addClass = function(cls, esc = true) {
 		return this.hasClass(cls, esc, 'add');
 	};
 
-	Fstage.prototype.removeClass = function(cls, esc = true) {
+	Fstage.fn.removeClass = function(cls, esc = true) {
 		return this.hasClass(cls, esc, 'remove');
 	};
 
-	Fstage.prototype.toggleClass = function(cls, esc = true) {
+	Fstage.fn.toggleClass = function(cls, esc = true) {
 		return this.hasClass(cls, esc, 'toggle');
 	};
 
-	Fstage.prototype.css = function(key, val, esc = true) {
+	Fstage.fn.css = function(key, val, esc = true) {
 		//get value?
 		if(val === undefined) {
 			return this[0] ? (this[0].style[key] || '') : '';
@@ -553,7 +553,7 @@
 		return this;
 	};
 
-	Fstage.prototype.attr = function(key, val, esc = true) {
+	Fstage.fn.attr = function(key, val, esc = true) {
 		//get value?
 		if(val === undefined) {
 			return this[0] ? this[0].getAttribute(key) : '';
@@ -575,7 +575,7 @@
 		return this;
 	};
 
-	Fstage.prototype.append = function(html, action = 'append') {
+	Fstage.fn.append = function(html, action = 'append') {
 		//create nodes
 		var nodes = Fstage.toNodes(html);
 		//loop through elements
@@ -605,27 +605,27 @@
 		return this;
 	};
 
-	Fstage.prototype.prepend = function(html) {
+	Fstage.fn.prepend = function(html) {
 		return this.append(html, 'prepend');
 	};
 
-	Fstage.prototype.after = function(html) {
+	Fstage.fn.after = function(html) {
 		return this.append(html, 'after');
 	};
 
-	Fstage.prototype.before = function(html) {
+	Fstage.fn.before = function(html) {
 		return this.append(html, 'before');
 	};
 
-	Fstage.prototype.wrap = function(html) {
+	Fstage.fn.wrap = function(html) {
 		return this.append(html, 'wrap');
 	};
 
-	Fstage.prototype.replaceWith = function(html) {
+	Fstage.fn.replaceWith = function(html) {
 		return this.append(html, 'replace');
 	};
 
-	Fstage.prototype.remove = function(node) {
+	Fstage.fn.remove = function(node) {
 		//loop through elements
 		for(var i=0; i < this.length; i++) {
 			if(!node) {
@@ -640,11 +640,11 @@
 		return this;
 	};
 
-	Fstage.prototype.empty = function() {
+	Fstage.fn.empty = function() {
 		return this.remove(true);
 	};
 
-	Fstage.prototype.html = function(val, action = 'innerHTML') {
+	Fstage.fn.html = function(val, action = 'innerHTML') {
 		//get value?
 		if(val === undefined) {
 			return this[0] ? this[0][action] : '';
@@ -657,11 +657,11 @@
 		return this;
 	};
 
-	Fstage.prototype.text = function(val) {
+	Fstage.fn.text = function(val) {
 		return this.html(val, 'textContent');
 	};
 
-	Fstage.prototype.val = function(val, esc = true) {
+	Fstage.fn.val = function(val, esc = true) {
 		//get value?
 		if(val === undefined) {
 			return this[0] ? this[0].value : '';
@@ -685,7 +685,7 @@
 **/
 (function(undefined) {
 
-	Fstage.prototype.animate = function(effect, opts = {}) {
+	Fstage.fn.animate = function(effect, opts = {}) {
 		//set vars
 		var isIn = /(^|\s|\-)in(\s|\-|$)/.test(effect);
 		var isOut = /(^|\s|\-)out(\s|\-|$)/.test(effect);
@@ -733,10 +733,16 @@
 				//start animation
 				requestAnimationFrame(function() {
 					requestAnimationFrame(function() {
+						//apply classes
 						isOut && el.classList.add.apply(el.classList, effect.split(/\s+/g));
 						isOut && el.classList.add('out');
 						!isOut && el.classList.add('animate');
 						!isOut && el.classList.remove('hidden');
+						//manually fire listeners?
+						if(window.getComputedStyle(el, null).getPropertyValue('transition') === 'all 0s ease 0s') {
+							onStart.call(el);
+							onEnd.call(el);
+						}
 					});
 				});
 			})(this[i]);
@@ -745,7 +751,7 @@
 		return this;
 	};
 
-	Fstage.prototype.sliding = function(opts = {}) {
+	Fstage.fn.sliding = function(opts = {}) {
 		//set vars
 		var el, startX, startY, pageX, pageY;
 		//format opts
@@ -853,7 +859,7 @@
 		});
 	};
 
-	Fstage.prototype.notice = function(text, opts = {}) {
+	Fstage.fn.notice = function(text, opts = {}) {
 		//create notice
 		var notice = Fstage.toNodes('<div class="notice ' + (opts.type || 'info') + ' hidden">' + text + '</div>', true);
 		//loop through nodes
@@ -883,12 +889,12 @@
 		return this;
 	};
 
-	Fstage.prototype.overlay = function(text, opts = {}) {
+	Fstage.fn.overlay = function(text, opts = {}) {
 		//set vars
 		var html = '';
 		var that = this;
 		//overlay html
-		html += '<div class="overlay">';
+		html += '<div class="overlay hidden">';
 		html += '<div class="inner" style="width:' + (opts.width || '90%') + ';">';
 		html += '<div class="head">';
 		html += '<div class="title">' + (opts.title || '') + '</div>';
@@ -905,12 +911,21 @@
 		for(var i=0; i < this.length; i++) {
 			this[i].appendChild(node.cloneNode(true));
 		}
-		//wait for next frame
-		requestAnimationFrame(function() {
-			//add close listener
-			$(that).find('.overlay [data-close]').on('click', function(e) {
-				$(this).closest('.overlay').remove();
-			});
+		//start animation
+		$(that).find('.overlay').animate('fade in', {
+			onEnd: function() {
+				//add close listener
+				$(that).find('.overlay [data-close]').on('click', function(e) {
+					//get overlay
+					var o = $(this).closest('.overlay');
+					//animate and close
+					o.animate('fade out', {
+						onEnd: function() {
+							o.remove();
+						}
+					});
+				});
+			}
 		});
 	};
 
