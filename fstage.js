@@ -2,7 +2,7 @@
  * FSTAGE.js
  *
  * About: A lean javascript library for developing modern web apps
- * Version: 0.1.7
+ * Version: 0.1.8
  * License: MIT
  * Source: https://github.com/codi0/fstage
  *
@@ -1353,7 +1353,7 @@
 					opts.state[i] = data[i];
 				}
 				//update history?
-				if(opts.history && mode) {
+				if(opts.history && history[mode + 'State']) {
 					history[mode + 'State'](opts.state, '', this.url(opts.state.name || ''));
 				}
 			}
@@ -1664,7 +1664,7 @@
 				self.views(conf.views);
 			}
 			//fallback to home?
-			if(!name || self.has(name)) {
+			if(!name || !self.has(name)) {
 				name = opts.home;
 			}
 			//trigger initial route

@@ -1,6 +1,6 @@
 # fstage
 
-A lean javascript library for developing modern web apps, at under 7kb (minified and gzipped).
+A lean javascript library for developing modern web apps, at under 9kb (minified and gzipped).
 
 It's a collection of helper functions that are used at codi.io when prototying and developing front-end code, without any build or
 compilation steps required. Any significant updates will be shared here, as the library evolves.
@@ -10,8 +10,8 @@ modules that can easily be extracted and used in isolation or as part of the lib
 
 # CDN links
 
-	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.1.7/fstage.min.css">
-	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.1.7/fstage.min.js"></script>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.1.8/fstage.min.css">
+	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.1.8/fstage.min.js"></script>
 
 # Browser support
 

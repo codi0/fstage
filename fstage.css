@@ -2,21 +2,24 @@
  * FSTAGE.css
  *
  * About: A skeleton css library for developing modern web apps
- * Version: 0.1.7
+ * Version: 0.1.8
  * License: MIT
  * Source: https://github.com/codi0/fstage
 **/
 :root {
 
-	--body-min-width: 320;
+	--body-min-width: 300;
 	--body-max-width: 1600;
-	--body-min-font: 16;
-	--body-max-font: 20;
+	--body-min-font: 16.5;
+	--body-max-font: 19;
+
+	--body-font-family: -apple-system, BlinkMacSystemFont, Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+	--body-font-size: calc((var(--body-min-font) * 1px) + ((var(--body-max-font) - var(--body-min-font)) * ((100vw - (var(--body-min-width) * 1px)) / (var(--body-max-width) - var(--body-min-width)))));
 
 	--body-color: #3c434a;
 	--body-background: #fff;
 	--body-line-height: 1.3;
-	--body-letter-spacing: -0.015em;
+	--body-letter-spacing: -0.015rem;
 
 	--link-color: #0064bd;
 	--link-hover-color: #0095ff;
@@ -37,21 +40,16 @@
 	--nav-active-color: #fff;
 	--nav-active-background: #aaa;
 
-	--input-height: 42px;
 	--input-border-radius: 4px;
-	--input-font-size: 18px;
+	--input-font-size: 1.15rem;
 	--input-border-color: rgba(0, 0, 0, 0.25);
 	--input-hover-color: rgba(0, 0, 0, 0.35);
 	--input-active-color: #0288d1;
 	--input-error-color: #d32f2f;
 
-	--nav-height: 42px;
-	--footer-height: 2em;
+	--footer-height: 2rem;
+	--small-font-size: 0.875rem;
 	--image-crop-height: 200px;
-	--small-font-size: 0.875em;
-
-	--body-font-family: -apple-system, BlinkMacSystemFont, Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
-	--body-font-size: calc((var(--body-min-font) * 1px) + ((var(--body-max-font) - var(--body-min-font)) * ((100vw - (var(--body-min-width) * 1px)) / (var(--body-max-width) - var(--body-min-width)))));
 
 }
 
@@ -137,15 +135,21 @@ a.right {
 	float: right;
 }
 
+img {
+	width: 100%;
+	height: auto;
+	border: none;
+}
+
 
 /* INPUT */
 
 input, textarea, select, button, .button {
 	display: inline-block;
 	width: 100%;
-	height: var(--input-height);
+	height: calc(var(--input-font-size) * 2.333);
 	margin: 0;
-	padding: 10px 12px;
+	padding: 0 calc(var(--input-font-size) / 2);
 	background: #fff;
 	border: 1px solid var(--input-border-color);
 	font-family: inherit;
@@ -236,6 +240,10 @@ button + button, .button + .button {
 	margin-top: 10px;
 }
 
+.button {
+	line-height: calc(var(--input-font-size) * 2.333);
+}
+
 .button:hover {
 	color: var(--button-color);
 }
@@ -248,7 +256,6 @@ button + button, .button + .button {
 
 	button, .button, [type="button"], [type="submit"], [type="reset"] {
 		width: auto;
-		padding: 10px 20px;
 	}
 
 	button + button, .button + .button {
@@ -267,8 +274,9 @@ button + button, .button + .button {
 
 [type="radio"] + label, [type="checkbox"] + label {
 	display: inline;
-	margin: 0 10px 0 5px;
+	margin: 0 15px 0 5px;
 	vertical-align: middle;
+	cursor: pointer;
 }
 
 [readonly] {
@@ -382,9 +390,8 @@ nav a {
 	align-items: center;
 	text-align: left;
 	width: auto;
-	height: var(--nav-height);
 	line-height: 1.0;
-	padding: 0 15px;
+	padding: 0.8em;
 	color: var(--nav-color);
 	text-decoration: none;
 }
@@ -550,7 +557,6 @@ nav .d {
 	padding: 12px;
 	border: 0px solid #000;
 	border-left-width: 4px;
-	border-right-width: 4px;
 }
 
 .notice.pinned {
