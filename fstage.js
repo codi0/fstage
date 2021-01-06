@@ -2,7 +2,7 @@
  * FSTAGE.js
  *
  * About: A lean javascript library for developing modern web apps
- * Version: 0.1.8
+ * Version: 0.1.9
  * License: MIT
  * Source: https://github.com/codi0/fstage
  *
@@ -131,7 +131,11 @@
 
 	Fstage.escHtml = function(html) {
 		var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '/': '&#x2F;', ':': '&#58;' };
-		return String(html).replace(/&amp;/g, '&').replace(/[&<>"'\/:]/g, function(s) { return map[s]; });
+		return String(html).replace(/&amp;/g, '&').replace(/[&<>"'\/:]/g, function(i) { return map[i]; });
+	};
+
+	Fstage.escJs = function(js) {
+		return String(js).replace(/([\(\)\'\"\r\n\t\v\0\b\f\\])/g, "\\$1");
 	};
 
 	Fstage.copy = function(input, opts = {}) {
@@ -333,10 +337,12 @@
 								}
 							}
 						};
+						//is passive
+						var isPassive = /scroll|wheel|mouse|touch|pointer|focus|blur/.test(type);
 						//add listener
 						el.addEventListener(type, listener, {
-							capture: false,
-							passive: /scroll|wheel|mouse|touch|pointer/.test(type)
+							capture: delegate && isPassive,
+							passive: isPassive
 						});
 					}
 					//wrap handler
@@ -859,27 +865,35 @@
 		});
 	};
 
-	Fstage.fn.notice = function(text, opts = {}) {
-		//create notice
-		var notice = Fstage.toNodes('<div class="notice ' + (opts.type || 'info') + ' hidden">' + text + '</div>', true);
+	Fstage.fn.notice = function(title, opts = {}) {
+		//set vars
+		var html = '';
+		//build html
+		html += '<div class="notice ' + (opts.type || 'info') + ' hidden">';
+		html += opts.close ? '<div class="close">X</div>' : '';
+		html += '<div class="title">' + title + '</div>';
+		html += opts.body ? '<div class="body">' + opts.body + '</div>' : '';
+		html += '</div>';
+		//return html?
+		if(opts.html) return html;
 		//loop through nodes
 		for(var i=0; i < this.length; i++) {
-			//clone notice
-			var n = notice.cloneNode(true);
+			//notice to html
+			var notice = Fstage.toNodes(html, true);
 			//append pr prepend?
 			if(opts.prepend) {
-				this[i].insertBefore(n, this[i].firstChild);
+				this[i].insertBefore(notice, this[i].firstChild);
 			} else {
-				this[i].appendChild(n);
+				this[i].appendChild(notice);
 			}
 			//show notice
-			var show = Fstage(n).animate((opts.animate || 'none') + ' in');
+			var show = Fstage(notice).animate((opts.animate || 'none') + ' in');
 			//hide notice later?
 			if(opts.hide && opts.hide > 0) {
 				setTimeout(function() {
 					show.animate((opts.animate || 'none') + ' out', {
 						onEnd: function() {
-							n.parentNode.removeChild(n);
+							notice.parentNode.removeChild(notice);
 						}
 					});
 				}, opts.hide);
@@ -895,7 +909,7 @@
 		var that = this;
 		//overlay html
 		html += '<div class="overlay hidden">';
-		html += '<div class="inner" style="width:' + (opts.width || '90%') + ';">';
+		html += '<div class="inner">';
 		html += '<div class="head">';
 		html += '<div class="title">' + (opts.title || '') + '</div>';
 		if(opts.close !== false) {
@@ -905,11 +919,14 @@
 		html += '<div class="body">' + text + '</div>';
 		html += '</div>';
 		html += '</div>';
-		//convert to nodes
-		var node = Fstage.toNodes(html, true);
+		//return html?
+		if(opts.html) return html;
 		//loop through nodes
 		for(var i=0; i < this.length; i++) {
-			this[i].appendChild(node.cloneNode(true));
+			//create overlay
+			var overlay = Fstage.toNodes(html, true);
+			//append overlay
+			this[i].appendChild(overlay);
 		}
 		//start animation
 		$(that).find('.overlay').animate('fade in', {
@@ -1411,6 +1428,7 @@
 				params: {},
 				mode: mode,
 				last: opts.state.name,
+				lastParams: opts.state.params,
 				is404: !this.has(name)
 			}, data);
 			//is 404?
@@ -1470,6 +1488,13 @@
 
 		redirect: function(name, data = {}) {
 			return this.trigger(name, data, 'replace');
+		},
+
+		refresh: function() {
+			//can refresh?
+			if(opts.state.name) {
+				return this.trigger(opts.state.name, {}, null);
+			}
 		},
 
 		back: function() {
@@ -1558,8 +1583,10 @@
 							view.stop(true);
 							return resolve(false);
 						}
-						//build html
+						//compile html
 						var html = await view.templates[template](data);
+						var html = Fstage.tpl.compile(html, data);
+						//get element to inject
 						var selector = conf.selector.replace('{name}', template);
 						var el = (template === 'page') ? view.page : view.page.find(selector);
 						//dom diff?
@@ -1623,10 +1650,6 @@
 						}
 						//call render
 						return view.render('page', {}, true).then(function(data) {
-							//stop here?
-							if(data === false) {
-								return;
-							}
 							//register events
 							requestAnimationFrame(function() {
 								//loop through events
@@ -1726,6 +1749,80 @@
 			});
 			//chain it
 			return self;
+		}
+
+	};
+
+})();
+
+/**
+ * TEMPLATE ENGINE
+**/
+(function(undefined) {
+
+	Fstage.tpl = {
+
+		compile: function(html, data = {}) {
+			//set vars
+			var self = Fstage.tpl;
+			var objects = [ data, window ];
+			//replace {{vars}}
+			return (html || '').replace(/(\=[\"\'])?{{(.*?)}}(\")?/g, function(match, a, b, c) {
+				//set vars
+				var found = false;
+				var contents = b.trim();
+				var parts = contents.split('.');
+				var modifier = (a || c) ? 'attr' : 'html';
+				//attempt replace?
+				if(contents.length && parts.length) {
+					//loop through objects
+					for(var o in objects) {
+						//cache object
+						var res = objects[o];
+						//loop through content parts
+						for(var i=0; i < parts.length; i++) {
+							//valid key found?
+							if(res && res[parts[i]] !== undefined) {
+								res = res[parts[i]];
+								continue;
+							}
+							//failed
+							res = null;
+							break;
+						}
+						//data found?
+						if([ 'string', 'number' ].includes(typeof res)) {
+							found = true;
+							contents = res;
+							break;
+						}
+					}
+				}
+				//clear contents?
+				if(!found && contents.indexOf('.') !== -1 && contents.indexOf(' ') === -1) {
+					if(contents.indexOf('://') === -1) {
+						contents = '';
+					}
+				}
+				//use modifier?
+				if(self[modifier]) {
+					contents = self[modifier](contents);
+				}
+				//return
+				return (a || '') + contents + (c || '');
+			});
+		},
+
+		html: function(html) {
+			return Fstage.escHtml(html);
+		},
+
+		js: function(val) {
+			return Fstage.escJs(val);
+		},
+
+		attr: function(val) {
+			return Fstage.escHtml(Fstage.escJs(val));
 		}
 
 	};
