@@ -200,6 +200,10 @@ form .show-password::before {
 	cursor: pointer;
 }
 
+form .has-error {
+	border: 1px solid var(--input-error-color);
+}
+
 form .error {
 	color: var(--input-error-color);
 	margin-top: 5px;
@@ -207,11 +211,6 @@ form .error {
 
 form .field .error {
 	font-size: var(--small-font-size);
-}
-
-input.has-error, textarea.has-error, select.has-error,
-.has-error input, .has-error textarea, .has-error select {
-	border-color: var(--input-error-color);
 }
 
 input:hover, textarea:hover, select:hover {

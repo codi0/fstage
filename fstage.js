@@ -1367,7 +1367,9 @@
 			if(data) {
 				//update props
 				for(var i in data) {
-					opts.state[i] = data[i];
+					if(data.hasOwnProperty(i)) {
+						opts.state[i] = data[i];
+					}
 				}
 				//update history?
 				if(opts.history && history[mode + 'State']) {
@@ -1565,7 +1567,9 @@
 						view.preRender(template, isInit);
 						//stop here?
 						if(!self.is(view.route.name)) {
-							view.stop(true);
+							if(view.stop) {
+								view.stop(true);
+							}
 							return resolve(false);
 						}
 					}
@@ -1580,7 +1584,9 @@
 					return objPromise(conf.state).then(async function(data) {
 						//stop here?
 						if(!self.is(view.route.name)) {
-							view.stop(true);
+							if(view.stop) {
+								view.stop(true);
+							}
 							return resolve(false);
 						}
 						//compile html
@@ -1603,7 +1609,9 @@
 								view.postRender(template, data, isInit);
 								//stop here?
 								if(!self.is(view.route.name)) {
-									view.stop(true);
+									if(view.stop) {
+										view.stop(true);
+									}
 									return resolve(false);
 								}
 							}
@@ -1622,7 +1630,7 @@
 				//register route
 				self.on(routeName, function(route, runs) {
 					//stop previous?
-					if(prev && views[prev]) {
+					if(prev && views[prev] && views[prev].stop) {
 						views[prev].stop(false);
 					}
 					//cache vars
@@ -1645,7 +1653,10 @@
 							view.start();
 							//stop here?
 							if(!self.is(view.route.name)) {
-								return view.stop(true);
+								if(view.stop) {
+									view.stop(true);
+								}
+								return false;
 							}
 						}
 						//call render
@@ -1654,6 +1665,10 @@
 							requestAnimationFrame(function() {
 								//loop through events
 								for(var key in view.events) {
+									//skip property?
+									if(!view.events.hasOwnProperty(key)) {
+										continue;
+									}
 									//register event?
 									if(!runs || key.indexOf('Once') === -1) {
 										view.events[key](view);
@@ -1777,6 +1792,10 @@
 				if(contents.length && parts.length) {
 					//loop through objects
 					for(var o in objects) {
+						//skip property?
+						if(!objects.hasOwnProperty(o)) {
+							continue;
+						}
 						//cache object
 						var res = objects[o];
 						//loop through content parts
@@ -1885,30 +1904,49 @@
 		};
 		//add error helper
 		var addError = function(field, message) {
-			//stop here?
-			if(!form[field] || !form[field].parentNode) {
-				return;
-			}
-			//add error meta data
-			form[field].classList.add('has-error');
-			//add error node
+			//valid field?
+			if(!form[field]) return;
+			//create error node
 			var err = document.createElement('div');
-			err.classList.add('error'); err.innerHTML = message;
-			form[field].parentNode.insertBefore(err, form[field].nextSibling);
+			err.classList.add('error');
+			err.innerHTML = message;
 			//add to cache
 			errors[field] = message;
+			//is multi?
+			if(form[field].parentNode) {
+				//add error meta
+				form[field].classList.add('has-error');
+				//add error node
+				form[field].parentNode.insertBefore(err, form[field].nextSibling);
+			} else {
+				//add error meta
+				Fstage.each(form[field], function(i, field) {
+					field.classList.add('has-error');
+				});
+				//add error node
+				form[field][0].parentNode.appendChild(err);
+			}
 		};
 		//remove error helper
 		var removeError = function(field) {
-			//stop here?
-			if(!form[field] || !form[field].parentNode) {
-				return;
+			//valid field?
+			if(!form[field]) return;
+			//is multi?
+			if(form[field].parentNode) {
+				//remove error meta
+				form[field].classList.remove('has-error');
+				//remove error node
+				var err = form[field].parentNode.querySelector('.error');
+				err && err.parentNode.removeChild(err);
+			} else {
+				//remove field meta
+				Fstage.each(form[field], function(i, field) {
+					field.classList.remove('has-error');
+				});
+				//remove error node
+				var err = form[field][0].parentNode.querySelector('.error');
+				err && err.parentNode.removeChild(err);
 			}
-			//delete error node
-			var err = form[field].parentNode.querySelector('.error');
-			err && err.parentNode.removeChild(err);
-			//remove error meta data
-			form[field].classList.remove('has-error');
 			//delete cache?
 			if(errors[field]) {
 				delete errors[field];
@@ -1964,17 +2002,20 @@
 		};
 		//add focus listeners
 		Fstage.each(opts.fields, function(k) {
-			//stop here?
-			if(!form[k] || !form[k].addEventListener) {
-				return;
-			}
-			//add focus listener
-			form[k].addEventListener('focus', function(e) {
-				removeError(k);
-			});
-			//add blur listener
-			form[k].addEventListener('blur', function(e) {
-				validate(k);
+			//valid field?
+			if(!form[k]) return;
+			//get fields
+			var fields = form[k].parentNode ? [ form[k] ] : form[k];
+			//loop through fields
+			Fstage.each(fields, function(i, el) {
+				//add focus listener
+				el.addEventListener('focus', function(e) {
+					removeError(k);
+				});
+				//add blur listener
+				el.addEventListener('blur', function(e) {
+					validate(k);
+				});
 			});
 		});
 		//add submit listener
