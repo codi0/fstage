@@ -2,7 +2,7 @@
  * FSTAGE.js
  *
  * About: A lean javascript library for developing modern web apps
- * Version: 0.1.9
+ * Version: 0.2.0
  * License: MIT
  * Source: https://github.com/codi0/fstage
  *
@@ -1815,12 +1815,6 @@
 							contents = res;
 							break;
 						}
-					}
-				}
-				//clear contents?
-				if(!found && contents.indexOf('.') !== -1 && contents.indexOf(' ') === -1) {
-					if(contents.indexOf('://') === -1) {
-						contents = '';
 					}
 				}
 				//use modifier?
