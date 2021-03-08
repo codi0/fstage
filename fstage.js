@@ -2,7 +2,7 @@
  * FSTAGE.js
  *
  * About: A lean javascript library for developing modern web apps
- * Version: 0.2.0
+ * Version: 0.2.1
  * License: MIT
  * Source: https://github.com/codi0/fstage
  *
@@ -110,7 +110,7 @@
 		return ({}).toString.call(input).match(/\s([a-zA-Z]+)/)[1].toLowerCase();
 	};
 
-	Fstage.toNodes = function(input, first = false) {
+	Fstage.toNodes = Fstage.parseHTML = function(input, first = false) {
 		//parse html string?
 		if(typeof input === 'string') {
 			var d = document.createElement('template');
@@ -123,18 +123,18 @@
 		return first ? (input[0] || null) : input;
 	};
 
-	Fstage.stripHtml = function(html) {
+	Fstage.stripHtml = Fstage.stripHTML = function(html) {
 		var el = document.createElement('div');
 		el.innerHTML = String(html);
 		return el.textContent;
 	};
 
-	Fstage.escHtml = function(html) {
+	Fstage.escHtml = Fstage.escHTML = function(html) {
 		var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '/': '&#x2F;', ':': '&#58;' };
 		return String(html).replace(/&amp;/g, '&').replace(/[&<>"'\/:]/g, function(i) { return map[i]; });
 	};
 
-	Fstage.escJs = function(js) {
+	Fstage.escJs = Fstage.escJS = function(js) {
 		return String(js).replace(/([\(\)\'\"\r\n\t\v\0\b\f\\])/g, "\\$1");
 	};
 
@@ -583,7 +583,7 @@
 
 	Fstage.fn.append = function(html, action = 'append') {
 		//create nodes
-		var nodes = Fstage.toNodes(html);
+		var nodes = Fstage.parseHTML(html);
 		//loop through elements
 		for(var i=0; i < this.length; i++) {
 			//loop through nodes
@@ -879,7 +879,7 @@
 		//loop through nodes
 		for(var i=0; i < this.length; i++) {
 			//notice to html
-			var notice = Fstage.toNodes(html, true);
+			var notice = Fstage.parseHTML(html)[0];
 			//append pr prepend?
 			if(opts.prepend) {
 				this[i].insertBefore(notice, this[i].firstChild);
@@ -924,17 +924,17 @@
 		//loop through nodes
 		for(var i=0; i < this.length; i++) {
 			//create overlay
-			var overlay = Fstage.toNodes(html, true);
+			var overlay = Fstage.parseHTML(html)[0];
 			//append overlay
 			this[i].appendChild(overlay);
 		}
 		//start animation
-		$(that).find('.overlay').animate('fade in', {
+		that.find('.overlay').animate('fade in', {
 			onEnd: function() {
 				//add close listener
-				$(that).find('.overlay [data-close]').on('click', function(e) {
+				that.find('.overlay [data-close]').on('click', function(e) {
 					//get overlay
-					var o = $(this).closest('.overlay');
+					var o = Fstage(this).closest('.overlay');
 					//animate and close
 					o.animate('fade out', {
 						onEnd: function() {
@@ -944,6 +944,192 @@
 				});
 			}
 		});
+		//chain it
+		return this;
+	};
+
+	Fstage.fn.carousel = function(config = {}) {
+		//loop through nodes
+		this.each(function() {
+			//set opts
+			var opts = Fstage.extend({
+				item: '.item',
+				nav: '.nav',
+				auto: this.classList.contains('auto'),
+				autoDuration: this.getAttribute('data-duration')
+			}, config);
+			//set default duration?
+			if(!opts.autoDuration || opts.autoDuration == '0') {
+				opts.autoDuration = 8000;
+			}
+			//set vars
+			var tid = null;
+			var slides = 0;
+			var current = 1;
+			var carousel = Fstage(this);
+			var nav = opts.nav ? carousel.find(opts.nav) : null;
+			//count slides
+			carousel.find(opts.item).each(function() {
+				slides++;
+				this.setAttribute('data-slide', slides);
+				//this.setttribute('order', slides);
+			});
+			//stop here?
+			if(!slides) return;
+			//create nav?
+			if(nav && !nav.length) {
+				var el = document.createElement('div');
+				el.classList.add(opts.nav.substring(1));
+				for(var i=0; i < slides; i++) {
+					el.innerHTML += '<div class="btn"></div>';
+				}
+				this.appendChild(el);
+				nav = carousel.find(opts.nav);
+			}
+			//add nav count
+			nav && nav.children().each(function(k) {
+				if(!this.hasAttribute('data-nav')) {
+					this.setAttribute('data-nav', k+1);
+				}
+			});
+			//go to slide
+			var goToSlide = function(number = null, init = false) {
+				//update slide number
+				current = Number(number || current);
+				//get slide
+				var slide = carousel.find('[data-slide="' + current + '"]');
+				//calculate total width
+				var style = getComputedStyle(slide[0]);
+				var width = Number(style.width.replace('px', ''));
+				var marginLeft = Number(style.marginLeft.replace('px', ''))
+				var marginRight = Number(style.marginRight.replace('px', ''));
+				//get carousel width
+				var carouselWidth = Number(getComputedStyle(carousel[0]).width.replace('px', ''));
+				var slidesInView = Math.floor(carouselWidth / width);
+				//anything to move?
+				if(slides <= slidesInView) {
+					//reset
+					current = 1;
+				} else {
+					//set amount to translate
+					var translate = init ? 0 : (width + marginLeft + marginRight) * -1;
+					//move slides
+					carousel.find('[data-slide]').css('transform', 'translateX(' + translate + 'px)')[0].addEventListener('transitionend', function(e) {
+						//loop through slides
+						carousel.find('[data-slide]').each(function() {
+							//set vars
+							var el = this;
+							var order = null;
+							var n = Number(el.getAttribute('data-slide'));
+							var order = (n - current) + 1;
+							//update order?
+							if(order < 1) {
+								order = order + slides;
+							}
+							//disable transitions
+							el.style.transition = 'none';
+							//update order
+							setTimeout(function() {
+								el.style.order = order;
+								el.style.transform = 'translateX(0px)';
+							}, 50);
+							//re-enable transitions
+							setTimeout(function() {
+								el.style.transition = null;
+							}, 100);
+						});
+					});
+				}
+				//display nav
+				nav && nav.removeClass('hidden');
+				//update active nav
+				carousel.find('[data-nav]').removeClass('active');
+				carousel.find('[data-nav="' + current + '"]').addClass('active');
+				//hide nav?
+				if(slides <= slidesInView) {
+					nav && nav.addClass('hidden');
+				}
+			};
+			//auto play
+			var autoplay = function() {
+				//can auto play?
+				if(!opts.auto || !opts.autoDuration) {
+					return;
+				}
+				//reset internal?
+				tid && clearInterval(tid);
+				//set new interval
+				tid = setInterval(function() {
+					//get number
+					var number = (current + 1);
+					var number = (number > slides) ? 1 : number;
+					//emulate click
+					goToSlide(number);
+				}, opts.autoDuration);
+			};
+			//start now
+			goToSlide(1, true);
+			autoplay();
+			//listen for clicks
+			carousel.on('click', function(e) {
+				//stop here?
+				if(!e.target.hasAttribute('data-nav')) {
+					return;
+				}
+				//get slide number
+				var number = e.target.getAttribute('data-nav');
+				//is next?
+				if(number === 'next') {
+					number = current + 1;
+				}
+				//is previous?
+				if(number === 'prev') {
+					number = current - 1;
+				}
+				//go to slide
+				goToSlide(number);
+				//autoplay
+				autoplay();
+			});
+			//listen for resize
+			Fstage(window).on('resize', Fstage.debounce(function(e) {
+				goToSlide();
+			}));
+		});
+		//chain it
+		return this;
+	};
+
+	Fstage.fn.cookieConsent = function(opts = {}) {
+		//set options
+		opts = Fstage.extend({
+			key: 'gdpr',
+			text: 'We use cookies to provide the best website experience.',
+			url: '/privacy/'
+		}, opts);
+		//stop here?
+		try {
+			if(localStorage.getItem('gdpr') == 1) return;
+		} catch (error) {
+			return;
+		}
+		//display cookie notice
+		this.append('<div id="cookie-consent">We use cookies to provide the best website experience. Our <a href="' + opts.url + '">privacy policy</a>. <button>Ok</button></div>');
+		//hide on click
+		Fstage('#cookie-consent button').on('click', function() {
+			localStorage.setItem(opts.key, 1);
+			Fstage('#cookie-consent').remove();
+		});
+		//hide on page click
+		Fstage('a').on('click', function() {
+			if(this.href.indexOf('://') === -1 || this.href.indexOf(location.hostname) !== -1) {
+				if(this.href.indexOf(opts.url) === -1) {
+					localStorage.setItem(opts.key, 1);
+				}
+			}
+		});
+		//chain it
+		return this;
 	};
 
 })();
