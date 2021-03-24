@@ -73,7 +73,7 @@
 })();
 
 /**
- * HELPERS
+ * UTILS
 **/
 (function(undefined) {
 
@@ -129,13 +129,28 @@
 		return el.textContent;
 	};
 
-	Fstage.escHtml = Fstage.escHTML = function(html) {
-		var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '/': '&#x2F;', ':': '&#58;' };
-		return String(html).replace(/&amp;/g, '&').replace(/[&<>"'\/:]/g, function(i) { return map[i]; });
+	Fstage.escape = function(input, type) {
+		//get method
+		var method = 'esc' + type;
+		//method exists?
+		if(this[method]) {
+			return this[method](input);
+		}
+		//default
+		return this.escHtml(input);
 	};
 
-	Fstage.escJs = Fstage.escJS = function(js) {
-		return String(js).replace(/([\(\)\'\"\r\n\t\v\0\b\f\\])/g, "\\$1");
+	Fstage.escHtml = Fstage.escHTML = function(input) {
+		var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '/': '&#x2F;', ':': '&#58;' };
+		return String(input).replace(/&amp;/g, '&').replace(/[&<>"'\/:]/g, function(i) { return map[i]; });
+	};
+
+	Fstage.escJs = function(input) {
+		return String(input).replace(/([\(\)\'\"\r\n\t\v\0\b\f\\])/g, "\\$1");
+	};
+
+	Fstage.escAttr = function(input) {
+		return this.escHtml(this.escJs(input));
 	};
 
 	Fstage.copy = function(input, opts = {}) {
@@ -222,6 +237,66 @@
 		return Fstage.hash(uid + navigator.userAgent.replace(/[0-9\.\s]/g, ''));
 	};
 
+	Fstage.memoize = function(fn) {
+		//set vars
+		var cache = {};
+		//return
+		return function() {
+			//create key
+			var key = Fstage.hash(JSON.stringify(arguments));
+			//get result
+			cache[key] = cache[key] || fn.apply(this, arguments);
+			//return
+			return cache[key];
+		}
+	};
+
+	Fstage.objKey = {
+
+		get: function(obj, key) {
+			//split key?
+			if(typeof key === 'string') {
+				key = key.split('.');
+			} else {
+				key = key || [];
+			}
+			//loop through key parts
+			for(var i=0; i < key.length; i++) {
+				//next level
+				obj = obj[key[i]];
+				//not found?
+				if(obj === undefined) {
+					break;
+				}
+			}
+			//return
+			return obj;
+		},
+
+		set: function(obj, key, val) {
+			//set vars
+			var obj = obj || {};
+			var tmp = obj;
+			//split key?
+			if(typeof key === 'string') {
+				key = key.split('.');
+			} else {
+				key = key || [];
+			}
+			//loop through key parts
+			for(var i=0; i < key.length; i++) {
+				if((i+1) === key.length) {
+					tmp[key[i]] = val;
+				} else {
+					tmp = tmp[key[i]] = tmp[key[i]] || {};
+				}
+			}
+			//return
+			return obj;
+		}
+
+	};
+
 })();
 
 /**
@@ -229,26 +304,26 @@
 **/
 (function(undefined) {
 
-	var ntProm = null
-	var ntCur = [];
-	var ntNext = [];
+	var _prom = null
+	var _current = [];
+	var _next = [];
 
 	Fstage.tick = function(fn, next = false) {
 		//register callback
-		next ? ntNext.push(fn) : ntCur.push(fn);
+		(next ? _next : _current).push(fn);
 		//create promise
-		ntProm = ntProm || Promise.resolve().then(function() {
+		_prom = _prom || Promise.resolve().then(function() {
 			//copy callbacks
-			var cb = ntCur.concat(ntNext);
-			//reset data
-			ntProm = null; ntCur = []; ntNext = [];
+			var cb = _current.concat(_next);
+			//reset state
+			_prom = null; _current = []; _next = [];
 			//execute callbacks
 			while(cb.length) cb.shift().call();
 		});
 	};
-
+		
 	Fstage.nextTick = function(fn) {
-		return Fstage.tick(fn, true);
+		return this.tick(fn, true);
 	};
 
 })();
@@ -258,31 +333,133 @@
 **/
 (function(undefined) {
 
-	var psCache = {};
+	var pubsub = function(name) {
 
-	Fstage.pub = function(id, args = {}) {
-		//loop through subscribers to call
-		for(var i=0; i < (psCache[id] || []).length; i++) {
-			psCache[id][i](args);
-		}
-	};
+		var _cbs = {};
+		var _id = null;
+		var _queue = {};
 
-	Fstage.sub = function(id, fn) {
-		//set array
-		psCache[id] = psCache[id] || [];
-		//add subscriber
-		psCache[id].push(fn);
-	};
+		var _guid = 0;
+		var _prefix = 'id.' + name + '.';
 
-	Fstage.unsub = function(id, fn) {
-		//loop through subscribers
-		for(var i=0; i < (psCache[id] || []).length; i++) {
-			//remove subscriber?
-			if(psCache[id][i] === fn) {
-				psCache[id].splice(i);
+		var _invoke = function(id, token) {
+			//valid request?
+			if(!_cbs[id] || !_cbs[id][token]) {
+				throw new Error('Invalid callback');
 			}
-		}
-	};
+			//call listener?
+			if(!_queue[id].res[token]) {
+				//set vars
+				var ctx = _queue[id].ctx;
+				var args = _queue[id].args;
+				var method = _queue[id].method;
+				//invoke callback
+				_queue[id].res[token] = _cbs[id][token][method](ctx, args);
+			}
+			//return
+			return _queue[id].res[token];
+		};
+
+		var _result = function(arr, singular = false) {
+			return singular ? (arr.length ? arr[arr.length-1] : null) : arr;
+		};
+
+		return {
+
+			instance: function(name) {
+				return new pubsub(name);
+			},
+
+			name: function() {
+				return name;
+			},
+
+			on: function(id, fn) {
+				//set object
+				_cbs[id] = _cbs[id] || {};
+				//generate token
+				var token = _prefix + (++_guid);
+				//add subscriber
+				_cbs[id][token] = fn;
+				//return
+				return token;
+			},
+
+			off: function(id, token) {
+				//token found?
+				if(_cbs[id] && _cbs[id][token]) {
+					delete _cbs[id][token];
+				}
+			},
+
+			emit: function(id, args = null, opts = {}) {
+				//set vars
+				var proms = [];
+				var last = _id;
+				//cache ID
+				_id = id;
+				//create queue
+				_queue[id] = {
+					res: {},
+					args: args,
+					ctx: opts.ctx || null,
+					async: opts.async,
+					filter: opts.filter,
+					method: opts.method || 'call'
+				};
+				//loop through subscribers
+				for(var token in (_cbs[id] || {})) {
+					proms.push(_invoke(id, token));
+				}
+				//delete queue
+				delete _queue[id];
+				_id = last;
+				//is filter?
+				if(!proms.length && opts.filter) {
+					proms.push(opts.method === 'apply' ? args[0] : args);
+				}
+				//sync return?
+				if(!opts.async) {
+					return _result(proms, opts.filter);
+				}
+				//return promise
+				return Promise.all(proms).then(function(res) {
+					return _result(res, opts.filter);
+				});
+			},
+
+			waitFor: function(tokens) {
+				//valid request?
+				if(!_id || !_queue[_id]) {
+					throw new Error('No emit currently in progress');
+				}
+				//set vars
+				var proms = [];
+				var isMulti = true;
+				//to array?
+				if(typeof tokens === 'string') {
+					tokens = [ tokens ];
+					isMulti = false;
+				}
+				//loop through tokens
+				for(var i=0; i < (tokens || []).length; i++) {
+					proms.push(_invoke(_id, tokens[i]));
+				}
+				//return immediately?
+				if(!_queue[_id].async) {
+					return _result(proms, !isMulti);
+				}
+				//return
+				return Promise.all(proms).then(function(res) {
+					return _result(res, !isMulti);
+				});
+			}
+	
+		};
+
+	}
+	
+	Fstage.pubsub = new pubsub('default');
 
 })();
 
@@ -291,7 +468,7 @@
 **/
 (function(undefined) {
 
-	var evGuid = 0;
+	var _guid = 0;
 
 	Fstage.fn.on = function(types, delegate, handler, once = false) {
 		//delegate is handler?
@@ -301,7 +478,7 @@
 			delegate = null;
 		}
 		//set handler guid
-		handler.guid = handler.guid || (++evGuid);
+		handler.guid = handler.guid || (++_guid);
 		//split event types
 		types = types.trim().split(/\s+/g);
 		//loop through event types
@@ -966,13 +1143,13 @@
 			var tid = null;
 			var slides = 0;
 			var current = 1;
+			var paused = false;
 			var carousel = Fstage(this);
 			var nav = opts.nav ? carousel.find(opts.nav) : null;
 			//count slides
 			carousel.find(opts.item).each(function() {
 				slides++;
 				this.setAttribute('data-slide', slides);
-				//this.setttribute('order', slides);
 			});
 			//stop here?
 			if(!slides) return;
@@ -994,7 +1171,10 @@
 			});
 			//go to slide
 			var goToSlide = function(number = null, init = false) {
+				//is paused?
+				if(!init && paused) return;
 				//update slide number
+				var prev = current;
 				current = Number(number || current);
 				//get slide
 				var slide = carousel.find('[data-slide="' + current + '"]');
@@ -1008,11 +1188,14 @@
 				var slidesInView = Math.floor(carouselWidth / width);
 				//anything to move?
 				if(slides <= slidesInView) {
-					//reset
+					//back home
 					current = 1;
 				} else {
 					//set amount to translate
-					var translate = init ? 0 : (width + marginLeft + marginRight) * -1;
+					var reset = (current == 1 && prev == slides);
+					var fwd = (current > prev) || reset;
+					var numSlides = reset ? 1 : (fwd ? current - prev : prev - current);
+					var translate = init ? 0 : (width + marginLeft + marginRight) * numSlides * (fwd ? -1 : 1);
 					//move slides
 					carousel.find('[data-slide]').css('transform', 'translateX(' + translate + 'px)')[0].addEventListener('transitionend', function(e) {
 						//loop through slides
@@ -1091,6 +1274,14 @@
 				//autoplay
 				autoplay();
 			});
+			//listen for pause
+			carousel.find('[data-slide]').on('mouseenter', function(e) {
+				paused = true;
+			});
+			//listen for unpause
+			carousel.find('[data-slide]').on('mouseleave', function(e) {
+				paused = false;
+			});
 			//listen for resize
 			Fstage(window).on('resize', Fstage.debounce(function(e) {
 				goToSlide();
@@ -1139,1086 +1330,83 @@
 **/
 (function(undefined) {
 
-	//Forked: https://github.com/patrick-steele-idem/morphdom
-	Fstage.syncDom = function(from, to, opts = {}) {
-		//update node function
-		var updateNode = function(from, to) {
-			//same node?
-			if(from.isEqualNode(to)) {
-				return;
-			}
-			//skip node?
-			if(opts.onCanSkip && opts.onCanSkip(from, to)) {
-				return;
-			}
-			//update attributes
-			updateAttrs(from, to);
-			//update children
-			updateChildren(from, to);
-		};
-		//update attrs function
-		var updateAttrs = function(from, to) {
-			//skip fragment?
-			if(to.nodeType === 11 || from.nodeType === 11) {
-				return;
-			}
-			//cache to attr
-			var toAttrs = from.attributes;
-			//set updated attributes
-			for(var i=0; i < toAttrs.length; i++) {
-				if(from.getAttribute(toAttrs[i].name) !== toAttrs[i].value) {
-					from.setAttribute(toAttrs[i].name, toAttrs[i].value);
-				}
-			}
-			//cache from attr
-			var fromAttrs = from.attributes;
-			//remove discarded attrs
-			for(var i=0; i < fromAttrs.length; i++) {
-				if(!to.hasAttribute(fromAttrs[i].name)) {
-					from.removeAttribute(fromAttrs[i].name);
-				}
-			}
-		};
-		//update boolean attr function
-		var updateAttrBool = function(from, to, name) {
-			from[name] = to[name];
-			from[from[name] ? 'setAttribute' : 'removeAttribute'](name, '');
-		};
-		//update child nodes function
-		var updateChildren = function(from, to) {
-			//set vars
-			var curToChild = to.firstChild;
-			var curFromChild = from.firstChild;
-			var curToKey, curFromKey, fromNextSibling, toNextSibling;
-			//handle textarea node?
-			if(from.nodeName === 'TEXTAREA') {
-				from.value = to.value;
-				return;
-			}
-			//walk 'to' children
-			outer: while(curToChild) {
-				//set next 'to' sibling
-				toNextSibling = curToChild.nextSibling;
-				//walk 'from' children
-				while(curFromChild) {
-					//set vars
-					var isCompatible = undefined;
-					//set next 'from' sibling
-					fromNextSibling = curFromChild.nextSibling;
-					//is same node?
-					if(curToChild.isSameNode && curToChild.isSameNode(curFromChild)) {
-						//move to next sibling
-						curToChild = toNextSibling;
-						curFromChild = fromNextSibling;
-						continue outer;
-					}
-					//same node type?
-					if(curFromChild.nodeType === curToChild.nodeType) {
-						//is element?
-						if(curFromChild.nodeType === 1) {
-							isCompatible = (curFromChild.nodeName === curToChild.nodeName);
-							isCompatible && updateNode(curFromChild, curToChild);
-						}
-						//is text or comment?
-						if(curFromChild.nodeType === 3 || curFromChild.nodeType === 8) {
-							isCompatible = true;
-							curFromChild.nodeValue = curToChild.nodeValue;
-						}
-					}
-					//is compatible?
-					if(isCompatible) {
-						//move to next sibling
-						curToChild = toNextSibling;
-						curFromChild = fromNextSibling;
-						continue outer;
-					} else {
-						//remove node
-						from.removeChild(curFromChild);
-						curFromChild = fromNextSibling;
-					}
-				}
-				//append node
-				from.appendChild(curToChild);
-				//move to next sibling
-				curToChild = toNextSibling;
-				curFromChild = fromNextSibling;
-			}
-			//still nodes to remove?
-			while(curFromChild) {
-				var nextChild = curFromChild.nextSibling;
-				from.removeChild(curFromChild);
-				curFromChild = nextChild;
-			}
-			//handle input node?
-			if(from.nodeName === 'INPUT') {
-				//update boolean attrs
-				updateAttrBool(from, to, 'checked');
-				updateAttrBool(from, to, 'disabled');
-				//set value
-				from.value = to.value;
-				//remove value attr?
-				if(!to.hasAttribute('value')) {
-					from.removeAttribute('value');
-				}
-			}
-			//handle select node?
-			if(from.nodeName === 'SELECT') {
-				//is multi select?
-				if(!to.hasAttribute('multiple')) {
-					//set vars
-					var curChild = from.firstChild;
-					var index = -1, i = 0, optgroup;
-					//loop through children
-					while(curChild) {
-						//is optgroup node?
-						if(curChild.nodeName === 'OPTGROUP') {
-							optgroup = curChild;
-							curChild = optgroup.firstChild;
-						}
-						//is option node?
-						if(curChild.nodeName === 'OPTION') {
-							//is selected?
-							if(curChild.hasAttribute('selected')) {
-								index = i;
-								break;
-							}
-							//increment
-							i++;
-						}
-						//move to next sibling
-						curChild = curChild.nextSibling;
-						//move to next opt group?
-						if(!curChild && optgroup) {
-							curChild = optgroup.nextSibling;
-							optgroup = null;
-						}
-					}
-					//update index
-					from.selectedIndex = index;
-				}
-			}
-			//handle select node?
-			if(from.nodeName === 'OPTION') {
-				//has parent node?
-				if(from.parentNode) {
-					//set vars
-					var parentNode = from.parentNode;
-					var parentName = parentNode.nodeName;
-					//parent is optgroup node?
-					if(parentName === 'OPTGROUP') {
-						parentNode = parentNode.parentNode;
-						parentName = parentNode && parentNode.nodeName;
-					}
-					//parent is select node?
-					if(parentName === 'SELECT' && !parentNode.hasAttribute('multiple')) {
-						//remove attribute?
-						if(from.hasAttribute('selected') && !to.selected) {
-							fromEl.setAttribute('selected', 'selected');
-							fromEl.removeAttribute('selected');
-						}
-						//update index
-						parentNode.selectedIndex = -1;
-					}
-				}
-				//update boolean attr
-				updateAttrBool(from, to, 'selected');
-			}
+	//Forked: https://github.com/WebReflection/udomdiff
+	Fstage.domDiff = function(parentNode, html, opts = {}) {
+		//convert string?
+		if(typeof html === 'string') {
+			var tmp = document.createElement('div');
+			tmp.innerHTML = html;
+			html = tmp.childNodes;
+		}
+		//default get
+		var get = opts.get || function(item, i) {
+			return item;
 		};
 		//set vars
-		var updated = from;
-		//convert string to node?
-		if(typeof to === 'string') {
-			//wrap html?
-			if(opts.wrapHtml) {
-				var tmp = from.cloneNode(false);
-				tmp.innerHTML = to;
-				to = tmp;
+		var a = [].slice.call(opts.fromNodes || parentNode.childNodes);
+		var b = [].slice.call(html);
+		var bLength = b.length;
+		var aEnd = a.length;
+		var bEnd = bLength;
+		var aStart = 0;
+		var bStart = 0;
+		var map = null;
+		//loop through nodes
+		while(aStart < aEnd || bStart < bEnd) {
+			if(aEnd === aStart) {
+				var node = bEnd < bLength ? bStart ? get(b[bStart - 1], -0).nextSibling : get(b[bEnd - bStart], 0) : opts.before;
+				while(bStart < bEnd) {
+					parentNode.insertBefore(get(b[bStart++], 1), node);
+				}
+			} else if(bEnd === bStart) {
+				while(aStart < aEnd) {
+					if(!map || !map.has(a[aStart])) parentNode.removeChild(get(a[aStart], -1));
+					aStart++;
+				}
+			} else if(a[aStart] === b[bStart]) {
+				aStart++;
+				bStart++;
+			} else if(a[aEnd - 1] === b[bEnd - 1]) {
+				aEnd--;
+				bEnd--;
+            } else if(a[aStart] === b[bEnd - 1] && b[bStart] === a[aEnd - 1]) {
+                var _node = get(a[--aEnd], -1).nextSibling;
+                parentNode.insertBefore(get(b[bStart++], 1), get(a[aStart++], -1).nextSibling);
+                parentNode.insertBefore(get(b[--bEnd], 1), _node);
+                a[aEnd] = b[bEnd];
 			} else {
-				var tmp = document.createElement('div');
-				tmp.innerHTML = to;
-				to = tmp.firstChild;
-			}
-		}
-        //is element?
-		if(updated.nodeType === 1) {
-			if(to.nodeType === 1) {
-				if(from.nodeName !== to.nodeName) {
-					updated = document.createElement(to.nodeName);
-					while(from.firstChild) {
-						updated.appendChild(from.firstChild);
+				if(!map) {
+					map = new Map();
+					var i = bStart;
+					while(i < bEnd) {
+						map.set(b[i], i++);
 					}
 				}
-			} else {
-				updated = to;
-			}
-		}
-		//is text or comment?
-		if(updated.nodeType === 3 || updated.nodeType === 8) {
-			if(to.nodeType === updated.nodeType) {
-				updated.nodeValue = to.nodeValue;
-				return updated;
-			} else {
-				updated = to;
-			}
-		}
-		//update node?
-		if(updated !== to) {
-			//is same node?
-			if(to.isSameNode && to.isSameNode(updated)) {
-				return;
-			}
-			//update node
-			updateNode(updated, to);
-		}
-		//replace from node?
-		if(updated !== from && from.parentNode) {
-			from.parentNode.replaceChild(updated, from);
-		}
-		//return
-		return updated;
-	};
-
-})();
-
-/**
- * DOM REACTIVITY
-**/
-(function(undefined) {
-
-	Fstage.watch = function(obj, link = null) {
-		//format obj
-		obj = obj || {};
-		obj.__link = obj.__link || [];
-		//create link?
-		if(link && !obj.__link.includes(link)) {
-			obj.__link.push(link);
-		}
-		//is proxy?
-		if(obj.__isProxy) {
-			return obj;
-		}
-		//create proxy
-		return new Proxy(obj, {
-			get: function(o, k) {
-				if(k === '__isProxy') {
-					return true;
-				}
-				if(k !== '__link' && typeof o[k] === 'object') {
-					o[k] = Fstage.watch(o[k], link);
-				}
-				return o[k];
-			},
-			set: function(o, k, v) {
-				if(k !== '__isProxy' && k !== '__link' && o[k] !== v) {
-					var f = o[k]; o[k] = v;
-					Fstage.pub('watch', { obj: o, key: k, from: f, to: v });
-				}
-				return true;
-			},
-			deleteProperty: function(o, k) {
-				if(k !== '__isProxy' && k !== '__link' && o[k] !== undefined) {
-					var f = o[k]; delete o[k];
-					Fstage.pub('watch', { obj: o, key: k, from: f, to: undefined });
-				}
-				return true;
-			}
-		});
-	};
-
-	Fstage.component = function(name, opts = {}) {
-		//set vars
-		var rendering, hasRendered, hasChanged, elCache;
-		//format opts
-		opts = Fstage.extend({
-			el: null,
-			parent: null,
-			data: {},
-			template: function(){},
-			escape: Fstage.escHtml
-		}, opts);
-		//setup component
-		var comp = {
-			name: name,
-			children: [],
-			data: opts.data
-		};
-		//clear data
-		delete opts.data;
-		//render component
-		comp.render = function(el, data, now) {
-			//first render?
-			if(!hasRendered) {
-				//update flags
-				hasRendered = true;
-				hasChanged = true;
-				//set opts
-				opts.el = el || opts.el;
-				comp.data = Fstage.watch(data || comp.data, comp.render);
-				//add watch subscriber
-				Fstage.sub('watch', function(args) {
-					if(args.obj.__link.includes(comp.render)) {
-						hasChanged = true;
-						comp.render();
-					}
-				});
-			}
-			//anything to render?
-			if(rendering || !hasChanged) {
-				return;
-			}
-			//update flags
-			rendering = true;
-			hasChanged = false;
-			//render dom function
-			var renderDom = function() {
-				//get nodes
-				el = elCache || Fstage.select(opts.el);
-				//elements found?
-				if(el && el.length) {
-					//cache nodes
-					elCache = el;
-					//sanitize copy of data
-					var data = Fstage.copy(comp.data, {
-						skip: [ '__isProxy', '__link' ],
-						sanitize: opts.escape
-					});
-					//generate html
-					var html = opts.template(data) || '';
-					//loop through elements
-					for(var i=0; i < el.length; i++) {
-						//mark as component
-						el[i].setAttribute('data-component', comp.name);
-						//patch changed dom nodes
-						Fstage.syncDom(el[i], html, {
-							wrapHtml: true,
-							onCanSkip: function(from, to) {
-								return from.getAttribute('data-component') && el[i] !== from;
-							}
-						});
-					}
-					//loop through child components
-					for(var j=0; j < comp.children.length; j++) {
-						comp.children[j].render(null, null, true);
-					}
-				}
-				//reset flag
-				rendering = false;
-			};
-			//execute render
-			now ? renderDom() : Fstage.tick(renderDom);
-		};
-		//set parent?
-		opts.parent && opts.parent.children.push(comp);
-		//render now?
-		opts.el && comp.render();
-		//return
-		return comp;
-	};
-
-})();
-
-/**
- * VIEW ROUTING
-**/
-(function(undefined) {
-
-	//private vars
-	var histId = 0;
-	var isBack = false;
-	var started = false;
-
-	//default opts
-	var opts = {
-		routes: {},
-		views: {},
-		state: {},
-		baseUrl: '',
-		home: 'home',
-		notfound: 'notfound',
-		pageCss: '.page.{name}',
-		sectionCss: '.{name}',
-		history: true,
-		domDiff: false
-	};
-
-	//public api
-	Fstage.router = {
-
-		current: function() {
-			return opts.state.name || null;
-		},
-
-		state: function(data = null, mode='replace') {
-			//set state?
-			if(data) {
-				//update props
-				for(var i in data) {
-					if(data.hasOwnProperty(i)) {
-						opts.state[i] = data[i];
-					}
-				}
-				//update history?
-				if(opts.history && history[mode + 'State']) {
-					history[mode + 'State'](opts.state, '', this.url(opts.state.name || ''));
-				}
-			}
-			//return
-			return opts.state;
-		},
-
-		url: function(name = null, trim = false) {
-			//has base url?
-			if(!opts.baseUrl) {
-				return location.pathname + location.search;
-			}
-			//get name?
-			if(name === null) {
-				name = opts.state.name || '';
-			}
-			//set vars
-			var sep = /\?|\#/.test(opts.baseUrl) ? '' : '/';
-			var name = (opts.home === name && sep === '/') ? '' : name;
-			var url = (opts.baseUrl + (name ? sep + name : '')).replace(/\/\//, '/');
-			//return
-			return trim ? url.replace(/\/$/, '') : url;
-		},
-
-		is: function(name) {
-			return opts.state.name == name;
-		},
-
-		has: function(name) {
-			return opts.routes[name] && opts.routes[name].length;
-		},
-
-		on: function(name, fn) {
-			//format name
-			name = name.trim().split(/\s+/g);
-			//loop through array
-			for(var i=0; i < name.length; i++) {
-				var tmp = fn.bind({}); tmp.runs = 0;
-				opts.routes[name[i]] = opts.routes[name[i]] || [];
-				opts.routes[name[i]].push(tmp);
-			}
-			//return
-			return this;
-		},
-
-		off: function(name, fn) {
-			opts.routes[name] = (opts.routes[name] || []).filter(function(item) { return item !== fn; });
-			return this;
-		},
-
-		trigger: async function(name, data = {}, mode = 'push') {
-			//format data
-			data = Fstage.extend({
-				name: name,
-				params: {},
-				mode: mode,
-				last: opts.state.name,
-				lastParams: opts.state.params,
-				is404: !this.has(name)
-			}, data);
-			//is 404?
-			if(data.is404) {
-				//update name
-				data.name = opts.notfound;
-				//valid route?
-				if(!this.has(opts.notfound)) {
-					return false;
-				}
-			}
-			//set vars
-			var last = opts.state.name;
-			var routes = [ ':before', data.name, ':after' ];
-			//loop through routes
-			for(var i=0; i < routes.length; i++) {
-				//get listeners
-				var route = routes[i];
-				var listeners = opts.routes[route] || [];
-				//loop through listeners
-				for(var j=0; j < listeners.length; j++) {
-					//get function
-					var fn = listeners[j];
-					//execute callback
-					var res = await fn(data, fn.runs);
-					//break early?
-					if(res === false || last !== opts.state.name) {
-						return false;
-					}
-					//increment
-					fn.runs++;
-					//update result?
-					if(res && res.name) {
-						data = res;
-						routes[1] = res.name;
-					}
-				}
-			}
-			//replace state?
-			if(mode === 'replace' && opts.state.name) {
-				var state = opts.state;
-				state.name = data.name;
-			} else {
-				var state = {
-					id: data.id || (++histId),
-					name: data.name,
-					params: data.params,
-					scroll: ('scroll' in data) ? (data.scroll || 0) : window.pageYOffset
-				};
-			}
-			//update cache
-			opts.state = {};
-			this.state(state, mode);
-			//success
-			return true;
-		},
-
-		redirect: function(name, data = {}) {
-			return this.trigger(name, data, 'replace');
-		},
-
-		refresh: function() {
-			//can refresh?
-			if(opts.state.name) {
-				return this.trigger(opts.state.name, {}, null);
-			}
-		},
-
-		back: function() {
-			//set vars
-			isBack = true;
-			var that = this;
-			//try history
-			history.back();
-			//set fallback
-			setTimeout(function() {
-				//stop here?
-				if(!isBack) return;
-				//trigger back
-				that.trigger(opts.state.name || opts.home, {
-					isBack: true,
-					params: opts.state.params || {}
-				}, null);
-			}, 400);
-		},
-
-		show: function(value, attr = 'data-if') {
-			//get current route
-			var route = this.current();
-			//stop here?
-			if(!route) return;
-			//get page
-			var css = opts.pageCss.replace('{name}', route);
-			var page = Fstage(css);
-			//update classes
-			page.find('[' + attr + ']').addClass('hidden');
-			page.find('[' + attr + '="' + value + '"]').removeClass('hidden');
-		},
-
-		views: function(views) {
-			//set vars
-			var self = this;
-			var prev = null;
-			//object promise helper
-			var objPromise = function(obj) {
-				return Promise.all(Object.values(obj)).then(function(vals) {
-					var res = {}, keys = Object.keys(obj);
-					for(var i = 0; i < keys.length; i++) {
-						res[keys[i]] = vals[i];
-					}
-					return res;
-				});
-			};
-			//default render helper
-			var defRender = function(template = 'page', conf = {}, isInit = false) {
-				//set vars
-				var view = this;
-				//default conf
-				conf = Fstage.extend({
-					state: { ...view.state },
-					selector: opts.sectionCss,
-					domDiff: opts.domDiff
-				}, conf);
-				//wrap in promise
-				return new Promise(function(resolve) {
-					//template exists?
-					if(!view.templates[template]) {
-						console.warn('Template not found: ' + template);
-						return resolve(false);
-					}
-					//call pre-render?
-					if(view.preRender) {
-						//execute
-						view.preRender(template, isInit);
-						//stop here?
-						if(!self.is(view.route.name)) {
-							if(view.stop) {
-								view.stop(true);
-							}
-							return resolve(false);
+				if(map.has(a[aStart])) {
+					var index = map.get(a[aStart]);
+					if(bStart < index && index < bEnd) {
+						var _i = aStart;
+						var sequence = 1;
+						while(++_i < aEnd && _i < bEnd && map.get(a[_i]) === index + sequence) {
+							sequence++;
 						}
-					}
-					//loop through state
-					for(var i in conf.state) {
-						//call function?
-						if(typeof conf.state[i] === 'function') {
-							conf.state[i] = conf.state[i]();
-						}
-					}
-					//return data
-					return objPromise(conf.state).then(async function(data) {
-						//stop here?
-						if(!self.is(view.route.name)) {
-							if(view.stop) {
-								view.stop(true);
+						if(sequence > index - bStart) {
+							var _node2 = get(a[aStart], 0);
+							while (bStart < index) {
+								parentNode.insertBefore(get(b[bStart++], 1), _node2);
 							}
-							return resolve(false);
-						}
-						//compile html
-						var html = await view.templates[template](data);
-						var html = Fstage.tpl.compile(html, data);
-						//get element to inject
-						var selector = conf.selector.replace('{name}', template);
-						var el = (template === 'page') ? view.page : view.page.find(selector);
-						//dom diff?
-						if(conf.domDiff) {
-							Fstage.syncDom(el[0], html, { wrapHtml: true });
 						} else {
-							el.html(html);
+							parentNode.replaceChild(get(b[bStart++], 1), get(a[aStart++], -1));
 						}
-						//handle post-render
-						requestAnimationFrame(function() {
-							//call post-render?
-							if(view.postRender) {
-								//execute
-								view.postRender(template, data, isInit);
-								//stop here?
-								if(!self.is(view.route.name)) {
-									if(view.stop) {
-										view.stop(true);
-									}
-									return resolve(false);
-								}
-							}
-							//success
-							return resolve(data);
-						});
-					});
-				});
-			};
-			//loop through views
-			Fstage.each(views, function(name, view) {
-				//format route name
-				var routeName = name.replace(/[\w]([A-Z])/g, function(m) {
-					return m[0] + '-' + m[1];
-				}).toLowerCase();
-				//register route
-				self.on(routeName, function(route, runs) {
-					//stop previous?
-					if(prev && views[prev] && views[prev].stop) {
-						views[prev].stop(false);
+					} else {
+						aStart++;
 					}
-					//cache vars
-					prev = name;
-					//set route
-					view.route = route;
-					view.page = Fstage(opts.pageCss.replace('{name}', route.name));
-					//set default methods
-					view.defRender = defRender.bind(view);
-					view.render = view.render || view.defRender;
-					//set default props
-					view.state = view.state || {};
-					view.events = view.events || {};
-					view.templates = view.templates || {};
-					//init view
-					requestAnimationFrame(function() {
-						//call start?
-						if(view.start) {
-							//execute
-							view.start();
-							//stop here?
-							if(!self.is(view.route.name)) {
-								if(view.stop) {
-									view.stop(true);
-								}
-								return false;
-							}
-						}
-						//call render
-						return view.render('page', {}, true).then(function(data) {
-							//register events
-							requestAnimationFrame(function() {
-								//loop through events
-								for(var key in view.events) {
-									//skip property?
-									if(!view.events.hasOwnProperty(key)) {
-										continue;
-									}
-									//register event?
-									if(!runs || key.indexOf('Once') === -1) {
-										view.events[key](view);
-									}
-								}
-								//mark as run
-								view.hasRun = true;
-							});
-						});
-					});
-				});
-			});
-		},
-
-		start: function(conf = {}) {
-			//has started?
-			if(started) {
-				return this;
+				} else {
+					parentNode.removeChild(get(a[aStart++], -1));
+				}
 			}
-			//cache vars
-			started = true;
-			opts = Fstage.extend(opts, conf);
-			//set local vars
-			var self = this;
-			var isRoute = false;
-			var fallback = opts.notfound;
-			var curPath = (location.pathname + location.search + location.hash).replace(/\/$/, '');
-			var name = curPath.split(/[^\w-]+/g).pop();
-			//load views?
-			if(conf.views && self.views) {
-				self.views(conf.views);
-			}
-			//fallback to home?
-			if(!name || !self.has(name)) {
-				name = opts.home;
-			}
-			//trigger initial route
-			self.redirect(name);
-			//listen to clicks
-			Fstage(window).on('click', '[data-route]', function(e) {
-				//route vars
-				var name = this.getAttribute('data-route');
-				var mode = this.getAttribute('data-history') || 'push';
-				var params = (this.getAttribute('data-params') || '').split(';');
-				//valid name?
-				if(!name || !name.length) {
-					return;
-				}
-				//set data
-				var data = {
-					params: {},
-					isBack: this.getAttribute('data-back') === 'true'
-				};
-				//parse params?
-				for(var i=0; i < params.length; i++) {
-					var tmp = params[i].split(':', 2);
-					if(tmp.length > 1) {
-						data.params[tmp[0].trim()] = tmp[1].trim();
-					}
-				}
-				//is form submit?
-				if(this.getAttribute('type') === 'submit') {
-					//check for form
-					var form = Fstage.closest('form', this);
-					//form found?
-					if(form && form.length) {
-						//listen to form submit
-						return form.one('submit', function(e) {
-							e.preventDefault();
-							self.trigger(name, data, mode);
-						});
-					}
-				}
-				//click trigger
-				e.preventDefault();
-				self.trigger(name, data, mode);
-			});
-			//listen to browser navigation
-			Fstage(window).on('popstate', function(e) {
-				//stop here?
-				if(!e.state || !e.state.name) {
-					isBack = false;
-					return;
-				}
-				//set vars
-				var goBack = (isBack || histId > e.state.id || (e.state.id - histId) > 1);
-				var data = { id: e.state.id, params: e.state.params, isBack: goBack, scroll: e.state.scroll };
-				//reset cache
-				isBack = false;
-				histId = e.state.id;
-				//trigger route (no history)
-				self.trigger(e.state.name, data, null);
-			});
-			//chain it
-			return self;
 		}
-
-	};
-
-})();
-
-/**
- * TEMPLATE ENGINE
-**/
-(function(undefined) {
-
-	Fstage.tpl = {
-
-		compile: function(html, data = {}) {
-			//set vars
-			var self = Fstage.tpl;
-			var objects = [ data, window ];
-			//replace {{vars}}
-			return (html || '').replace(/(\=[\"\'])?{{(.*?)}}(\")?/g, function(match, a, b, c) {
-				//set vars
-				var found = false;
-				var contents = b.trim();
-				var parts = contents.split('.');
-				var modifier = (a || c) ? 'attr' : 'html';
-				//attempt replace?
-				if(contents.length && parts.length) {
-					//loop through objects
-					for(var o in objects) {
-						//skip property?
-						if(!objects.hasOwnProperty(o)) {
-							continue;
-						}
-						//cache object
-						var res = objects[o];
-						//loop through content parts
-						for(var i=0; i < parts.length; i++) {
-							//valid key found?
-							if(res && res[parts[i]] !== undefined) {
-								res = res[parts[i]];
-								continue;
-							}
-							//failed
-							res = null;
-							break;
-						}
-						//data found?
-						if([ 'string', 'number' ].includes(typeof res)) {
-							found = true;
-							contents = res;
-							break;
-						}
-					}
-				}
-				//use modifier?
-				if(self[modifier]) {
-					contents = self[modifier](contents);
-				}
-				//return
-				return (a || '') + contents + (c || '');
-			});
-		},
-
-		html: function(html) {
-			return Fstage.escHtml(html);
-		},
-
-		js: function(val) {
-			return Fstage.escJs(val);
-		},
-
-		attr: function(val) {
-			return Fstage.escHtml(Fstage.escJs(val));
-		}
-
-	};
-
-})();
-
-/**
- * FORM VALIDATION
-**/
-(function(undefined) {
-
-	Fstage.form = function(name, opts = {}) {
-		//set vars
-		var step = '';
-		var values = {};
-		var errors = {};
-		var form = document[name];
-		//ensure fields set
-		opts.fields = opts.fields || {};
-		//valid form?
-		if(!form) {
-			throw new Error('Form not found:' + name);
-		}
-		//validate helper
-		var validate = function(field) {
-			//set vars
-			var isValid = true;
-			//loop through fields
-			Fstage.each(opts.fields, function(k) {
-				//skip field?
-				if(field && k !== field) {
-					return;
-				}
-				//field found?
-				if(form[k]) {
-					//get field value
-					var value = form[k].value.trim();
-					//remove error
-					removeError(k);
-					//filter value?
-					if(opts.fields[k].filter) {
-						value = opts.fields[k].filter.call(form, value);
-					}
-					//validate value?
-					if(opts.fields[k].validator) {
-						//call validator
-						var res = opts.fields[k].validator.call(form, value);
-						//error returned?
-						if(res instanceof Error) {
-							addError(k, res.message);
-							isValid = false;
-						}
-					}
-					//cache value
-					values[k] = value;
-				}
-			});
-			//return
-			return isValid;	
-		};
-		//add error helper
-		var addError = function(field, message) {
-			//valid field?
-			if(!form[field]) return;
-			//create error node
-			var err = document.createElement('div');
-			err.classList.add('error');
-			err.innerHTML = message;
-			//add to cache
-			errors[field] = message;
-			//is multi?
-			if(form[field].parentNode) {
-				//add error meta
-				form[field].classList.add('has-error');
-				//add error node
-				form[field].parentNode.insertBefore(err, form[field].nextSibling);
-			} else {
-				//add error meta
-				Fstage.each(form[field], function(i, field) {
-					field.classList.add('has-error');
-				});
-				//add error node
-				form[field][0].parentNode.appendChild(err);
-			}
-		};
-		//remove error helper
-		var removeError = function(field) {
-			//valid field?
-			if(!form[field]) return;
-			//is multi?
-			if(form[field].parentNode) {
-				//remove error meta
-				form[field].classList.remove('has-error');
-				//remove error node
-				var err = form[field].parentNode.querySelector('.error');
-				err && err.parentNode.removeChild(err);
-			} else {
-				//remove field meta
-				Fstage.each(form[field], function(i, field) {
-					field.classList.remove('has-error');
-				});
-				//remove error node
-				var err = form[field][0].parentNode.querySelector('.error');
-				err && err.parentNode.removeChild(err);
-			}
-			//delete cache?
-			if(errors[field]) {
-				delete errors[field];
-			}
-		};
-		//Method form step
-		form.step = function(name = null) {
-			//set step?
-			if(name) {
-				step = name;
-				Fstage(form).find('.step').addClass('hidden');
-				Fstage(form).find('.step.' + step).removeClass('hidden');
-			}
-			//return
-			return step;
-		};
-		//Method: get errors
-		form.err = function(field = null, message = null) {
-			//set error?
-			if(field && message) {
-				addError(field, message);
-			}
-			//return error(s)
-			return field ? (errors[field] || null) : errors;
-		};
-		//Method: get values
-		form.val = function(field = null) {
-			return field ? (values[field] || null) : values;
-		};
-		//Method: reset fields
-		form.reset = function(field = null, skip = []) {
-			//loop through fields
-			Fstage.each(opts.fields, function(k) {
-				//reset field?
-				if(form[k] && !skip.includes(k) && (!field || field === k)) {
-					//is checked?
-					if(form[k] instanceof NodeList) {
-						//loop through nodes
-						for(var i=0; i < form[k].length; i++) {
-							form[k][i].checked = form[k][i].defaultChecked;
-						}
-					}
-					//default value
-					form[k].value = values[k] = form[k].defaultValue;
-					//clear error
-					removeError(k);
-				}
-			});
-		};
-		//Method: validate form
-		form.isValid = function(key = null) {
-			return validate(key);
-		};
-		//add focus listeners
-		Fstage.each(opts.fields, function(k) {
-			//valid field?
-			if(!form[k]) return;
-			//get fields
-			var fields = form[k].parentNode ? [ form[k] ] : form[k];
-			//loop through fields
-			Fstage.each(fields, function(i, el) {
-				//add focus listener
-				el.addEventListener('focus', function(e) {
-					removeError(k);
-				});
-				//add blur listener
-				el.addEventListener('blur', function(e) {
-					validate(k);
-				});
-			});
-		});
-		//add submit listener
-		form.addEventListener('click', function(e) {
-			//is submit?
-			if(e.target.type !== 'submit') {
-				return;
-			}
-			//prevent default
-			e.preventDefault();
-			//is valid?
-			if(form.isValid()) {
-				if(opts.onSuccess) {
-					opts.onSuccess.call(form, values, errors);
-				}
-			} else {
-				if(opts.onError) {
-					opts.onError.call(form, values, errors);
-				}
-			}
-		}, true);
-		//return
-		return form;
+		return b;
 	};
 
 })();
@@ -2447,6 +1635,1397 @@
 		});
 		//open socket
 		return self.open();
+	};
+
+})();
+
+/**
+ * OBJECT OBSERVER
+**/
+(function(undefined) {
+
+	var _count = 0;
+	var _pubsub = Fstage.pubsub;
+
+	var _path = function(root, key) {
+		return root + (root ? '.' : '') + key;
+	};
+
+	Fstage.observe = function(obj, base = null, path = '') {
+		//is proxy?
+		if(!obj || obj.__isProxy) {
+			return obj;
+		}
+		//set ID?
+		if(base === null) {
+			obj.__id = (++_count);
+		}
+		//set base
+		base = base || obj;
+		//set local vars
+		var evName = 'object.observe.' + base.__id;
+		var reserved = [ 'isProxy', 'onProxy', 'lockedProxy', 'baseProxy', 'proxyTarget', '__id' ];
+		//create proxy
+		var proxy = new Proxy(obj, {
+			get: function(o, k) {
+				if(k === 'isProxy') {
+					return true;
+				} else if(k === 'proxyTarget') {
+					return o;
+				} else if(k === 'onProxy') {
+					return function(fn) { return _pubsub.on(evName, fn) }
+				} else if(!reserved.includes(k) && o[k] && typeof o[k] === 'object' && !o[k].isProxy) {
+					o[k] = Fstage.observe(o[k], base, _path(path, k));
+				}
+				return o[k];
+			},
+			set: function(o, k, v) {
+				if(k === 'lockedProxy') {
+					base.proxyTarget.lockedProxy = !!v;
+				} else if(!reserved.includes(k) && o[k] !== v) {
+					if(base.lockedProxy) {
+						throw new Error('Proxy is locked');
+					}
+					var f = o[k]; o[k] = v;
+					var t = (f === undefined) ? 'add' : 'change';
+					_pubsub.emit(evName, { obj: base, path: _path(path, k), type: t, from: f, to: v });
+				}
+				return true;
+			},
+			deleteProperty: function(o, k) {
+				if(!reserved.includes(k) && o[k] !== undefined) {
+					if(base.lockedProxy) {
+						throw new Error('Proxy is locked');
+					}
+					var f = o[k]; delete o[k];
+					_pubsub.emit(evName, { obj: base, path: _path(path, k), type: 'remove', from: f, to: undefined });
+				}
+				return true;
+			}
+		});
+		//update base?
+		if(obj === base) {
+			base = proxy;
+		}
+		//set base proxy
+		obj.baseProxy = base;
+		//return
+		return proxy;
+	};
+
+})();
+
+/**
+ * STATE MANAGEMENT
+**/
+(function(undefined) {
+
+	var store = function(name, state = {}) {
+
+		var _state = {};
+		var _changes = {};
+		var _selectors = {};
+		var _hasDispatched = false;
+		var _prefix = 'store.' + name + '.';
+
+		var _watchState = function(state) {
+			//create proxy?
+			if(!state || !state.isProxy) {
+				//observe object
+				state = api._observe(state || {});
+				//lock state
+				state.lockedProxy = true;
+				//listen for changes
+				state.onProxy(function(change) {
+					api._objKey.set(_changes, change.path, change.to);
+				});
+			}
+			//return
+			return state;
+		};
+
+		var api = {
+
+			_objKey: Fstage.objKey,
+			_pubsub: Fstage.pubsub,
+			_observe: Fstage.observe,
+			_memoize: Fstage.memoize,
+
+			instance: function(name, state = {}) {
+				return new store(name, state);
+			},
+
+			name: function() {
+				return name;
+			},
+
+			initState: function(state) {
+				//stop here?
+				if(_hasDispatched) return;
+				//watch state?
+				if(state) {
+					_state = _watchState(state);
+				}
+			},
+
+			getState: function(key = null) {
+				//use selector?
+				if(key && _selectors[key]) {
+					return _selectors[key].call(this, _state);
+				}
+				//find by key
+				return api._objKey.get(_state, key);
+			},
+
+			on: function(key, fn) {
+				//key is function?
+				if(typeof key === 'function') {
+					fn = key;
+					key = null;
+				}
+				//return listener
+				return api._pubsub.on(_prefix + 'change', function(state, action) {
+					//has key?
+					if(key && key.length) {
+						//use selector?
+						if(_selectors[key]) {
+							state = _selectors[key].call(this, action.changes);
+						} else {
+							state = api._objKey.get(action.changes, key);
+						}
+					}
+					//run callback?
+					if(state !== undefined) {
+						fn(state, action);
+					}
+				});
+			},
+
+			off: function(token) {
+				return api._pubsub.off(_prefix + 'change', token);
+			},
+
+			dispatch: function(name, payload = null, status = null) {
+				//update flag
+				_hasDispatched = true;
+				//create action
+				var action = {
+					type: name,
+					payload: payload,
+					status: status || 'complete'
+				};
+				//action middleware?
+				if(status === null) {
+					action = api._pubsub.emit(_prefix + 'middleware', action, {
+						ctx: this,
+						filter: true
+					});
+				}
+				//payload is promise?
+				if(action.payload && action.payload.then) {
+					//update action
+					var promise = action.payload;
+					action.payload = null;
+					action.status = 'pending';
+					//check if pending
+					Promise.race([ promise, 'pending' ]).then(function(value) {
+						//already resolved?
+						if(value !== 'pending') {
+							return;
+						}
+						//add actions
+						promise.then(function(res) {
+							api.dispatch(name, res, 'complete');
+						}).catch(function(error) {
+							api.dispatch(name, error, 'error');
+						});
+					});
+				}
+				//unlock state
+				_state.lockedProxy = false;
+				//state middleware
+				api._pubsub.emit(_prefix + 'reduce', [ _state, action ], {
+					ctx: this,
+					method: 'apply'
+				});
+				//stop here?
+				if(!Object.keys(_changes).length) {
+					return;
+				}
+				//lock state
+				_state.lockedProxy = true;
+				action.changes = _changes;
+				_changes = {};
+				//alert store listeners
+				return api._pubsub.emit(_prefix + 'change', [ _state, action ], {
+					method: 'apply'
+				});
+			},
+
+			reducer: function(name, fn) {
+				//name is function?
+				if(typeof name === 'function') {
+					fn = name;
+					name = '';
+				}
+				//add listener
+				return api._pubsub.on(_prefix + 'reduce', function(state, action) {
+					//execute callback?
+					if(!name || action.type === name) {
+						return fn(state, action);
+					}
+					//default
+					return state;
+				});
+			},
+
+			selector: function(name, fn = null, memoize = false) {
+				//add selector?
+				if(fn !== null) {
+					_selectors[name] = memoize ? api._memoize(fn) : fn;
+				}
+				//return
+				return _selectors[name];
+			},
+
+			middleware: function(name, fn) {
+				//name is function?
+				if(typeof name === 'function') {
+					fn = name;
+					name = '';
+				}
+				//add listener
+				return api._pubsub.on(_prefix + 'middleware', function(action) {
+					//execute callback?
+					if(!name || action.type === name) {
+						return fn(action);
+					}
+					//default
+					return action;
+				});
+			}
+
+		};
+
+		_state = _watchState(_state);
+
+		return api;
+
+	};
+	
+	Fstage.store = new store('default');
+
+})();
+
+/**
+ * VIEW COMPONENTS
+**/
+(function(undefined) {
+
+	var _tags = {};
+	var _queue = [];
+	var _rootEl = null;
+	var _mutations = null;
+	var _canQueue = false;
+
+	var _getProps = function(el) {
+		//set vars
+		var props = {};
+		//parse attributes?
+		if(el.attributes.length) {
+			//get parent
+			var parentEl = _findParent(el);
+			//loop through attributes
+			for(var i=0; i < el.attributes.length; i++) {
+				//parse name and value
+				var k = el.attributes[i].name;
+				var v = el.attributes[i].value;
+				//valid prop?
+				if(k !== 'data-component' && k.indexOf('on') !== 0) {
+					//use parent value?
+					if(parentEl && v.indexOf('this.') === 0) {
+						//split key
+						var parts = v.replace('this.', '').split('.');
+						var v = parentEl;
+						//loop through parts
+						for(var i=0; i < parts.length; i++) {
+							//next level
+							v = v[parts[i]];
+							//not found?
+							if(v === undefined) {
+								v = null;
+								break;
+							}
+						}
+					}
+					//add prop
+					props[k] = v;
+				}
+			}
+		}
+		//freeze object?
+		if(Object.freeze) {
+			Object.freeze(props);
+		}
+		//return
+		return props;
+	};
+
+	var _findParent = function(el) {
+		//get parent node
+		var parentEl = el.parentNode;
+		//find parent component
+		while(parentEl && !parentEl.isComponent) {
+			//try next level
+			parentEl = parentEl.parentNode;
+			//stop here?
+			if(parentEl === document.body) {
+				parentEl = null;
+				break;
+			}
+		}
+		//return
+		return parentEl;
+	};
+
+	var _makeComponent = function(el, name = null) {
+		//valid element?
+		if(el.tagName && (!el.isComponent || el.orphanedComponent)) {
+			//set vars
+			var isNew = !el.isComponent;
+			var wasOrphaned = el.orphanedComponent;
+			var name = name || el.getAttribute('data-component') || el.tagName.toLowerCase();
+			//is component?
+			if(_tags[name]) {
+				//create component?
+				if(!el.isComponent) {
+					//pause updates
+					_canQueue = false;
+					//merge base
+					for(var i in _baseComponent) {
+						if(_baseComponent.hasOwnProperty(i)) {
+							el[i] = _baseComponent[i];
+						}
+					}
+					//set props
+					el.props = _getProps(el);
+					//get object
+					var obj = _tags[name];
+					//create instance?
+					if(typeof obj === 'function') {
+						obj.call(el);
+					} else {
+						//merge object
+						for(var i in obj) {
+							if(obj.hasOwnProperty(i)) {
+								el[i] = obj[i];
+							}
+						}
+					}
+					//resume updates
+					_canQueue = true;
+					//call constructed?
+					if(el.onConstructed) {
+						el.onConstructed();
+					}
+				}
+				//update orphaned state
+				el.orphanedComponent = !document.body.contains(el);
+				//is attached to DOM?
+				if(!el.orphanedComponent) {
+					//find parent
+					var parentEl = _findParent(el);
+					//set parent
+					el.parentComponent = parentEl;
+					//add child to parent?
+					if(parentEl && !el.parentComponent.childComponents.includes(el)) {
+						el.parentComponent.childComponents.push(el);
+					}
+					//render
+					_renderComponent(el);
+					//call mounted?
+					if((isNew || wasOrphaned) && !el.orphanedComponent && el.onMounted) {
+						el.onMounted();
+					}
+				}
+			}
+		}
+		//return
+		return el;
+	};
+
+	var _renderComponent = function(el, nextProps = null, nextState = null) {
+		//set vars
+		var prevProps = el.props;
+		var prevState = el.state;
+		var isUpdate = nextProps || nextState;
+		//can be rendered?
+		if(!el.isComponent || el.orphanedComponent) {
+			return el;
+		}
+		//before render?
+		if(el.onBeforeRender) {
+			//stop here?
+			if(el.onBeforeRender(nextProps, nextState, isUpdate) === false) {
+				return el;
+			}
+		}
+		//update props?
+		if(nextProps) {
+			el.props = nextProps;
+		}
+		//update state?
+		if(nextState) {
+			el.state = nextState;
+			Object.freeze && Object.freeze(el.state);
+		}
+		//generate html
+		var html = el.template();
+		//filter html
+		html = components._pubsub.emit('components.html', html, {
+			filter: true
+		});
+		//update html?
+		if(html || html === '') {
+			components._domDiff(el, html);
+		}
+		//after render?
+		if(el.onAfterRender) {
+			el.onAfterRender(prevProps, prevState, isUpdate);
+		}
+		//return
+		return el;
+	};
+
+	var _baseComponent = {
+
+		props: {},
+		state: {},
+		isComponent: true,
+		childComponents: [],
+		parentComponent: null,
+
+		setState: function(key, val = null) {
+			//set vars
+			var changed = false;
+			//has new state?
+			if(!this.__newState) {
+				this.__newState = {};
+			}
+			//format as object?
+			if(typeof key !== 'object') {
+				var tmp = {};
+				tmp[key] = val;
+				key = tmp;
+			}
+			//check object
+			for(var i in key) {
+				//skip value?
+				if(!key.hasOwnProperty(i) || this.state[i] === key[i]) {
+					continue;
+				}
+				//mark as changed
+				changed = true;
+				//update new state
+				this.__newState[i] = key[i];
+			}
+			//update state now?
+			if(changed && !_canQueue) {
+				this.state = Object.assign({}, this.state, this.__newState);
+				Object.freeze && Object.freeze(this.state);
+				this.__newState = {};
+			}
+			//queue component update?
+			if(changed && _canQueue) {
+				//set vars
+				var invoke = !_queue.length;
+				//add to queue?
+				if(!_queue.includes(this)) {
+					_queue.push(this);
+				}
+				//queue changes
+				invoke && requestAnimationFrame(function() {
+					//loop through queue
+					while(_queue.length) {
+						//next element
+						var el = _queue.shift();
+						//get new state
+						var nextProps = _getProps(el);
+						var nextState = Object.assign({}, el.state, el.__newState);
+						//re-render
+						_renderComponent(el, nextProps, nextState);
+						//reset changes
+						el.__newState = {};
+					}
+				});
+			}
+		},
+
+		onStore: function(key, fn) {
+			//key is function?
+			if(typeof key === 'function') {
+				fn = key;
+				key = null;
+			}
+			//add listener
+			return components._store.on(key, fn.bind(this));
+		},
+
+		doAction: function(name, payload = null) {
+			return components._store.dispatch(name, payload);
+		},
+
+		esc: function(input, type = 'html') {
+			return components._escape(input, type);
+		}
+
+	};
+
+	var components = {
+
+		_store: Fstage.store,
+		_pubsub: Fstage.pubsub,
+		_escape: Fstage.escape,
+		_domDiff: Fstage.domDiff,
+
+		root: function() {
+			return _rootEl;
+		},
+
+		create: function(name) {
+			return _makeComponent(document.createElement(name));
+		},
+
+		find: function(selector) {
+			//set vars
+			var res = [];
+			var nodes = _rootEl.querySelectorAll(selector);
+			//loop through nodes
+			for(var i=0; i < nodes.length; i++) {
+				//is component?
+				if(nodes[i].isComponent) {
+					res.push(nodes[i]);
+				}
+			}
+			//return
+			return res;
+		},
+
+		register: function(name, fn) {
+			//store function
+			_tags[name.toLowerCase()] = fn;
+			//chain it
+			return this;
+		},
+
+		filterHtml: function(fn) {
+			return this._pubsub.on('components.html', fn);
+		},
+
+		start: function(name, rootEl) {
+			//already started?
+			if(_mutations) {
+				return _rootEl;
+			}
+			//cache root?
+			if(!_rootEl) {
+				//is selector?
+				if(typeof rootEl === 'string') {
+					rootEl = document.querySelector(rootEl);
+				}
+				//cache node
+				_rootEl = rootEl;
+				//extend element class
+				HTMLElement.prototype.component = function() {
+					//is component?
+					if(this.isComponent) {
+						return this;
+					}
+					//return
+					return _findParent(this);
+				};
+			}
+			//create observer
+			_mutations = new MutationObserver(function(mutationsList, observer) {
+				//loop through changes
+				mutationsList.forEach(function(mutation) {
+					//check added nodes
+					mutation.addedNodes.forEach(function(el) {
+						_makeComponent(el);
+					});
+					//check removed nodes
+					mutation.removedNodes.forEach(function(el) {
+						//is component?
+						if(!el.isComponent) return;
+						//call unmounted?
+						if(el.onUnmounted) {
+							el.onUnmounted();
+						}
+						//has parent?
+						if(el.parentComponent) {
+							//get index
+							var index = el.parentComponent.childComponents.indexOf(el);
+							//remove item?
+							if(index > -1) {
+								el.parentComponent.childComponents.splice(index, 1);
+							}
+							//remove reference
+							el.parentComponent = null;
+						}
+						//mark as removed
+						el.orphanedComponent = true;
+					});
+				});
+			});
+			//observe changes
+			_mutations.observe(_rootEl, {
+				childList: true,
+				subtree: true
+			});
+			//return
+			return _makeComponent(_rootEl, name);
+		},
+
+		stop: function() {
+			//stop observing?
+			if(_mutations) {
+				_mutations.disconnect();
+				_mutations = null;
+			}
+		}
+
+	};
+
+	Fstage.components = components;
+
+})();
+
+/**
+ * VIEW ROUTING
+**/
+(function(undefined) {
+
+	//private vars
+	var histId = 0;
+	var isBack = false;
+	var started = false;
+	var viewInitCbs = [];
+
+	//default opts
+	var opts = {
+		routes: {},
+		views: {},
+		state: {},
+		baseUrl: '',
+		home: 'home',
+		notfound: 'notfound',
+		rootCss: '#app',
+		pageCss: '#page-{name}',
+		sectionCss: '.{name}',
+		history: true,
+		domDiff: false
+	};
+
+	//public api
+	Fstage.router = {
+
+		current: function() {
+			return opts.state.name || null;
+		},
+
+		state: function(data = null, mode='replace') {
+			//set state?
+			if(data) {
+				//update props
+				for(var i in data) {
+					if(data.hasOwnProperty(i)) {
+						opts.state[i] = data[i];
+					}
+				}
+				//update history?
+				if(opts.history && history[mode + 'State']) {
+					history[mode + 'State'](opts.state, '', this.url(opts.state.name || ''));
+				}
+			}
+			//return
+			return opts.state;
+		},
+
+		url: function(name = null, trim = false) {
+			//has base url?
+			if(!opts.baseUrl) {
+				return location.pathname + location.search;
+			}
+			//get name?
+			if(name === null) {
+				name = opts.state.name || '';
+			}
+			//set vars
+			var sep = /\?|\#/.test(opts.baseUrl) ? '' : '/';
+			var name = (opts.home === name && sep === '/') ? '' : name;
+			var url = (opts.baseUrl + (name ? sep + name : '')).replace(/\/\//, '/');
+			//return
+			return trim ? url.replace(/\/$/, '') : url;
+		},
+
+		is: function(name) {
+			return opts.state.name == name;
+		},
+
+		has: function(name) {
+			return opts.routes[name] && opts.routes[name].length;
+		},
+
+		on: function(name, fn) {
+			//format name
+			name = name.trim().split(/\s+/g);
+			//loop through array
+			for(var i=0; i < name.length; i++) {
+				var tmp = fn.bind({}); tmp.runs = 0;
+				opts.routes[name[i]] = opts.routes[name[i]] || [];
+				opts.routes[name[i]].push(tmp);
+			}
+			//return
+			return this;
+		},
+
+		off: function(name, fn) {
+			opts.routes[name] = (opts.routes[name] || []).filter(function(item) { return item !== fn; });
+			return this;
+		},
+
+		trigger: async function(name, data = {}, mode = 'push') {
+			//format data
+			data = Fstage.extend({
+				name: name,
+				orig: name,
+				params: {},
+				mode: mode,
+				last: opts.state.name,
+				lastParams: opts.state.params,
+				is404: !this.has(name)
+			}, data);
+			//is 404?
+			if(data.is404) {
+				//update name
+				data.name = opts.notfound;
+				//valid route?
+				if(!this.has(opts.notfound)) {
+					return false;
+				}
+			}
+			//set vars
+			var last = opts.state.name;
+			var routes = [ ':before', data.name, ':after' ];
+			//loop through routes
+			for(var i=0; i < routes.length; i++) {
+				//get listeners
+				var route = routes[i];
+				var listeners = opts.routes[route] || [];
+				//loop through listeners
+				for(var j=0; j < listeners.length; j++) {
+					//get function
+					var fn = listeners[j];
+					//execute callback
+					var res = await fn(data, fn.runs);
+					//break early?
+					if(res === false || last !== opts.state.name) {
+						return false;
+					}
+					//increment
+					fn.runs++;
+					//update result?
+					if(res && res.name) {
+						data = res;
+						routes[1] = res.name;
+					}
+				}
+			}
+			//replace state?
+			if(mode === 'replace' && opts.state.name) {
+				var state = opts.state;
+				state.name = data.name;
+			} else {
+				var state = {
+					id: data.id || (++histId),
+					name: data.name,
+					params: data.params,
+					scroll: ('scroll' in data) ? (data.scroll || 0) : window.pageYOffset
+				};
+			}
+			//update cache
+			opts.state = {};
+			this.state(state, mode);
+			//success
+			return true;
+		},
+
+		redirect: function(name, data = {}) {
+			return this.trigger(name, data, 'replace');
+		},
+
+		refresh: function() {
+			//can refresh?
+			if(opts.state.name) {
+				return this.trigger(opts.state.name, {}, null);
+			}
+		},
+
+		back: function() {
+			//set vars
+			isBack = true;
+			var that = this;
+			//try history
+			history.back();
+			//set fallback
+			setTimeout(function() {
+				//stop here?
+				if(!isBack) return;
+				//trigger back
+				that.trigger(opts.state.name || opts.home, {
+					isBack: true,
+					params: opts.state.params || {}
+				}, null);
+			}, 400);
+		},
+
+		show: function(value, attr = 'data-if') {
+			//get current route
+			var route = this.current();
+			//stop here?
+			if(!route) return;
+			//get page
+			var css = opts.pageCss.replace('{name}', route);
+			var page = Fstage(css);
+			//update classes
+			page.find('[' + attr + ']').addClass('hidden');
+			page.find('[' + attr + '="' + value + '"]').removeClass('hidden');
+		},
+
+		views: function(views) {
+			//set vars
+			var self = this;
+			var prev = null;
+			//object promise helper
+			var objPromise = function(obj) {
+				return Promise.all(Object.values(obj)).then(function(vals) {
+					var res = {}, keys = Object.keys(obj);
+					for(var i = 0; i < keys.length; i++) {
+						res[keys[i]] = vals[i];
+					}
+					return res;
+				});
+			};
+			//default render helper
+			var defRender = function(template = 'page', conf = {}, isInit = false) {
+				//set vars
+				var view = this;
+				//default conf
+				conf = Fstage.extend({
+					state: { ...view.state },
+					selector: opts.sectionCss,
+					domDiff: opts.domDiff
+				}, conf);
+				//wrap in promise
+				return new Promise(function(resolve) {
+					//template exists?
+					if(!view.templates[template]) {
+						console.warn('Template not found: ' + template);
+						return resolve(false);
+					}
+					//call pre-render?
+					if(view.preRender) {
+						//execute
+						view.preRender(template, isInit);
+						//stop here?
+						if(!self.is(view.route.name)) {
+							if(view.stop) {
+								view.stop(true);
+							}
+							return resolve(false);
+						}
+					}
+					//loop through state
+					for(var i in conf.state) {
+						//call function?
+						if(typeof conf.state[i] === 'function') {
+							conf.state[i] = conf.state[i]();
+						}
+					}
+					//return data
+					return objPromise(conf.state).then(async function(data) {
+						//stop here?
+						if(!self.is(view.route.name)) {
+							if(view.stop) {
+								view.stop(true);
+							}
+							return resolve(false);
+						}
+						//compile html
+						var html = await view.templates[template](data);
+						var html = Fstage.tpl.compile(html, data);
+						//get element to inject
+						var selector = conf.selector.replace('{name}', template);
+						var el = (template === 'page') ? view.page : view.page.find(selector);
+						//dom diff?
+						if(conf.domDiff) {
+							Fstage.domDiff(el[0], html);
+						} else {
+							el.html(html);
+						}
+						//handle post-render
+						requestAnimationFrame(function() {
+							//call post-render?
+							if(view.postRender) {
+								//execute
+								view.postRender(template, data, isInit);
+								//stop here?
+								if(!self.is(view.route.name)) {
+									if(view.stop) {
+										view.stop(true);
+									}
+									return resolve(false);
+								}
+							}
+							//success
+							return resolve(data);
+						});
+					});
+				});
+			};
+			//loop through views
+			Fstage.each(views, function(name, view) {
+				//format route name
+				var routeName = name.replace(/[\w]([A-Z])/g, function(m) {
+					return m[0] + '-' + m[1];
+				}).toLowerCase();
+				//register route
+				self.on(routeName, function(route, runs) {
+					//stop previous?
+					if(prev && views[prev] && views[prev].stop) {
+						views[prev].stop(false);
+					}
+					//set vars
+					var pageId = opts.pageCss.replace('{name}', route.name);
+					prev = name;
+					//set route
+					view.route = route;
+					view.page = Fstage(pageId);
+					//auto-generate div?
+					if(!view.page[0]) {
+						var el = document.createElement('div');
+						el.id = pageId.replace('#', '');
+						el.classList.add('page', route.name, 'hidden');
+						document.querySelector(opts.rootCss).appendChild(el);
+						view.page = Fstage(el);
+					}
+					//set default methods
+					view.defRender = defRender.bind(view);
+					view.render = view.render || view.defRender;
+					//set default props
+					view.state = view.state || {};
+					view.events = view.events || {};
+					view.templates = view.templates || {};
+					//first run?
+					if(!view.started) {
+						//execute callbacks
+						for(var i=0; i < viewInitCbs.length; i++) {
+							viewInitCbs[i](view);
+						}
+					}
+					//call start?
+					if(view.start) {
+						view.start();
+					}
+					//has started
+					view.started = true;
+					//init view
+					requestAnimationFrame(function() {
+						//stop here?
+						if(!self.is(view.route.name)) {
+							if(view.stop) {
+								view.stop(true);
+							}
+							return;
+						}
+						//call render
+						view.render('page', {}, true).then(function(data) {
+							//register events
+							requestAnimationFrame(function() {
+								//loop through events
+								for(var key in view.events) {
+									//skip property?
+									if(!view.events.hasOwnProperty(key)) {
+										continue;
+									}
+									//register event?
+									if(!runs || key.indexOf('Once') === -1) {
+										view.events[key](view);
+									}
+								}
+								//mark as run
+								view.hasRun = true;
+							});
+						});
+					});
+				});
+			});
+		},
+
+		onViewInit: function(fn) {
+			viewInitCbs.push(fn);
+		},
+
+		start: function(conf = {}) {
+			//has started?
+			if(started) {
+				return this;
+			}
+			//cache vars
+			started = true;
+			opts = Fstage.extend(opts, conf);
+			//set local vars
+			var self = this;
+			var isRoute = false;
+			var fallback = opts.notfound;
+			var curPath = (location.pathname + location.search + location.hash).replace(/\/$/, '');
+			var name = curPath.split(/[^\w-]+/g).pop();
+			//load views?
+			if(conf.views && self.views) {
+				self.views(conf.views);
+			}
+			//fallback to home?
+			if(!name || !self.has(name)) {
+				name = opts.home;
+			}
+			//trigger initial route
+			self.redirect(name);
+			//listen to clicks
+			Fstage(window).on('click', '[data-route]', function(e) {
+				//route vars
+				var name = this.getAttribute('data-route');
+				var mode = this.getAttribute('data-history') || 'push';
+				var params = (this.getAttribute('data-params') || '').split(';');
+				//valid name?
+				if(!name || !name.length) {
+					return;
+				}
+				//set data
+				var data = {
+					params: {},
+					isBack: this.getAttribute('data-back') === 'true'
+				};
+				//parse params?
+				for(var i=0; i < params.length; i++) {
+					var tmp = params[i].split(':', 2);
+					if(tmp.length > 1) {
+						data.params[tmp[0].trim()] = tmp[1].trim();
+					}
+				}
+				//is form submit?
+				if(this.getAttribute('type') === 'submit') {
+					//check for form
+					var form = Fstage.closest('form', this);
+					//form found?
+					if(form && form.length) {
+						//listen to form submit
+						return form.one('submit', function(e) {
+							e.preventDefault();
+							self.trigger(name, data, mode);
+						});
+					}
+				}
+				//click trigger
+				e.preventDefault();
+				self.trigger(name, data, mode);
+			});
+			//listen to browser navigation
+			Fstage(window).on('popstate', function(e) {
+				//stop here?
+				if(!e.state || !e.state.name) {
+					isBack = false;
+					return;
+				}
+				//set vars
+				var goBack = (isBack || histId > e.state.id || (e.state.id - histId) > 1);
+				var data = { id: e.state.id, params: e.state.params, isBack: goBack, scroll: e.state.scroll };
+				//reset cache
+				isBack = false;
+				histId = e.state.id;
+				//trigger route (no history)
+				self.trigger(e.state.name, data, null);
+			});
+			//chain it
+			return self;
+		}
+
+	};
+
+})();
+
+/**
+ * TEMPLATE ENGINE
+**/
+(function(undefined) {
+
+	Fstage.tpl = {
+
+		compile: function(html, data = {}) {
+			//set vars
+			var self = Fstage.tpl;
+			var objects = [ data, window ];
+			//replace {{vars}}
+			return (html || '').replace(/(\=[\"\'])?{{(.*?)}}(\")?/g, function(match, a, b, c) {
+				//set vars
+				var found = false;
+				var contents = b.trim();
+				var parts = contents.split('.');
+				var modifier = (a || c) ? 'attr' : 'html';
+				//attempt replace?
+				if(contents.length && parts.length) {
+					//loop through objects
+					for(var o in objects) {
+						//skip property?
+						if(!objects.hasOwnProperty(o)) {
+							continue;
+						}
+						//cache object
+						var res = objects[o];
+						//loop through content parts
+						for(var i=0; i < parts.length; i++) {
+							//valid key found?
+							if(res && res[parts[i]] !== undefined) {
+								res = res[parts[i]];
+								continue;
+							}
+							//failed
+							res = null;
+							break;
+						}
+						//data found?
+						if([ 'string', 'number' ].includes(typeof res)) {
+							found = true;
+							contents = res;
+							break;
+						}
+					}
+				}
+				//use modifier?
+				if(self[modifier]) {
+					contents = self[modifier](contents);
+				}
+				//return
+				return (a || '') + contents + (c || '');
+			});
+		},
+
+		html: function(html) {
+			return Fstage.escHtml(html);
+		},
+
+		js: function(val) {
+			return Fstage.escJs(val);
+		},
+
+		attr: function(val) {
+			return Fstage.escAttr(val);
+		}
+
+	};
+
+})();
+
+/**
+ * FORM VALIDATION
+**/
+(function(undefined) {
+
+	Fstage.form = function(name, opts = {}) {
+		//set vars
+		var step = '';
+		var values = {};
+		var errors = {};
+		var form = document[name];
+		//ensure fields set
+		opts.fields = opts.fields || {};
+		//valid form?
+		if(!form) {
+			throw new Error('Form not found:' + name);
+		}
+		//validate helper
+		var validate = function(field) {
+			//set vars
+			var isValid = true;
+			//loop through fields
+			Fstage.each(opts.fields, function(k) {
+				//skip field?
+				if(field && k !== field) {
+					return;
+				}
+				//field found?
+				if(form[k]) {
+					//get field value
+					var value = form[k].value.trim();
+					//remove error
+					removeError(k);
+					//filter value?
+					if(opts.fields[k].filter) {
+						value = opts.fields[k].filter.call(form, value);
+					}
+					//validate value?
+					if(opts.fields[k].validator) {
+						//call validator
+						var res = opts.fields[k].validator.call(form, value);
+						//error returned?
+						if(res instanceof Error) {
+							addError(k, res.message);
+							isValid = false;
+						}
+					}
+					//cache value
+					values[k] = value;
+				}
+			});
+			//return
+			return isValid;	
+		};
+		//add error helper
+		var addError = function(field, message) {
+			//valid field?
+			if(!form[field]) return;
+			//create error node
+			var err = document.createElement('div');
+			err.classList.add('error');
+			err.innerHTML = message;
+			//add to cache
+			errors[field] = message;
+			//is multi?
+			if(form[field].parentNode) {
+				//add error meta
+				form[field].classList.add('has-error');
+				//add error node
+				form[field].parentNode.insertBefore(err, form[field].nextSibling);
+			} else {
+				//add error meta
+				Fstage.each(form[field], function(i, field) {
+					field.classList.add('has-error');
+				});
+				//add error node
+				form[field][0].parentNode.appendChild(err);
+			}
+		};
+		//remove error helper
+		var removeError = function(field) {
+			//valid field?
+			if(!form[field]) return;
+			//is multi?
+			if(form[field].parentNode) {
+				//remove error meta
+				form[field].classList.remove('has-error');
+				//remove error node
+				var err = form[field].parentNode.querySelector('.error');
+				err && err.parentNode.removeChild(err);
+			} else {
+				//remove field meta
+				Fstage.each(form[field], function(i, field) {
+					field.classList.remove('has-error');
+				});
+				//remove error node
+				var err = form[field][0].parentNode.querySelector('.error');
+				err && err.parentNode.removeChild(err);
+			}
+			//delete cache?
+			if(errors[field]) {
+				delete errors[field];
+			}
+		};
+		//Method form step
+		form.step = function(name = null) {
+			//set step?
+			if(name) {
+				step = name;
+				Fstage(form).find('.step').addClass('hidden');
+				Fstage(form).find('.step.' + step).removeClass('hidden');
+			}
+			//return
+			return step;
+		};
+		//Method: get errors
+		form.err = function(field = null, message = null) {
+			//set error?
+			if(field && message) {
+				addError(field, message);
+			}
+			//return error(s)
+			return field ? (errors[field] || null) : errors;
+		};
+		//Method: get values
+		form.val = function(field = null) {
+			return field ? (values[field] || null) : values;
+		};
+		//Method: reset fields
+		form.reset = function(field = null, skip = []) {
+			//loop through fields
+			Fstage.each(opts.fields, function(k) {
+				//reset field?
+				if(form[k] && !skip.includes(k) && (!field || field === k)) {
+					//is checked?
+					if(form[k] instanceof NodeList) {
+						//loop through nodes
+						for(var i=0; i < form[k].length; i++) {
+							form[k][i].checked = form[k][i].defaultChecked;
+						}
+					}
+					//default value
+					form[k].value = values[k] = form[k].defaultValue;
+					//clear error
+					removeError(k);
+				}
+			});
+		};
+		//Method: validate form
+		form.isValid = function(key = null) {
+			return validate(key);
+		};
+		//add focus listeners
+		Fstage.each(opts.fields, function(k) {
+			//valid field?
+			if(!form[k]) return;
+			//get fields
+			var fields = form[k].parentNode ? [ form[k] ] : form[k];
+			//loop through fields
+			Fstage.each(fields, function(i, el) {
+				//add focus listener
+				el.addEventListener('focus', function(e) {
+					removeError(k);
+				});
+				//add blur listener
+				el.addEventListener('blur', function(e) {
+					validate(k);
+				});
+			});
+		});
+		//add submit listener
+		form.addEventListener('click', function(e) {
+			//is submit?
+			if(e.target.type !== 'submit') {
+				return;
+			}
+			//prevent default
+			e.preventDefault();
+			//is valid?
+			if(form.isValid()) {
+				if(opts.onSuccess) {
+					opts.onSuccess.call(form, values, errors);
+				}
+			} else {
+				if(opts.onError) {
+					opts.onError.call(form, values, errors);
+				}
+			}
+		}, true);
+		//return
+		return form;
 	};
 
 })();
