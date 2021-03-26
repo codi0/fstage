@@ -6,7 +6,7 @@
  * License: MIT
  * Source: https://github.com/codi0/fstage
  *
- * Assumes support for: Promise, fetch, Proxy (IE is dead)
+ * Assumes support for: Promise, fetch, Proxy, Object.assign (IE is dead)
  * Checks support for: Symbol.iterator, AbortController
 **/
 (function(undefined) {
@@ -90,20 +90,7 @@
 	};
 
 	Fstage.extend = function(obj = {}) {
-		//loop through args
-		for(var i=0; i < arguments.length; i++) {
-			//skip first?
-			if(!i) continue;
-			//loop through arg props
-			for(var prop in arguments[i]) {
-				//prop belongs to arg?
-				if(arguments[i].hasOwnProperty(prop)) {
-					obj[prop] = arguments[i][prop];
-				}
-			}
-		}
-		//return
-		return obj;
+		return Object.assign.apply(null, [].slice.call(arguments));
 	};
 
 	Fstage.type = function(input) {
@@ -131,13 +118,13 @@
 
 	Fstage.escape = function(input, type) {
 		//get method
-		var method = 'esc' + type;
+		var method = 'esc' + Fstage.capitalize(type);
 		//method exists?
-		if(this[method]) {
-			return this[method](input);
+		if(Fstage[method]) {
+			return Fstage[method](input);
 		}
 		//default
-		return this.escHtml(input);
+		return Fstate.escHtml(input);
 	};
 
 	Fstage.escHtml = Fstage.escHTML = function(input) {
@@ -237,6 +224,10 @@
 		return Fstage.hash(uid + navigator.userAgent.replace(/[0-9\.\s]/g, ''));
 	};
 
+	Fstage.capitalize = function(str) {
+	  return str.charAt(0).toUpperCase() + str.slice(1);
+	};
+
 	Fstage.memoize = function(fn) {
 		//set vars
 		var cache = {};
@@ -305,18 +296,18 @@
 (function(undefined) {
 
 	var _prom = null
-	var _current = [];
+	var _state = [];
 	var _next = [];
 
 	Fstage.tick = function(fn, next = false) {
 		//register callback
-		(next ? _next : _current).push(fn);
+		(next ? _next : _state).push(fn);
 		//create promise
 		_prom = _prom || Promise.resolve().then(function() {
 			//copy callbacks
-			var cb = _current.concat(_next);
+			var cb = _state.concat(_next);
 			//reset state
-			_prom = null; _current = []; _next = [];
+			_prom = null; _state = []; _next = [];
 			//execute callbacks
 			while(cb.length) cb.shift().call();
 		});
@@ -352,16 +343,37 @@
 				//set vars
 				var ctx = _queue[id].ctx;
 				var args = _queue[id].args;
+				var filter = _queue[id].filter;
 				var method = _queue[id].method;
 				//invoke callback
-				_queue[id].res[token] = _cbs[id][token][method](ctx, args);
+				var res = _cbs[id][token][method](ctx, args);
+				//cache result
+				_queue[id].res[token] = res;
+				//is filter?
+				if(filter && res !== undefined) {
+					if(method === 'apply') {
+						_queue[id].args[0] = res;
+					} else {
+						_queue[id].args = res;
+					}	
+				}
 			}
 			//return
 			return _queue[id].res[token];
 		};
 
 		var _result = function(arr, singular = false) {
-			return singular ? (arr.length ? arr[arr.length-1] : null) : arr;
+			//get singular result?
+			if(singular && arr.length) {
+				while(arr.length) {
+					var tmp = arr.pop();
+					if(tmp !== undefined) {
+						return tmp;
+					}
+				}
+			}
+			//return
+			return singular ? null : arr;
 		};
 
 		return {
@@ -407,6 +419,10 @@
 					filter: opts.filter,
 					method: opts.method || 'call'
 				};
+				//is filter?
+				if(opts.filter) {
+					proms.push(opts.method === 'apply' ? args[0] : args);
+				}
 				//loop through subscribers
 				for(var token in (_cbs[id] || {})) {
 					proms.push(_invoke(id, token));
@@ -414,10 +430,6 @@
 				//delete queue
 				delete _queue[id];
 				_id = last;
-				//is filter?
-				if(!proms.length && opts.filter) {
-					proms.push(opts.method === 'apply' ? args[0] : args);
-				}
 				//sync return?
 				if(!opts.async) {
 					return _result(proms, opts.filter);
@@ -938,7 +950,7 @@
 		//set vars
 		var el, startX, startY, pageX, pageY;
 		//format opts
-		opts = Fstage.extend({
+		opts = Object.assign({
 			x: true,
 			y: false,
 			delegate: null
@@ -1015,30 +1027,37 @@
 		this.on('mousedown touchstart', opts.delegate, onStart);
 	};
 
-	Fstage.pageTransition = function(toEl, toEffect, fromEl, fromEffect, opts = {}) {
-		//from element
-		if(fromEl) {
-			fromEl = Fstage(fromEl);
-			fromEl.css('z-index', opts.reverse ? 99 : 98);
-			fromEl.animate((opts.reverse ? toEffect : fromEffect) + ' out');
-		}
-		//to element
-		toEl = Fstage(toEl);
-		toEl.css('z-index', opts.reverse ? 98 : 99);
-		//run animation
-		toEl.animate((opts.reverse ? fromEffect : toEffect) + ' in', {
-			onStart: opts.onStart,
-			onEnd: function(e) {
-				//reset from?
-				if(fromEl) {
-					fromEl.addClass('hidden');
-					fromEl.attr('style', null);
-				}
-				//reset to
-				toEl.attr('style', null);
-				//callback
-				opts.onEnd && opts.onEnd(e);
+	Fstage.transition = function(toEl, toEffect, fromEl, fromEffect, opts = {}) {
+		//onEnd listener
+		var onEnd = function(e) {
+			//reset from?
+			if(fromEl) {
+				fromEl.classList.add('hidden');
+				fromEl.removeAttribute('style');
 			}
+			//reset to
+			toEl.removeAttribute('style');
+			//run callback?
+			opts.onEnd && opts.onEnd(e);
+		};
+		//from el?
+		if(fromEl) {
+			//transition immediately?
+			if(fromEl.classList.contains('hidden')) {
+				toEl.classList.remove('hidden');
+				return onEnd();
+			}
+			//From: set z-index
+			fromEl.style.zIndex = opts.reverse ? 99 : 98;
+			//From: animate
+			Fstage(fromEl).animate((opts.reverse ? toEffect : fromEffect) + ' out');
+		}
+		//To: set z-index
+		toEl.style.zIndex = opts.reverse ? 98 : 99;
+		//To: animate
+		Fstage(toEl).animate((opts.reverse ? fromEffect : toEffect) + ' in', {
+			onStart: opts.onStart,
+			onEnd: onEnd
 		});
 	};
 
@@ -1129,7 +1148,7 @@
 		//loop through nodes
 		this.each(function() {
 			//set opts
-			var opts = Fstage.extend({
+			var opts = Object.assign({
 				item: '.item',
 				nav: '.nav',
 				auto: this.classList.contains('auto'),
@@ -1293,7 +1312,7 @@
 
 	Fstage.fn.cookieConsent = function(opts = {}) {
 		//set options
-		opts = Fstage.extend({
+		opts = Object.assign({
 			key: 'gdpr',
 			text: 'We use cookies to provide the best website experience.',
 			url: '/privacy/'
@@ -1330,83 +1349,231 @@
 **/
 (function(undefined) {
 
-	//Forked: https://github.com/WebReflection/udomdiff
-	Fstage.domDiff = function(parentNode, html, opts = {}) {
-		//convert string?
-		if(typeof html === 'string') {
-			var tmp = document.createElement('div');
-			tmp.innerHTML = html;
-			html = tmp.childNodes;
-		}
-		//default get
-		var get = opts.get || function(item, i) {
-			return item;
+	//Forked: https://github.com/patrick-steele-idem/morphdom/
+	Fstage.domDiff = function(from, to, opts = {}) {
+		//update node helper
+		var updateNode = function(from, to) {
+			//equivalent node?
+			if(from.isEqualNode(to)) {
+				return;
+			}
+			//run callback?
+			if(opts.updateNode && opts.updateNode(from, to) === false) {
+				return;
+			}
+			//update attributes
+			updateAttrs(from, to);
+			//update children
+			updateChildren(from, to);
 		};
-		//set vars
-		var a = [].slice.call(opts.fromNodes || parentNode.childNodes);
-		var b = [].slice.call(html);
-		var bLength = b.length;
-		var aEnd = a.length;
-		var bEnd = bLength;
-		var aStart = 0;
-		var bStart = 0;
-		var map = null;
-		//loop through nodes
-		while(aStart < aEnd || bStart < bEnd) {
-			if(aEnd === aStart) {
-				var node = bEnd < bLength ? bStart ? get(b[bStart - 1], -0).nextSibling : get(b[bEnd - bStart], 0) : opts.before;
-				while(bStart < bEnd) {
-					parentNode.insertBefore(get(b[bStart++], 1), node);
-				}
-			} else if(bEnd === bStart) {
-				while(aStart < aEnd) {
-					if(!map || !map.has(a[aStart])) parentNode.removeChild(get(a[aStart], -1));
-					aStart++;
-				}
-			} else if(a[aStart] === b[bStart]) {
-				aStart++;
-				bStart++;
-			} else if(a[aEnd - 1] === b[bEnd - 1]) {
-				aEnd--;
-				bEnd--;
-            } else if(a[aStart] === b[bEnd - 1] && b[bStart] === a[aEnd - 1]) {
-                var _node = get(a[--aEnd], -1).nextSibling;
-                parentNode.insertBefore(get(b[bStart++], 1), get(a[aStart++], -1).nextSibling);
-                parentNode.insertBefore(get(b[--bEnd], 1), _node);
-                a[aEnd] = b[bEnd];
-			} else {
-				if(!map) {
-					map = new Map();
-					var i = bStart;
-					while(i < bEnd) {
-						map.set(b[i], i++);
-					}
-				}
-				if(map.has(a[aStart])) {
-					var index = map.get(a[aStart]);
-					if(bStart < index && index < bEnd) {
-						var _i = aStart;
-						var sequence = 1;
-						while(++_i < aEnd && _i < bEnd && map.get(a[_i]) === index + sequence) {
-							sequence++;
-						}
-						if(sequence > index - bStart) {
-							var _node2 = get(a[aStart], 0);
-							while (bStart < index) {
-								parentNode.insertBefore(get(b[bStart++], 1), _node2);
-							}
-						} else {
-							parentNode.replaceChild(get(b[bStart++], 1), get(a[aStart++], -1));
-						}
-					} else {
-						aStart++;
-					}
-				} else {
-					parentNode.removeChild(get(a[aStart++], -1));
+		//update attrs helper
+		var updateAttrs = function(from, to) {
+			//skip fragment?
+			if(from.nodeType === 11 || to.nodeType === 11) {
+				return;
+			}
+			//cache to attr
+			var toAttrs = to.attributes;
+			//set updated attributes
+			for(var i=0; i < toAttrs.length; i++) {
+				if(from.getAttribute(toAttrs[i].name) !== toAttrs[i].value) {
+					from.setAttribute(toAttrs[i].name, toAttrs[i].value);
 				}
 			}
+			//cache from attr
+			var fromAttrs = from.attributes;
+			//remove discarded attrs
+			for(var i=0; i < fromAttrs.length; i++) {
+				if(!to.hasAttribute(fromAttrs[i].name)) {
+					from.removeAttribute(fromAttrs[i].name);
+				}
+			}
+		};
+		//update boolean attr helper
+		var updateAttrBool = function(from, to, name) {
+			from[name] = to[name];
+			from[from[name] ? 'setAttribute' : 'removeAttribute'](name, '');
+		};
+		//update child nodes helper
+		var updateChildren = function(from, to) {
+			//set vars
+			var curToChild = to.firstChild;
+			var curFromChild = from.firstChild;
+			var curToKey, curFromKey, fromNextSibling, toNextSibling;
+			//handle textarea node?
+			if(from.nodeName === 'TEXTAREA') {
+				from.value = to.value;
+				return;
+			}
+			//walk 'to' children
+			outer: while(curToChild) {
+				//set next 'to' sibling
+				toNextSibling = curToChild.nextSibling;
+				//walk 'from' children
+				while(curFromChild) {
+					//set vars
+					var isCompatible = undefined;
+					//set next 'from' sibling
+					fromNextSibling = curFromChild.nextSibling;
+					//is same node?
+					if(curToChild.isSameNode && curToChild.isSameNode(curFromChild)) {
+						//move to next sibling
+						curToChild = toNextSibling;
+						curFromChild = fromNextSibling;
+						continue outer;
+					}
+					//same node type?
+					if(curFromChild.nodeType === curToChild.nodeType) {
+						//is element?
+						if(curFromChild.nodeType === 1) {
+							isCompatible = (curFromChild.nodeName === curToChild.nodeName);
+							isCompatible && updateNode(curFromChild, curToChild);
+						}
+						//is text or comment?
+						if(curFromChild.nodeType === 3 || curFromChild.nodeType === 8) {
+							isCompatible = true;
+							curFromChild.nodeValue = curToChild.nodeValue;
+						}
+					}
+					//is compatible?
+					if(isCompatible) {
+						//move to next sibling
+						curToChild = toNextSibling;
+						curFromChild = fromNextSibling;
+						continue outer;
+					} else {
+						//remove node
+						from.removeChild(curFromChild);
+						curFromChild = fromNextSibling;
+					}
+				}
+				//append node
+				from.appendChild(curToChild);
+				//move to next sibling
+				curToChild = toNextSibling;
+				curFromChild = fromNextSibling;
+			}
+			//still nodes to remove?
+			while(curFromChild) {
+				var nextChild = curFromChild.nextSibling;
+				from.removeChild(curFromChild);
+				curFromChild = nextChild;
+			}
+			//handle input node?
+			if(from.nodeName === 'INPUT') {
+				//update boolean attrs
+				updateAttrBool(from, to, 'checked');
+				updateAttrBool(from, to, 'disabled');
+				//set value
+				from.value = to.value;
+				//remove value attr?
+				if(!to.hasAttribute('value')) {
+					from.removeAttribute('value');
+				}
+			}
+			//handle select node?
+			if(from.nodeName === 'SELECT') {
+				//is multi select?
+				if(!to.hasAttribute('multiple')) {
+					//set vars
+					var curChild = from.firstChild;
+					var index = -1, i = 0, optgroup;
+					//loop through children
+					while(curChild) {
+						//is optgroup node?
+						if(curChild.nodeName === 'OPTGROUP') {
+							optgroup = curChild;
+							curChild = optgroup.firstChild;
+						}
+						//is option node?
+						if(curChild.nodeName === 'OPTION') {
+							//is selected?
+							if(curChild.hasAttribute('selected')) {
+								index = i;
+								break;
+							}
+							//increment
+							i++;
+						}
+						//move to next sibling
+						curChild = curChild.nextSibling;
+						//move to next opt group?
+						if(!curChild && optgroup) {
+							curChild = optgroup.nextSibling;
+							optgroup = null;
+						}
+					}
+					//update index
+					from.selectedIndex = index;
+				}
+			}
+			//handle select node?
+			if(from.nodeName === 'OPTION') {
+				//has parent node?
+				if(from.parentNode) {
+					//set vars
+					var parentNode = from.parentNode;
+					var parentName = parentNode.nodeName;
+					//parent is optgroup node?
+					if(parentName === 'OPTGROUP') {
+						parentNode = parentNode.parentNode;
+						parentName = parentNode && parentNode.nodeName;
+					}
+					//parent is select node?
+					if(parentName === 'SELECT' && !parentNode.hasAttribute('multiple')) {
+						//remove attribute?
+						if(from.hasAttribute('selected') && !to.selected) {
+							fromEl.setAttribute('selected', 'selected');
+							fromEl.removeAttribute('selected');
+						}
+						//update index
+						parentNode.selectedIndex = -1;
+					}
+				}
+				//update boolean attr
+				updateAttrBool(from, to, 'selected');
+			}
+		};
+		//set vars
+		var updated = from;
+		//convert html to nodes?
+		if(typeof to === 'string') {
+			var tmp = from.cloneNode(false);
+			tmp.innerHTML = to;
+			to = tmp;
 		}
-		return b;
+        //is element?
+		if(updated.nodeType === 1) {
+			if(to.nodeType === 1) {
+				if(from.nodeName !== to.nodeName) {
+					updated = document.createElement(to.nodeName);
+					while(from.firstChild) {
+						updated.appendChild(from.firstChild);
+					}
+				}
+			} else {
+				updated = to;
+			}
+		}
+		//is text or comment?
+		if(updated.nodeType === 3 || updated.nodeType === 8) {
+			if(to.nodeType === updated.nodeType) {
+				updated.nodeValue = to.nodeValue;
+				return updated;
+			} else {
+				updated = to;
+			}
+		}
+		//update node?
+		if(updated !== to) {
+			updateNode(updated, to);
+		}
+		//replace from node?
+		if(updated !== from && from.parentNode) {
+			from.parentNode.replaceChild(updated, from);
+		}
+		//return
+		return updated;
 	};
 
 })();
@@ -1420,7 +1587,7 @@
 		//set vars
 		var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
 		//format opts
-		opts = Fstage.extend({
+		opts = Object.assign({
 			method: 'GET',
 			headers: {},
 			body: '',
@@ -1476,7 +1643,7 @@
 			return new Fstage.websocket(url, opts, true);
 		}
 		//format opts
-		opts = Fstage.extend({
+		opts = Object.assign({
 			protocols: [],
 			retries: 50,
 			wait: 2000
@@ -1917,12 +2084,262 @@
 
 })();
 
+/* VIEW ROUTING */
+
+(function(undefined) {
+
+	var router = function(opts = {}) {
+	
+		//set opts
+		opts = Object.assign({
+			state: {},
+			routes: {},
+			middleware: {},
+			histId: 0,
+			isBack: false,
+			def404: null,
+			defHome: null,
+			attr: 'data-route'
+		}, opts);
+
+		//listen for navigation
+		window.addEventListener('popstate', function(e) {
+			//valid state?
+			if(!e.state || !e.state.name) {
+				opts.isBack = false;
+				return;
+			}
+			//already home?
+			if(opts.defHome === opts.state.name && e.state.name === opts.state.name) {
+				opts.isBack = false;
+				return;
+			}
+			//set vars
+			var goBack = (opts.isBack || opts.histId > e.state.id || (e.state.id - opts.histId) > 1);
+			var data = { id: e.state.id, params: e.state.params, isBack: goBack, scroll: e.state.scroll };
+			//reset cache
+			opts.isBack = false;
+			opts.histId = e.state.id;
+			//trigger route (no history)
+			api.trigger(e.state.name, data, null);
+		});
+
+		//listen for clicks
+		window.addEventListener('click', function(e) {
+			//set vars
+			var el = e.target;
+			var name = el.getAttribute(opts.attr);
+			var mode = el.getAttribute('data-history') || 'push';
+			var params = (el.getAttribute('data-params') || '').split(';');
+			//stop here?
+			if(!name) return;
+			//set data
+			var data = {
+				params: {},
+				isBack: el.getAttribute('data-back') === 'true'
+			};
+			//parse params
+			for(var i=0; i < params.length; i++) {
+				//split into key/value pair
+				var tmp = params[i].split(':', 2);
+				//valid pair?
+				if(tmp.length > 1) {
+					data.params[tmp[0].trim()] = tmp[1].trim();
+				}
+			}
+			//is form submit?
+			if(el.getAttribute('type') === 'submit') {
+				//check for form
+				var form = el.closest('form');
+				//form found?
+				if(form) {
+					//listen to form submit
+					return form.addEventListener('submit', function(e) {
+						//prevent default
+						e.preventDefault();
+						//trigger route
+						api.trigger(name, data, mode);
+					});
+				}
+			}
+			//prevent default
+			e.preventDefault();
+			//trigger route
+			api.trigger(name, data, mode);
+		});
+
+		//public api
+		var api = {
+
+			instance: function(opts = {}) {
+				return new router(opts);
+			},
+
+			start: function(merge = {}) {
+				//merge opts
+				opts = Object.assign(opts, merge);
+				//load home route
+				return this.trigger(opts.defHome, {
+					init: true
+				});
+			},
+
+			is: function(route) {
+				return opts.state.name === route;
+			},
+
+			has: function(name) {
+				return (name in opts.routes);
+			},
+
+			current: function(key = null) {
+				return key ? (opts.state[key] || null) : Object.assign({}, opts.state);
+			},
+
+			on: function(route, fn) {
+				//is middleware?
+				if(route && route[0] === ':') {
+					opts.middleware[route] = opts.middleware[route] || [];
+					opts.middleware[route].push(fn);
+				} else {
+					opts.routes[route] = fn;
+				}
+			},
+
+			trigger: async function(name, data = {}, mode = 'push') {
+				//create route
+				var route = Object.assign({
+					name: name,
+					orig: name,
+					params: {},
+					mode: mode,
+					action: opts.routes[name],
+					last: opts.state.name || null,
+					lastParams: opts.state.params || null,
+					is404: !this.has(name)
+				}, data);
+				//is 404?
+				if(route.is404) {
+					//update name
+					route.name = opts.def404 || opts.defHome;
+					//stop here?
+					if(!this.has(route.name)) {
+						return false;
+					}
+				}
+				//set vars
+				var last = opts.state.name;
+				var cycles = [ ':before', ':all', name, ':after' ];
+				//loop through cycles
+				for(var i=0; i < cycles.length; i++) {
+					//set vars
+					var id = cycles[i];
+					var listeners = (id === name) ? [ route.action ] : (opts.middleware[id] || []);
+					//loop through listeners
+					for(var j=0; j < listeners.length; j++) {
+						//get listener
+						var fn = listeners[j];
+						//is function?
+						if(typeof fn !== 'function') {
+							continue;
+						}
+						//is after?
+						if(id === ':after') {
+							requestAnimationFrame(function() { fn(route) });
+							continue;
+						}
+						//call listener
+						var tmp = await fn(route);
+						//break early?
+						if(tmp === false || last !== opts.state.name) {
+							return false;
+						}
+						//count runs
+						fn.runs = fn.runs || 0;
+						fn.runs++;
+						//update route?
+						if(tmp && tmp.name) {
+							route = tmp;
+							cycles[2] = tmp.name;
+						}
+					}
+				}
+				//set route ID
+				if(mode === 'push') {
+					route.id = (++opts.histId);
+				} else {
+					route.id = route.id || opts.state.id || (++opts.histId);
+				}
+				//cache scroll position
+				route.scroll = ('scroll' in route) ? (route.scroll || 0) : window.pageYOffset;
+				//update state
+				return this.setState(route, mode, true);
+			},
+
+			redirect: function(name, data = {}) {
+				return this.trigger(name, data, 'replace');
+			},
+
+			refresh: function() {
+				//can refresh?
+				if(opts.state.name) {
+					return this.trigger(opts.state.name, {}, null);
+				}
+			},
+
+			back: function() {
+				//set vars
+				var that = this;
+				opts.isBack = true;
+				//try history
+				history.back();
+				//set fallback
+				setTimeout(function() {
+					//stop here?
+					if(!opts.isBack) return;
+					//trigger back
+					that.trigger(opts.state.name || opts.defHome, {
+						isBack: true,
+						params: opts.state.params || {}
+					}, null);
+				}, 400);
+			},
+
+			setState: function(state, mode = 'replace', reset = false) {
+				//reset?
+				if(reset) {
+					opts.state = {};
+				}
+				//update props
+				for(var i in state) {
+					if(state.hasOwnProperty(i)) {
+						opts.state[i] = state[i];
+					}
+				}
+				//update history?
+				if(mode && history[mode + 'State']) {
+					history[mode + 'State'](opts.state, '', '');
+				}
+				//return
+				return this.current();
+			}
+
+		};
+
+		return api;
+
+	};
+	
+	Fstage.router = new router();
+
+})();
+
 /**
  * VIEW COMPONENTS
 **/
 (function(undefined) {
 
-	var _tags = {};
+	var _registered = {};
 	var _queue = [];
 	var _rootEl = null;
 	var _mutations = null;
@@ -1988,86 +2405,106 @@
 		return parentEl;
 	};
 
-	var _makeComponent = function(el, name = null) {
-		//valid element?
-		if(el.tagName && (!el.isComponent || el.orphanedComponent)) {
-			//set vars
-			var isNew = !el.isComponent;
-			var wasOrphaned = el.orphanedComponent;
-			var name = name || el.getAttribute('data-component') || el.tagName.toLowerCase();
-			//is component?
-			if(_tags[name]) {
-				//create component?
-				if(!el.isComponent) {
-					//pause updates
-					_canQueue = false;
-					//merge base
-					for(var i in _baseComponent) {
-						if(_baseComponent.hasOwnProperty(i)) {
-							el[i] = _baseComponent[i];
-						}
-					}
-					//set props
-					el.props = _getProps(el);
-					//get object
-					var obj = _tags[name];
-					//create instance?
-					if(typeof obj === 'function') {
-						obj.call(el);
-					} else {
-						//merge object
-						for(var i in obj) {
-							if(obj.hasOwnProperty(i)) {
-								el[i] = obj[i];
-							}
-						}
-					}
-					//resume updates
-					_canQueue = true;
-					//call constructed?
-					if(el.onConstructed) {
-						el.onConstructed();
-					}
+	var _makeComponent = function(el, opts = {}) {
+		//anything to make?
+		if(el.isComponent && !el.orphanedComponent) {
+			return el;
+		}
+		//set vars
+		var isNew = !el.isComponent;
+		var wasOrphaned = el.orphanedComponent;
+		var name = opts.name || el.getAttribute('data-component') || el.tagName.toLowerCase();
+		//is registered?
+		if(!_registered[name]) {
+			return el;
+		}
+		//setup helper
+		var setupEl = function() {
+			//mark as component
+			el.isComponent = true;
+			//set orphaned state
+			el.orphanedComponent = !opts.parentComponent && !document.body.contains(el);
+			//is attached to DOM?
+			if(!el.orphanedComponent) {
+				//find parent
+				var parent = opts.parentComponent || _findParent(el);
+				//set parent
+				el.parentComponent = parent;
+				//add child to parent?
+				if(parent && !parent.childComponents.includes(el)) {
+					parent.childComponents.push(el);
 				}
-				//update orphaned state
-				el.orphanedComponent = !document.body.contains(el);
-				//is attached to DOM?
-				if(!el.orphanedComponent) {
-					//find parent
-					var parentEl = _findParent(el);
-					//set parent
-					el.parentComponent = parentEl;
-					//add child to parent?
-					if(parentEl && !el.parentComponent.childComponents.includes(el)) {
-						el.parentComponent.childComponents.push(el);
-					}
-					//render
-					_renderComponent(el);
-					//call mounted?
-					if((isNew || wasOrphaned) && !el.orphanedComponent && el.onMounted) {
-						el.onMounted();
+				//set context
+				el.context = el.context || (parent ? parent.context : null);
+				//set props
+				el.props = _getProps(el);
+			}
+		};
+		//create now?
+		if(isNew) {
+			//merge base
+			for(var i in _baseComponent) {
+				if(_baseComponent.hasOwnProperty(i)) {
+					el[i] = _baseComponent[i];
+				}
+			}
+			//setup
+			setupEl();
+			//get object
+			var obj = _registered[name].fn;
+			var args = _registered[name].args || [];
+			//create instance?
+			if(typeof obj === 'function') {
+				//pause updates
+				_canQueue = false;
+				//call object
+				obj.apply(el, args);
+				//resume updates
+				_canQueue = true;
+			} else {
+				//merge object
+				for(var i in obj) {
+					if(obj.hasOwnProperty(i)) {
+						el[i] = obj[i];
 					}
 				}
 			}
+			//call constructed?
+			if(el.onConstructed) {
+				el.onConstructed();
+			}
+		}
+		//render component?
+		if(!el.orphanedComponent) {
+			//run setup?
+			if(!isNew) {
+				setupEl();
+			}
+			//run render
+			_renderComponent(el, {
+				parentEl: opts.parentComponent
+			});				
 		}
 		//return
 		return el;
 	};
 
-	var _renderComponent = function(el, nextProps = null, nextState = null) {
+	var _renderComponent = function(el, opts = {}) {
 		//set vars
 		var prevProps = el.props;
 		var prevState = el.state;
-		var isUpdate = nextProps || nextState;
+		var nextProps = opts.nextProps || null;
+		var nextState = opts.nextState || null;
+		var isUpdate = opts.nextProps || opts.nextState;
 		//can be rendered?
 		if(!el.isComponent || el.orphanedComponent) {
-			return el;
+			return;
 		}
 		//before render?
 		if(el.onBeforeRender) {
 			//stop here?
 			if(el.onBeforeRender(nextProps, nextState, isUpdate) === false) {
-				return el;
+				return;
 			}
 		}
 		//update props?
@@ -2081,20 +2518,50 @@
 		}
 		//generate html
 		var html = el.template();
-		//filter html
-		html = components._pubsub.emit('components.html', html, {
-			filter: true
-		});
 		//update html?
 		if(html || html === '') {
-			components._domDiff(el, html);
+			//convert to nodes
+			var nodes = el.cloneNode(false);
+			nodes.innerHTML = html;
+			//scan children
+			var scan = nodes.querySelectorAll('*');
+			//loop through nodes
+			for(var i=0; i < scan.length; i++) {
+				_makeComponent(scan[i], {
+					parentComponent: el,
+					parentEl: opts.parentEl ? el : nodes
+				});
+			}
+			//has parent?
+			if(opts.parentEl) {
+				//loop through nodes
+				while(nodes.firstChild) {
+					el.appendChild(nodes.firstChild);
+				}
+			} else {
+				//filter html
+				nodes = components._pubsub.emit('components.html', nodes, {
+					filter: true
+				});
+				//diff the DOM
+				components._domDiff(el, nodes, {
+					updateNode: function(from, to) {
+						//filter node
+						var res = components._pubsub.emit('components.node', [ from, to ], {
+							method: 'apply'
+						});
+						//skip update?
+						if(res.includes(false)) {
+							return false;
+						}
+					}
+				});
+			}
 		}
 		//after render?
 		if(el.onAfterRender) {
 			el.onAfterRender(prevProps, prevState, isUpdate);
 		}
-		//return
-		return el;
 	};
 
 	var _baseComponent = {
@@ -2153,7 +2620,10 @@
 						var nextProps = _getProps(el);
 						var nextState = Object.assign({}, el.state, el.__newState);
 						//re-render
-						_renderComponent(el, nextProps, nextState);
+						_renderComponent(el, {
+							nextProps: nextProps,
+							nextState: nextState
+						});
 						//reset changes
 						el.__newState = {};
 					}
@@ -2211,15 +2681,23 @@
 			return res;
 		},
 
-		register: function(name, fn) {
-			//store function
-			_tags[name.toLowerCase()] = fn;
+		register: function(name, fn, opts = {}) {
+			//format name
+			name = name.toLowerCase();
+			//set callback
+			opts.fn = fn;
+			//cache function
+			_registered[name] = opts;
 			//chain it
 			return this;
 		},
 
-		filterHtml: function(fn) {
+		onFilterHtml: function(fn) {
 			return this._pubsub.on('components.html', fn);
+		},
+
+		onFilterNode: function(fn) {
+			return this._pubsub.on('components.node', fn);
 		},
 
 		start: function(name, rootEl) {
@@ -2251,12 +2729,19 @@
 				mutationsList.forEach(function(mutation) {
 					//check added nodes
 					mutation.addedNodes.forEach(function(el) {
+						//create component
 						_makeComponent(el);
+						//call mounted?
+						if(el.isComponent && !el.orphanedComponent && el.onMounted) {
+							el.onMounted();
+						}
 					});
 					//check removed nodes
 					mutation.removedNodes.forEach(function(el) {
 						//is component?
-						if(!el.isComponent) return;
+						if(!el.isComponent) {
+							return;
+						}
 						//call unmounted?
 						if(el.onUnmounted) {
 							el.onUnmounted();
@@ -2272,6 +2757,8 @@
 							//remove reference
 							el.parentComponent = null;
 						}
+						//remove context
+						el.context = null;
 						//mark as removed
 						el.orphanedComponent = true;
 					});
@@ -2283,7 +2770,9 @@
 				subtree: true
 			});
 			//return
-			return _makeComponent(_rootEl, name);
+			return _makeComponent(_rootEl, {
+				name: name
+			});
 		},
 
 		stop: function() {
@@ -2297,469 +2786,6 @@
 	};
 
 	Fstage.components = components;
-
-})();
-
-/**
- * VIEW ROUTING
-**/
-(function(undefined) {
-
-	//private vars
-	var histId = 0;
-	var isBack = false;
-	var started = false;
-	var viewInitCbs = [];
-
-	//default opts
-	var opts = {
-		routes: {},
-		views: {},
-		state: {},
-		baseUrl: '',
-		home: 'home',
-		notfound: 'notfound',
-		rootCss: '#app',
-		pageCss: '#page-{name}',
-		sectionCss: '.{name}',
-		history: true,
-		domDiff: false
-	};
-
-	//public api
-	Fstage.router = {
-
-		current: function() {
-			return opts.state.name || null;
-		},
-
-		state: function(data = null, mode='replace') {
-			//set state?
-			if(data) {
-				//update props
-				for(var i in data) {
-					if(data.hasOwnProperty(i)) {
-						opts.state[i] = data[i];
-					}
-				}
-				//update history?
-				if(opts.history && history[mode + 'State']) {
-					history[mode + 'State'](opts.state, '', this.url(opts.state.name || ''));
-				}
-			}
-			//return
-			return opts.state;
-		},
-
-		url: function(name = null, trim = false) {
-			//has base url?
-			if(!opts.baseUrl) {
-				return location.pathname + location.search;
-			}
-			//get name?
-			if(name === null) {
-				name = opts.state.name || '';
-			}
-			//set vars
-			var sep = /\?|\#/.test(opts.baseUrl) ? '' : '/';
-			var name = (opts.home === name && sep === '/') ? '' : name;
-			var url = (opts.baseUrl + (name ? sep + name : '')).replace(/\/\//, '/');
-			//return
-			return trim ? url.replace(/\/$/, '') : url;
-		},
-
-		is: function(name) {
-			return opts.state.name == name;
-		},
-
-		has: function(name) {
-			return opts.routes[name] && opts.routes[name].length;
-		},
-
-		on: function(name, fn) {
-			//format name
-			name = name.trim().split(/\s+/g);
-			//loop through array
-			for(var i=0; i < name.length; i++) {
-				var tmp = fn.bind({}); tmp.runs = 0;
-				opts.routes[name[i]] = opts.routes[name[i]] || [];
-				opts.routes[name[i]].push(tmp);
-			}
-			//return
-			return this;
-		},
-
-		off: function(name, fn) {
-			opts.routes[name] = (opts.routes[name] || []).filter(function(item) { return item !== fn; });
-			return this;
-		},
-
-		trigger: async function(name, data = {}, mode = 'push') {
-			//format data
-			data = Fstage.extend({
-				name: name,
-				orig: name,
-				params: {},
-				mode: mode,
-				last: opts.state.name,
-				lastParams: opts.state.params,
-				is404: !this.has(name)
-			}, data);
-			//is 404?
-			if(data.is404) {
-				//update name
-				data.name = opts.notfound;
-				//valid route?
-				if(!this.has(opts.notfound)) {
-					return false;
-				}
-			}
-			//set vars
-			var last = opts.state.name;
-			var routes = [ ':before', data.name, ':after' ];
-			//loop through routes
-			for(var i=0; i < routes.length; i++) {
-				//get listeners
-				var route = routes[i];
-				var listeners = opts.routes[route] || [];
-				//loop through listeners
-				for(var j=0; j < listeners.length; j++) {
-					//get function
-					var fn = listeners[j];
-					//execute callback
-					var res = await fn(data, fn.runs);
-					//break early?
-					if(res === false || last !== opts.state.name) {
-						return false;
-					}
-					//increment
-					fn.runs++;
-					//update result?
-					if(res && res.name) {
-						data = res;
-						routes[1] = res.name;
-					}
-				}
-			}
-			//replace state?
-			if(mode === 'replace' && opts.state.name) {
-				var state = opts.state;
-				state.name = data.name;
-			} else {
-				var state = {
-					id: data.id || (++histId),
-					name: data.name,
-					params: data.params,
-					scroll: ('scroll' in data) ? (data.scroll || 0) : window.pageYOffset
-				};
-			}
-			//update cache
-			opts.state = {};
-			this.state(state, mode);
-			//success
-			return true;
-		},
-
-		redirect: function(name, data = {}) {
-			return this.trigger(name, data, 'replace');
-		},
-
-		refresh: function() {
-			//can refresh?
-			if(opts.state.name) {
-				return this.trigger(opts.state.name, {}, null);
-			}
-		},
-
-		back: function() {
-			//set vars
-			isBack = true;
-			var that = this;
-			//try history
-			history.back();
-			//set fallback
-			setTimeout(function() {
-				//stop here?
-				if(!isBack) return;
-				//trigger back
-				that.trigger(opts.state.name || opts.home, {
-					isBack: true,
-					params: opts.state.params || {}
-				}, null);
-			}, 400);
-		},
-
-		show: function(value, attr = 'data-if') {
-			//get current route
-			var route = this.current();
-			//stop here?
-			if(!route) return;
-			//get page
-			var css = opts.pageCss.replace('{name}', route);
-			var page = Fstage(css);
-			//update classes
-			page.find('[' + attr + ']').addClass('hidden');
-			page.find('[' + attr + '="' + value + '"]').removeClass('hidden');
-		},
-
-		views: function(views) {
-			//set vars
-			var self = this;
-			var prev = null;
-			//object promise helper
-			var objPromise = function(obj) {
-				return Promise.all(Object.values(obj)).then(function(vals) {
-					var res = {}, keys = Object.keys(obj);
-					for(var i = 0; i < keys.length; i++) {
-						res[keys[i]] = vals[i];
-					}
-					return res;
-				});
-			};
-			//default render helper
-			var defRender = function(template = 'page', conf = {}, isInit = false) {
-				//set vars
-				var view = this;
-				//default conf
-				conf = Fstage.extend({
-					state: { ...view.state },
-					selector: opts.sectionCss,
-					domDiff: opts.domDiff
-				}, conf);
-				//wrap in promise
-				return new Promise(function(resolve) {
-					//template exists?
-					if(!view.templates[template]) {
-						console.warn('Template not found: ' + template);
-						return resolve(false);
-					}
-					//call pre-render?
-					if(view.preRender) {
-						//execute
-						view.preRender(template, isInit);
-						//stop here?
-						if(!self.is(view.route.name)) {
-							if(view.stop) {
-								view.stop(true);
-							}
-							return resolve(false);
-						}
-					}
-					//loop through state
-					for(var i in conf.state) {
-						//call function?
-						if(typeof conf.state[i] === 'function') {
-							conf.state[i] = conf.state[i]();
-						}
-					}
-					//return data
-					return objPromise(conf.state).then(async function(data) {
-						//stop here?
-						if(!self.is(view.route.name)) {
-							if(view.stop) {
-								view.stop(true);
-							}
-							return resolve(false);
-						}
-						//compile html
-						var html = await view.templates[template](data);
-						var html = Fstage.tpl.compile(html, data);
-						//get element to inject
-						var selector = conf.selector.replace('{name}', template);
-						var el = (template === 'page') ? view.page : view.page.find(selector);
-						//dom diff?
-						if(conf.domDiff) {
-							Fstage.domDiff(el[0], html);
-						} else {
-							el.html(html);
-						}
-						//handle post-render
-						requestAnimationFrame(function() {
-							//call post-render?
-							if(view.postRender) {
-								//execute
-								view.postRender(template, data, isInit);
-								//stop here?
-								if(!self.is(view.route.name)) {
-									if(view.stop) {
-										view.stop(true);
-									}
-									return resolve(false);
-								}
-							}
-							//success
-							return resolve(data);
-						});
-					});
-				});
-			};
-			//loop through views
-			Fstage.each(views, function(name, view) {
-				//format route name
-				var routeName = name.replace(/[\w]([A-Z])/g, function(m) {
-					return m[0] + '-' + m[1];
-				}).toLowerCase();
-				//register route
-				self.on(routeName, function(route, runs) {
-					//stop previous?
-					if(prev && views[prev] && views[prev].stop) {
-						views[prev].stop(false);
-					}
-					//set vars
-					var pageId = opts.pageCss.replace('{name}', route.name);
-					prev = name;
-					//set route
-					view.route = route;
-					view.page = Fstage(pageId);
-					//auto-generate div?
-					if(!view.page[0]) {
-						var el = document.createElement('div');
-						el.id = pageId.replace('#', '');
-						el.classList.add('page', route.name, 'hidden');
-						document.querySelector(opts.rootCss).appendChild(el);
-						view.page = Fstage(el);
-					}
-					//set default methods
-					view.defRender = defRender.bind(view);
-					view.render = view.render || view.defRender;
-					//set default props
-					view.state = view.state || {};
-					view.events = view.events || {};
-					view.templates = view.templates || {};
-					//first run?
-					if(!view.started) {
-						//execute callbacks
-						for(var i=0; i < viewInitCbs.length; i++) {
-							viewInitCbs[i](view);
-						}
-					}
-					//call start?
-					if(view.start) {
-						view.start();
-					}
-					//has started
-					view.started = true;
-					//init view
-					requestAnimationFrame(function() {
-						//stop here?
-						if(!self.is(view.route.name)) {
-							if(view.stop) {
-								view.stop(true);
-							}
-							return;
-						}
-						//call render
-						view.render('page', {}, true).then(function(data) {
-							//register events
-							requestAnimationFrame(function() {
-								//loop through events
-								for(var key in view.events) {
-									//skip property?
-									if(!view.events.hasOwnProperty(key)) {
-										continue;
-									}
-									//register event?
-									if(!runs || key.indexOf('Once') === -1) {
-										view.events[key](view);
-									}
-								}
-								//mark as run
-								view.hasRun = true;
-							});
-						});
-					});
-				});
-			});
-		},
-
-		onViewInit: function(fn) {
-			viewInitCbs.push(fn);
-		},
-
-		start: function(conf = {}) {
-			//has started?
-			if(started) {
-				return this;
-			}
-			//cache vars
-			started = true;
-			opts = Fstage.extend(opts, conf);
-			//set local vars
-			var self = this;
-			var isRoute = false;
-			var fallback = opts.notfound;
-			var curPath = (location.pathname + location.search + location.hash).replace(/\/$/, '');
-			var name = curPath.split(/[^\w-]+/g).pop();
-			//load views?
-			if(conf.views && self.views) {
-				self.views(conf.views);
-			}
-			//fallback to home?
-			if(!name || !self.has(name)) {
-				name = opts.home;
-			}
-			//trigger initial route
-			self.redirect(name);
-			//listen to clicks
-			Fstage(window).on('click', '[data-route]', function(e) {
-				//route vars
-				var name = this.getAttribute('data-route');
-				var mode = this.getAttribute('data-history') || 'push';
-				var params = (this.getAttribute('data-params') || '').split(';');
-				//valid name?
-				if(!name || !name.length) {
-					return;
-				}
-				//set data
-				var data = {
-					params: {},
-					isBack: this.getAttribute('data-back') === 'true'
-				};
-				//parse params?
-				for(var i=0; i < params.length; i++) {
-					var tmp = params[i].split(':', 2);
-					if(tmp.length > 1) {
-						data.params[tmp[0].trim()] = tmp[1].trim();
-					}
-				}
-				//is form submit?
-				if(this.getAttribute('type') === 'submit') {
-					//check for form
-					var form = Fstage.closest('form', this);
-					//form found?
-					if(form && form.length) {
-						//listen to form submit
-						return form.one('submit', function(e) {
-							e.preventDefault();
-							self.trigger(name, data, mode);
-						});
-					}
-				}
-				//click trigger
-				e.preventDefault();
-				self.trigger(name, data, mode);
-			});
-			//listen to browser navigation
-			Fstage(window).on('popstate', function(e) {
-				//stop here?
-				if(!e.state || !e.state.name) {
-					isBack = false;
-					return;
-				}
-				//set vars
-				var goBack = (isBack || histId > e.state.id || (e.state.id - histId) > 1);
-				var data = { id: e.state.id, params: e.state.params, isBack: goBack, scroll: e.state.scroll };
-				//reset cache
-				isBack = false;
-				histId = e.state.id;
-				//trigger route (no history)
-				self.trigger(e.state.name, data, null);
-			});
-			//chain it
-			return self;
-		}
-
-	};
 
 })();
 
