@@ -97,6 +97,36 @@
 		return ({}).toString.call(input).match(/\s([a-zA-Z]+)/)[1].toLowerCase();
 	};
 
+	Fstage.isEmpty = function(value) {
+		//has length?
+		if(value && ('length' in value)) {
+			return !value.length;
+		}
+		//is object?
+		if(value && value.constructor === Object) {
+			return !Object.keys(value).length;
+		}
+		//other options
+		return (value === null || value === false || value == 0);
+	};
+
+	Fstage.isUrl = function(value) {
+		return value.match(/(http(s)?:\/\/.)?(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)/g) !== null;
+	};
+
+	Fstage.capitalize = function(input) {
+	  return input ? input.charAt(0).toUpperCase() + input.slice(1) : '';
+	};
+
+	Fstage.ready = Fstage.fn.ready = function(fn) {
+		//execute now?
+		if(/comp|inter|loaded/.test(document.readyState)) {
+			return fn();
+		}
+		//add listener
+		document.addEventListener('DOMContentLoaded', fn);
+	};
+
 	Fstage.toNodes = Fstage.parseHTML = function(input, first = false) {
 		//parse html string?
 		if(typeof input === 'string') {
@@ -120,11 +150,11 @@
 		//get method
 		var method = 'esc' + Fstage.capitalize(type);
 		//method exists?
-		if(Fstage[method]) {
+		if(type && Fstage[method]) {
 			return Fstage[method](input);
 		}
 		//default
-		return Fstate.escHtml(input);
+		return Fstage.escHtml(input);
 	};
 
 	Fstage.escHtml = Fstage.escHTML = function(input) {
@@ -138,29 +168,6 @@
 
 	Fstage.escAttr = function(input) {
 		return this.escHtml(this.escJs(input));
-	};
-
-	Fstage.copy = function(input, opts = {}) {
-		//get type
-		var type = Fstage.type(input);
-		//sanitize string?
-		if(type === 'string' && opts.sanitize) {
-			return opts.sanitize(input);
-		}
-		//not object or array?
-		if(type !== 'object' && type !== 'array') {
-			return input;
-		}
-		//set output
-		var output = (type === 'array') ? [] : {};
-		//copy input to output
-		Fstage.each(input, function(key, val) {
-			if(!opts.skip || !opts.skip.includes(key)) {
-				output[key] = Fstage.copy(val, opts);
-			}
-		});
-		//return
-		return output;
 	};
 
 	Fstage.debounce = function(fn, wait = 100) {
@@ -179,32 +186,6 @@
 		};
 	};
 
-	Fstage.ready = Fstage.fn.ready = function(fn) {
-		//execute now?
-		if(/comp|inter|loaded/.test(document.readyState)) {
-			return fn();
-		}
-		//add listener
-		document.addEventListener('DOMContentLoaded', fn);
-	};
-
-	Fstage.isEmpty = function(value) {
-		//has length?
-		if(value && ('length' in value)) {
-			return !value.length;
-		}
-		//is object?
-		if(value && value.constructor === Object) {
-			return !Object.keys(value).length;
-		}
-		//other options
-		return (value === null || value === false || value == 0);
-	};
-
-	Fstage.isUrl = function(value) {
-		return value.match(/(http(s)?:\/\/.)?(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)/g) !== null;
-	};
-
 	Fstage.hash = function(str) {
 		//create string?
 		if(typeof str !== 'string') {
@@ -220,14 +201,6 @@
 		return (h >>> 0).toString();
 	};
 
-	Fstage.deviceId = function(uid = '') {
-		return Fstage.hash(uid + navigator.userAgent.replace(/[0-9\.\s]/g, ''));
-	};
-
-	Fstage.capitalize = function(str) {
-	  return str.charAt(0).toUpperCase() + str.slice(1);
-	};
-
 	Fstage.memoize = function(fn) {
 		//set vars
 		var cache = {};
@@ -240,6 +213,10 @@
 			//return
 			return cache[key];
 		}
+	};
+
+	Fstage.deviceId = function(uid = '') {
+		return Fstage.hash(uid + navigator.userAgent.replace(/[0-9\.\s]/g, ''));
 	};
 
 	Fstage.objKey = {
@@ -384,6 +361,10 @@
 
 			name: function() {
 				return name;
+			},
+
+			has: function(id) {
+				return !!_cbs[id];
 			},
 
 			on: function(id, fn) {
@@ -896,7 +877,7 @@
 			//hide element?
 			isOut && this.classList.add('hidden');
 			//reset classes
-			this.classList.remove('animate');
+			this.classList.remove('animate', 'in', 'out');
 			this.classList.remove.apply(this.classList, effect.split(/\s+/g));
 			//onEnd callback?
 			opts.onEnd && opts.onEnd(e);
@@ -922,23 +903,23 @@
 				el.addEventListener('transitionstart', onStart);
 				el.addEventListener('transitionend', onEnd);
 				el.addEventListener('transitioncancel', onEnd);
-				//prep animation
+				//add effect classes
+				el.classList.add.apply(el.classList, effect.split(/\s+/g));
+				//add animate (out)
 				isOut && el.classList.add('animate');
-				!isOut && el.classList.add.apply(el.classList, effect.split(/\s+/g));
 				//start animation
 				requestAnimationFrame(function() {
-					requestAnimationFrame(function() {
-						//apply classes
-						isOut && el.classList.add.apply(el.classList, effect.split(/\s+/g));
-						isOut && el.classList.add('out');
-						!isOut && el.classList.add('animate');
-						!isOut && el.classList.remove('hidden');
-						//manually fire listeners?
-						if(window.getComputedStyle(el, null).getPropertyValue('transition') === 'all 0s ease 0s') {
-							onStart.call(el);
-							onEnd.call(el);
-						}
-					});
+					//add animate (not out)
+					!isOut && el.classList.add('animate');
+					//apply classes
+					isIn && el.classList.add('in');
+					isOut && el.classList.add('out');
+					!isOut && el.classList.remove('hidden');
+					//manually fire listeners?
+					if(window.getComputedStyle(el, null).getPropertyValue('transition') === 'all 0s ease 0s') {
+						onStart.call(el);
+						onEnd.call(el);
+					}
 				});
 			})(this[i]);
 		}
@@ -1357,14 +1338,22 @@
 			if(from.isEqualNode(to)) {
 				return;
 			}
-			//run callback?
-			if(opts.updateNode && opts.updateNode(from, to) === false) {
-				return;
+			//run before callback?
+			if(opts.beforeUpdateNode) {
+				if(opts.beforeUpdateNode(from, to) === false) {
+					return;
+				}
 			}
+			//clone from
+			var cloned = from.cloneNode(false);
 			//update attributes
 			updateAttrs(from, to);
 			//update children
 			updateChildren(from, to);
+			//run after callback?
+			if(opts.afterUpdateNode) {
+				opts.afterUpdateNode(cloned, from);
+			}
 		};
 		//update attrs helper
 		var updateAttrs = function(from, to) {
@@ -1951,19 +1940,19 @@
 					key = null;
 				}
 				//return listener
-				return api._pubsub.on(_prefix + 'change', function(state, action) {
+				return api._pubsub.on(_prefix + 'change', function(result) {
 					//has key?
 					if(key && key.length) {
 						//use selector?
 						if(_selectors[key]) {
-							state = _selectors[key].call(this, action.changes);
+							result.state = _selectors[key].call(this, result.changes);
 						} else {
-							state = api._objKey.get(action.changes, key);
+							result.state = api._objKey.get(result.changes, key);
 						}
 					}
 					//run callback?
-					if(state !== undefined) {
-						fn(state, action);
+					if(result.state !== undefined) {
+						fn(result);
 					}
 				});
 			},
@@ -1972,60 +1961,105 @@
 				return api._pubsub.off(_prefix + 'change', token);
 			},
 
-			dispatch: function(name, payload = null, status = null) {
+			dispatch: function(name, payload = null, opts = {}) {
 				//update flag
 				_hasDispatched = true;
+				//set vars
+				var promise = null;
+				var isError = Object.prototype.toString.call(payload) === "[object Error]";
 				//create action
 				var action = {
 					type: name,
 					payload: payload,
-					status: status || 'complete'
+					status: opts.status || 'complete',
+					reducer: opts.reducer || null
 				};
-				//action middleware?
-				if(status === null) {
+				//process action?
+				if(!opts.status) {
+					//run middleware
 					action = api._pubsub.emit(_prefix + 'middleware', action, {
 						ctx: this,
 						filter: true
 					});
 				}
-				//payload is promise?
-				if(action.payload && action.payload.then) {
-					//update action
-					var promise = action.payload;
-					action.payload = null;
-					action.status = 'pending';
-					//check if pending
-					Promise.race([ promise, 'pending' ]).then(function(value) {
-						//already resolved?
-						if(value !== 'pending') {
-							return;
-						}
+				//process payload?
+				if(action.payload) {
+					//is error?
+					if(action.payload.error || isError) {
+						action.status = 'error';
+					}
+					//is promise?
+					if(action.payload.then) {
+						//update action
+						promise = action.payload;
+						action.payload = null;
+						action.status = 'pending';
 						//add actions
-						promise.then(function(res) {
-							api.dispatch(name, res, 'complete');
+						promise = promise.then(function(result) {
+							return api.dispatch(name, result, {
+								status: 'complete',
+								reducer: action.reducer
+							});;
 						}).catch(function(error) {
-							api.dispatch(name, error, 'error');
+							return api.dispatch(name, error, {
+								status: 'error',
+								reducer: action.reducer
+							});
 						});
+					} else {
+						//unlock state
+						_state.lockedProxy = false;
+						//call local reducer?
+						if(action.reducer) {
+							//is function?
+							if(typeof action.reducer === 'function') {
+								action.reducer.call(this, _state, action);
+							} else {
+								api._objKey.set(_state, action.reducer, action.payload);
+							}
+						}
+						//call custom reducers
+						api._pubsub.emit(_prefix + 'reduce', [ _state, action ], {
+							ctx: this,
+							method: 'apply'
+						});
+						//lock state
+						_state.lockedProxy = true;
+					}
+				}
+				//cache state
+				action.state = _state;
+				action.changes = null;
+				//changes found?
+				if(Object.keys(_changes).length) {
+					//cache changes
+					action.changes = _changes;
+					//reset vars
+					_changes = {};
+					//alert store listeners
+					api._pubsub.emit(_prefix + 'change', action);
+				}
+				//did anything happen?
+				if(!promise && !action.changes && !action.payload) {
+					action.status = 'error';
+					action.payload = new Error("No changes were processed by the store");
+				}
+				//return promise
+				return new Promise(function(resolve, reject) {
+					//is complete?
+					if(action.status === 'complete') {
+						resolve(action);
+					}
+					//is error?
+					if(action.status === 'error') {
+						reject(action.payload);
+					}
+					//is pending
+					promise.then(function(result) {
+						resolve(result);
+					}).catch(function(error) {
+						reject(error);
 					});
-				}
-				//unlock state
-				_state.lockedProxy = false;
-				//state middleware
-				api._pubsub.emit(_prefix + 'reduce', [ _state, action ], {
-					ctx: this,
-					method: 'apply'
-				});
-				//stop here?
-				if(!Object.keys(_changes).length) {
-					return;
-				}
-				//lock state
-				_state.lockedProxy = true;
-				action.changes = _changes;
-				_changes = {};
-				//alert store listeners
-				return api._pubsub.emit(_prefix + 'change', [ _state, action ], {
-					method: 'apply'
 				});
 			},
 
@@ -2131,12 +2165,15 @@
 			var name = el.getAttribute(opts.attr);
 			var mode = el.getAttribute('data-history') || 'push';
 			var params = (el.getAttribute('data-params') || '').split(';');
+			//go back?
+			if(mode === 'back') {
+				return api.back();
+			}
 			//stop here?
 			if(!name) return;
 			//set data
 			var data = {
-				params: {},
-				isBack: el.getAttribute('data-back') === 'true'
+				params: {}
 			};
 			//parse params
 			for(var i=0; i < params.length; i++) {
@@ -2178,10 +2215,12 @@
 			start: function(merge = {}) {
 				//merge opts
 				opts = Object.assign(opts, merge);
-				//load home route
-				return this.trigger(opts.defHome, {
-					init: true
-				});
+				//load initial route?
+				if(opts.defHome) {
+					api.trigger(opts.defHome, {
+						init: true
+					}, 'replace');
+				}
 			},
 
 			is: function(route) {
@@ -2206,7 +2245,7 @@
 				}
 			},
 
-			trigger: async function(name, data = {}, mode = 'push') {
+			trigger: function(name, data = {}, mode = 'push') {
 				//create route
 				var route = Object.assign({
 					name: name,
@@ -2243,35 +2282,24 @@
 						if(typeof fn !== 'function') {
 							continue;
 						}
-						//is after?
-						if(id === ':after') {
-							requestAnimationFrame(function() { fn(route) });
-							continue;
-						}
 						//call listener
-						var tmp = await fn(route);
+						var tmp = fn(route);
 						//break early?
 						if(tmp === false || last !== opts.state.name) {
 							return false;
 						}
-						//count runs
-						fn.runs = fn.runs || 0;
-						fn.runs++;
+						//count runs?
+						if(i === 2) {
+							fn.runs = fn.runs || 0;
+							fn.runs++;
+						}
 						//update route?
-						if(tmp && tmp.name) {
+						if(tmp && tmp.name && i < 3) {
 							route = tmp;
 							cycles[2] = tmp.name;
 						}
 					}
 				}
-				//set route ID
-				if(mode === 'push') {
-					route.id = (++opts.histId);
-				} else {
-					route.id = route.id || opts.state.id || (++opts.histId);
-				}
-				//cache scroll position
-				route.scroll = ('scroll' in route) ? (route.scroll || 0) : window.pageYOffset;
 				//update state
 				return this.setState(route, mode, true);
 			},
@@ -2306,6 +2334,14 @@
 			},
 
 			setState: function(state, mode = 'replace', reset = false) {
+				//set ID
+				if(mode === 'push') {
+					state.id = (++opts.histId);
+				} else {
+					state.id = state.id || opts.state.id || (++opts.histId);
+				}
+				//cache scroll position
+				state.scroll = ('scroll' in state) ? (state.scroll || 0) : window.pageYOffset;
 				//reset?
 				if(reset) {
 					opts.state = {};
@@ -2351,7 +2387,7 @@
 		//parse attributes?
 		if(el.attributes.length) {
 			//get parent
-			var parentEl = _findParent(el);
+			var parentEl = el.closest('[data-component');
 			//loop through attributes
 			for(var i=0; i < el.attributes.length; i++) {
 				//parse name and value
@@ -2380,34 +2416,13 @@
 				}
 			}
 		}
-		//freeze object?
-		if(Object.freeze) {
-			Object.freeze(props);
-		}
 		//return
-		return props;
-	};
-
-	var _findParent = function(el) {
-		//get parent node
-		var parentEl = el.parentNode;
-		//find parent component
-		while(parentEl && !parentEl.isComponent) {
-			//try next level
-			parentEl = parentEl.parentNode;
-			//stop here?
-			if(parentEl === document.body) {
-				parentEl = null;
-				break;
-			}
-		}
-		//return
-		return parentEl;
+		return Object.freeze(props);
 	};
 
 	var _makeComponent = function(el, opts = {}) {
 		//anything to make?
-		if(el.isComponent && !el.orphanedComponent) {
+		if(!el.tagName || (el.isComponent && !el.orphanedComponent)) {
 			return el;
 		}
 		//set vars
@@ -2420,14 +2435,12 @@
 		}
 		//setup helper
 		var setupEl = function() {
-			//mark as component
-			el.isComponent = true;
 			//set orphaned state
 			el.orphanedComponent = !opts.parentComponent && !document.body.contains(el);
 			//is attached to DOM?
 			if(!el.orphanedComponent) {
 				//find parent
-				var parent = opts.parentComponent || _findParent(el);
+				var parent = opts.parentComponent || el.closest('[data-component');
 				//set parent
 				el.parentComponent = parent;
 				//add child to parent?
@@ -2435,39 +2448,36 @@
 					parent.childComponents.push(el);
 				}
 				//set context
-				el.context = el.context || (parent ? parent.context : null);
+				el.context = opts.context || el.context || (parent ? parent.context : null);
 				//set props
 				el.props = _getProps(el);
+				//set state
+				el.state = el.state || {};
 			}
 		};
 		//create now?
 		if(isNew) {
+			//mark as component
+			el.isComponent = true;
+			//set attribute
+			el.setAttribute('data-component', name);
 			//merge base
-			for(var i in _baseComponent) {
-				if(_baseComponent.hasOwnProperty(i)) {
-					el[i] = _baseComponent[i];
-				}
-			}
+			el = Object.assign(el, _baseComponent);
 			//setup
 			setupEl();
 			//get object
-			var obj = _registered[name].fn;
-			var args = _registered[name].args || [];
+			var obj = _registered[name];
 			//create instance?
 			if(typeof obj === 'function') {
 				//pause updates
 				_canQueue = false;
 				//call object
-				obj.apply(el, args);
+				obj.apply(el, [ el, el.context ]);
 				//resume updates
 				_canQueue = true;
 			} else {
 				//merge object
-				for(var i in obj) {
-					if(obj.hasOwnProperty(i)) {
-						el[i] = obj[i];
-					}
-				}
+				el = Object.assign(el, obj);
 			}
 			//call constructed?
 			if(el.onConstructed) {
@@ -2492,11 +2502,11 @@
 	var _renderComponent = function(el, opts = {}) {
 		//set vars
 		var prevProps = el.props;
-		var prevState = el.state;
-		var nextProps = opts.nextProps || null;
-		var nextState = opts.nextState || null;
+		var prevState = Object.freeze(el.state);
+		var nextProps = opts.nextProps || prevProps;
+		var nextState = opts.nextState || prevState;
 		var isUpdate = opts.nextProps || opts.nextState;
-		//can be rendered?
+		//can render?
 		if(!el.isComponent || el.orphanedComponent) {
 			return;
 		}
@@ -2507,60 +2517,60 @@
 				return;
 			}
 		}
-		//update props?
-		if(nextProps) {
-			el.props = nextProps;
-		}
-		//update state?
-		if(nextState) {
-			el.state = nextState;
-			Object.freeze && Object.freeze(el.state);
-		}
+		//update props
+		el.props = nextProps;
+		//update state
+		el.state = nextState;
 		//generate html
 		var html = el.template();
 		//update html?
 		if(html || html === '') {
-			//convert to nodes
-			var nodes = el.cloneNode(false);
-			nodes.innerHTML = html;
+			//clone element
+			var newEl = el.cloneNode(false);
+			//set html
+			newEl.innerHTML = components._pubsub.emit('components.filterHtml', html, {
+				filter: true
+			});
 			//scan children
-			var scan = nodes.querySelectorAll('*');
+			var scan = newEl.querySelectorAll('*');
 			//loop through nodes
 			for(var i=0; i < scan.length; i++) {
 				_makeComponent(scan[i], {
 					parentComponent: el,
-					parentEl: opts.parentEl ? el : nodes
+					parentEl: opts.parentEl ? el : newEl
 				});
 			}
 			//has parent?
 			if(opts.parentEl) {
 				//loop through nodes
-				while(nodes.firstChild) {
-					el.appendChild(nodes.firstChild);
+				while(newEl.firstChild) {
+					el.appendChild(newEl.firstChild);
 				}
 			} else {
-				//filter html
-				nodes = components._pubsub.emit('components.html', nodes, {
-					filter: true
-				});
 				//diff the DOM
-				components._domDiff(el, nodes, {
-					updateNode: function(from, to) {
-						//filter node
-						var res = components._pubsub.emit('components.node', [ from, to ], {
+				components._domDiff(el, newEl, {
+					beforeUpdateNode: function(from, to) {
+						//frun event
+						var res = components._pubsub.emit('components.beforeUpdateNode', [ from, to, el ], {
 							method: 'apply'
 						});
 						//skip update?
 						if(res.includes(false)) {
 							return false;
 						}
+					},
+					afterUpdateNode: function(from, to) {
+						//run event
+						components._pubsub.emit('components.afterUpdateNode', [ from, to, el ], {
+							method: 'apply'
+						});
 					}
 				});
 			}
-		}
-		//after render?
-		if(el.onAfterRender) {
-			el.onAfterRender(prevProps, prevState, isUpdate);
+			//after render?
+			if(el.onAfterRender) {
+				el.onAfterRender(prevProps, prevState, isUpdate);
+			}
 		}
 	};
 
@@ -2574,10 +2584,11 @@
 
 		setState: function(key, val = null) {
 			//set vars
+			var el = this;
 			var changed = false;
 			//has new state?
-			if(!this.__newState) {
-				this.__newState = {};
+			if(!el.__newState) {
+				el.__newState = {};
 			}
 			//format as object?
 			if(typeof key !== 'object') {
@@ -2588,37 +2599,41 @@
 			//check object
 			for(var i in key) {
 				//skip value?
-				if(!key.hasOwnProperty(i) || this.state[i] === key[i]) {
+				if(!key.hasOwnProperty(i) || el.state[i] === key[i]) {
 					continue;
 				}
 				//mark as changed
 				changed = true;
 				//update new state
-				this.__newState[i] = key[i];
+				el.__newState[i] = key[i];
 			}
-			//update state now?
-			if(changed && !_canQueue) {
-				this.state = Object.assign({}, this.state, this.__newState);
-				Object.freeze && Object.freeze(this.state);
-				this.__newState = {};
-			}
-			//queue component update?
-			if(changed && _canQueue) {
+			//return promise
+			return new Promise(function(resolve) {
 				//set vars
 				var invoke = !_queue.length;
+				//any changes?
+				if(!changed) {
+					return resolve(changed);
+				}
+				//update now?
+				if(!_canQueue) {
+					el.state = Object.freeze(Object.assign({}, el.state, el.__newState));
+					el.__newState = {};
+					return resolve(changed);
+				}
 				//add to queue?
-				if(!_queue.includes(this)) {
-					_queue.push(this);
+				if(!_queue.includes(el)) {
+					_queue.push(el);
 				}
 				//queue changes
-				invoke && requestAnimationFrame(function() {
+				requestAnimationFrame(function() {
 					//loop through queue
-					while(_queue.length) {
+					while(invoke && _queue.length) {
 						//next element
 						var el = _queue.shift();
 						//get new state
 						var nextProps = _getProps(el);
-						var nextState = Object.assign({}, el.state, el.__newState);
+						var nextState = Object.freeze(Object.assign({}, el.state, el.__newState));
 						//re-render
 						_renderComponent(el, {
 							nextProps: nextProps,
@@ -2627,11 +2642,13 @@
 						//reset changes
 						el.__newState = {};
 					}
+					//resolve
+					resolve(changed);
 				});
-			}
+			});
 		},
 
-		onStore: function(key, fn) {
+		storeListen: function(key, fn) {
 			//key is function?
 			if(typeof key === 'function') {
 				fn = key;
@@ -2641,12 +2658,16 @@
 			return components._store.on(key, fn.bind(this));
 		},
 
-		doAction: function(name, payload = null) {
+		storeDispatch: function(name, payload = null) {
 			return components._store.dispatch(name, payload);
 		},
 
 		esc: function(input, type = 'html') {
 			return components._escape(input, type);
+		},
+
+		escAttr: function(input) {
+			return this.esc(input, 'attr');
 		}
 
 	};
@@ -2681,26 +2702,26 @@
 			return res;
 		},
 
-		register: function(name, fn, opts = {}) {
-			//format name
-			name = name.toLowerCase();
-			//set callback
-			opts.fn = fn;
+		register: function(name, fn) {
 			//cache function
-			_registered[name] = opts;
+			_registered[name.toLowerCase()] = fn;
 			//chain it
 			return this;
 		},
 
 		onFilterHtml: function(fn) {
-			return this._pubsub.on('components.html', fn);
+			return this._pubsub.on('components.filterHtml', fn);
 		},
 
-		onFilterNode: function(fn) {
-			return this._pubsub.on('components.node', fn);
+		onBeforeUpdateNode: function(fn) {
+			return this._pubsub.on('components.beforeUpdateNode', fn);
 		},
 
-		start: function(name, rootEl) {
+		onAfterUpdateNode: function(fn) {
+			return this._pubsub.on('components.afterUpdateNode', fn);
+		},
+
+		start: function(name, rootEl, context = null) {
 			//already started?
 			if(_mutations) {
 				return _rootEl;
@@ -2715,12 +2736,7 @@
 				_rootEl = rootEl;
 				//extend element class
 				HTMLElement.prototype.component = function() {
-					//is component?
-					if(this.isComponent) {
-						return this;
-					}
-					//return
-					return _findParent(this);
+					return this.closest('[data-component');
 				};
 			}
 			//create observer
@@ -2771,7 +2787,8 @@
 			});
 			//return
 			return _makeComponent(_rootEl, {
-				name: name
+				name: name,
+				context: context
 			});
 		},
 
@@ -2786,78 +2803,6 @@
 	};
 
 	Fstage.components = components;
-
-})();
-
-/**
- * TEMPLATE ENGINE
-**/
-(function(undefined) {
-
-	Fstage.tpl = {
-
-		compile: function(html, data = {}) {
-			//set vars
-			var self = Fstage.tpl;
-			var objects = [ data, window ];
-			//replace {{vars}}
-			return (html || '').replace(/(\=[\"\'])?{{(.*?)}}(\")?/g, function(match, a, b, c) {
-				//set vars
-				var found = false;
-				var contents = b.trim();
-				var parts = contents.split('.');
-				var modifier = (a || c) ? 'attr' : 'html';
-				//attempt replace?
-				if(contents.length && parts.length) {
-					//loop through objects
-					for(var o in objects) {
-						//skip property?
-						if(!objects.hasOwnProperty(o)) {
-							continue;
-						}
-						//cache object
-						var res = objects[o];
-						//loop through content parts
-						for(var i=0; i < parts.length; i++) {
-							//valid key found?
-							if(res && res[parts[i]] !== undefined) {
-								res = res[parts[i]];
-								continue;
-							}
-							//failed
-							res = null;
-							break;
-						}
-						//data found?
-						if([ 'string', 'number' ].includes(typeof res)) {
-							found = true;
-							contents = res;
-							break;
-						}
-					}
-				}
-				//use modifier?
-				if(self[modifier]) {
-					contents = self[modifier](contents);
-				}
-				//return
-				return (a || '') + contents + (c || '');
-			});
-		},
-
-		html: function(html) {
-			return Fstage.escHtml(html);
-		},
-
-		js: function(val) {
-			return Fstage.escJs(val);
-		},
-
-		attr: function(val) {
-			return Fstage.escAttr(val);
-		}
-
-	};
 
 })();
 
