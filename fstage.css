@@ -251,6 +251,7 @@ form .has-error {
 }
 
 form .error {
+	margin-top: 5px;
 	color: var(--input-error-color);
 }
 
@@ -426,6 +427,10 @@ main + footer {
 nav {
 	position: relative;
 	background: transparent;
+}
+
+nav * + * {
+	margin-top: 0;
 }
 
 nav a {
