@@ -242,6 +242,7 @@ form .show-password::before {
 	right: 5px;
 	content: '\1F441';
 	font-size: 32px;
+	margin: 0;
 	z-index: 2;
 	cursor: pointer;
 }

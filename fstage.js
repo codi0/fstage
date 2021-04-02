@@ -2133,6 +2133,9 @@
 (function(undefined) {
 
 	var router = function(opts = {}) {
+
+		//set vars
+		var _started = false;
 	
 		//set opts
 		opts = Object.assign({
@@ -2223,6 +2226,10 @@
 			},
 
 			start: function(merge = {}) {
+				//has started?
+				if(_started) return;
+				//update flag
+				_started = true;
 				//merge opts
 				opts = Object.assign(opts, merge);
 				//load initial route?
@@ -2382,6 +2389,16 @@
 
 /**
  * VIEW COMPONENTS
+ *
+ * el.onCreated
+ * el.render
+ * el.onDidMount
+ *
+ * el.onShouldUpdate
+ * el.render
+ * el.onDidUpdate
+ *
+ * el.onDidUnmount
 **/
 (function(undefined) {
 
@@ -2530,9 +2547,9 @@
 				//merge object
 				el = Object.assign(el, obj);
 			}
-			//call constructed?
-			if(el.onConstructed) {
-				el.onConstructed();
+			//call created?
+			if(el.onCreated) {
+				el.onCreated();
 			}
 		}
 		//render component?
@@ -2565,14 +2582,12 @@
 		if(!el.isComponent || el.orphanedComponent) {
 			return;
 		}
-		//before render?
-		if(el.onBeforeRender) {
+		//should update?
+		if(isUpdate && el.onShouldUpdate) {
 			//stop here?
-			if(el.onBeforeRender(nextProps, nextState, isUpdate) === false) {
-				if(isUpdate) {
-					html = el.innerHTML;
-					render = false;
-				}
+			if(el.onShouldUpdate(nextProps, nextState) === false) {
+				html = el.innerHTML;
+				render = false;
 			}
 		}
 		//can render?
@@ -2583,7 +2598,7 @@
 				_setProps(el, nextProps);
 			}
 			//generate html
-			html = el.template();
+			html = el.render();
 		}
 		//update html?
 		if(html || html === '') {
@@ -2636,9 +2651,17 @@
 					});
 				}
 			});
-			//after render?
-			if(render && el.onAfterRender) {
-				el.onAfterRender(prevProps, prevState, isUpdate);
+			//did mount?
+			if(render && !isUpdate && el.onDidMount) {
+				requestAnimationFrame(function() {
+					el.onDidMount();
+				});
+			}
+			//did update?
+			if(render && isUpdate && el.onDidUpdate) {
+				requestAnimationFrame(function() {
+					el.onDidUpdate(prevProps, prevState);
+				});
 			}
 		}
 	};
@@ -2651,7 +2674,7 @@
 		childComponents: [],
 		parentComponent: null,
 
-		setState: function(key, val = null) {
+		setState: function(obj) {
 			//set vars
 			var el = this;
 			var changed = false;
@@ -2659,22 +2682,16 @@
 			if(!el.__newState) {
 				el.__newState = {};
 			}
-			//format as object?
-			if(typeof key !== 'object') {
-				var tmp = {};
-				tmp[key] = val;
-				key = tmp;
-			}
 			//check object
-			for(var i in key) {
+			for(var i in obj) {
 				//skip value?
-				if(!key.hasOwnProperty(i) || el.state[i] === key[i]) {
+				if(!obj.hasOwnProperty(i) || el.state[i] === obj[i]) {
 					continue;
 				}
 				//mark as changed
 				changed = true;
 				//update new state
-				el.__newState[i] = key[i];
+				el.__newState[i] = obj[i];
 			}
 			//return promise
 			return new Promise(function(resolve) {
@@ -2814,12 +2831,8 @@
 				mutationsList.forEach(function(mutation) {
 					//check added nodes
 					mutation.addedNodes.forEach(function(el) {
-						//create component
+						//sync component
 						_syncComponent(el);
-						//call mounted?
-						if(el.isComponent && el.onMounted) {
-							el.onMounted();
-						}
 					});
 					//check removed nodes
 					mutation.removedNodes.forEach(function(el) {
@@ -2827,9 +2840,9 @@
 						if(!el.isComponent) {
 							return;
 						}
-						//call unmounted?
-						if(el.onUnmounted) {
-							el.onUnmounted();
+						//call did unmount?
+						if(el.onDidUnmount) {
+							el.onDidUnmount();
 						}
 						//has parent?
 						if(el.parentComponent) {
@@ -2842,9 +2855,10 @@
 							//remove reference
 							el.parentComponent = null;
 						}
-						//remove context
+						//reset element
+						el.props = null;
+						el.states = null;
 						el.context = null;
-						//mark as removed
 						el.orphanedComponent = true;
 					});
 				});
