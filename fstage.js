@@ -93,8 +93,28 @@
 		return Object.assign.apply(null, [].slice.call(arguments));
 	};
 
+	Fstage.copy = function(input) {
+		//get type
+		var type = Fstage.type(input);
+		//is array?
+		if(type === 'array') {
+			return input.filter(function() { return true; });
+		}
+		//is object?
+		if(type === 'object') {
+			return Object.assign({}, input);
+		}
+		//return
+		return input;
+	};
+
 	Fstage.type = function(input) {
-		return ({}).toString.call(input).match(/\s([a-zA-Z]+)/)[1].toLowerCase();
+		//is proxy?
+		if(input && input.proxyId) {
+			input = input.proxyTarget;
+		}
+		//return
+		return {}.toString.call(input).match(/\s([a-zA-Z]+)/)[1].toLowerCase();
 	};
 
 	Fstage.isEmpty = function(value) {
@@ -219,7 +239,14 @@
 		return Fstage.hash(uid + navigator.userAgent.replace(/[0-9\.\s]/g, ''));
 	};
 
-	Fstage.objKey = {
+})();
+
+/**
+ * OBJECT HELPERS
+**/
+(function(undefined) {
+
+	Fstage.obj = {
 
 		get: function(obj, key) {
 			//split key?
@@ -241,7 +268,7 @@
 			return obj;
 		},
 
-		set: function(obj, key, val) {
+		set: function(obj, key, val, opts = {}) {
 			//set vars
 			var obj = obj || {};
 			var tmp = obj;
@@ -253,10 +280,141 @@
 			}
 			//loop through key parts
 			for(var i=0; i < key.length; i++) {
-				if((i+1) === key.length) {
-					tmp[key[i]] = val;
-				} else {
+				//next level?
+				if((i+1) < key.length) {
 					tmp = tmp[key[i]] = tmp[key[i]] || {};
+					continue;
+				}
+				//deep merge?
+				if(opts.deep && val && typeof val === 'object') {
+					tmp[key[i]] = this.merge(tmp[key[i]], val, opts);
+				} else {
+					tmp[key[i]] = val;
+				}
+			}
+			//return
+			return obj;
+		},
+
+		merge: function(obj, update, opts = {}) {
+			//is object?
+			if(!obj || typeof obj !== 'object') {
+				obj = {};
+			}
+			//copy object?
+			if(opts.copy) {
+				obj = Object.assign({}, obj);
+			}
+			//is function?
+			if(typeof update === 'function') {
+				return update(obj, this.merge);
+			}
+			//set default arr key?
+			if(opts.arrKey === undefined) {
+				opts.arrKey = 'id';
+			}
+			//arr to obj helper
+			var arr2obj = function(arr) {
+				//can update?
+				if(opts.arrKey && arr && typeof arr[0] === 'object' && (opts.arrKey in arr[0])) {
+					//tmp obj
+					var tmp = {};
+					//loop through array
+					for(var i=0; i < arr.length; i++) {
+						if(opts.arrKey in arr[i]) {
+							tmp[arr[i][opts.arrKey]] = arr[i];
+						}
+					}
+					//update
+					arr = tmp;
+				}
+				//return
+				return arr || {};
+			};
+			//format update
+			update = arr2obj(update);
+			//loop through update
+			for(var k in update) {
+				//skip property?
+				if(!update.hasOwnProperty(k)) {
+					continue;
+				}
+				//get value
+				var v = arr2obj(update[k]);
+				//copy value
+				if(!v || !obj[k] || obj[k] === v || typeof v !== 'object' || Array.isArray(v)) {
+					obj[k] = v;
+				} else {
+					obj[k] = this.merge(obj[k], v, opts);
+				}
+			}
+			//return
+			return obj;
+		},
+
+		filter: function(obj, filters) {
+			//can filter?
+			if(obj && filters) {
+				//set vars
+				var tmp = {};
+				//loop through object
+				for(var i in obj) {
+					//set flag
+					var keep = true;
+					//loop through filters
+					for(var j in filters) {
+						//delete record?
+						if(obj[i][j] != filters[j]) {
+							keep = false;
+							break;
+						}
+					}
+					//keep?
+					if(keep) {
+						tmp[i] = obj[i];
+					}
+				}
+				//update
+				obj = tmp;
+			}
+			//return
+			return obj;
+		},
+
+		sort: function(obj, order) {
+			//can order?
+			if(obj && order) {
+				//set vars
+				var arr = [];
+				var limit = order.limit || 0;
+				var offset = order.offset || 0;
+				//create array
+				for(var i in obj) {
+					var item = obj[i];
+					arr.push([ i, item ]);
+				}
+				//sort array?
+				if(order.key) {
+					arr.sort(function(a, b) {
+						var one = order.desc ? -1 : 1;
+						var two = order.desc ? 1 : -1;
+						return (a[1][order.key] > b[1][order.key]) ? one : two;
+					});
+				}
+				//reset
+				obj = {};
+				//re-create object
+				for(var i=0; i < arr.length; i++) {
+					//use offset?
+					if(offset && i < offset) {
+						continue;
+					}
+					//use limit?
+					if(limit && i >= (limit + offset)) {
+						break;
+					}
+					//add item
+					obj[arr[i][0]] = arr[i][1];
 				}
 			}
 			//return
@@ -1296,29 +1454,57 @@
 		opts = Object.assign({
 			key: 'gdpr',
 			text: 'We use cookies to provide the best website experience.',
-			url: '/privacy/'
+			policy: '<a href="' + (opts.url || '/privacy/') + '">Privacy policy</a>.',
+			action: 'Ok',
+			onOk: null,
+			onNav: function(e) {
+				if(this.href.indexOf('://') === -1 || this.href.indexOf(location.hostname) !== -1) {
+					if(this.href.indexOf(opts.url) === -1) {
+						localStorage.setItem(opts.key, 1);
+					}
+				}
+			}
 		}, opts);
 		//stop here?
 		try {
-			if(localStorage.getItem('gdpr') == 1) return;
+			if(localStorage.getItem(opts.key) == 1) return;
 		} catch (error) {
 			return;
 		}
 		//display cookie notice
-		this.append('<div id="cookie-consent">We use cookies to provide the best website experience. Our <a href="' + opts.url + '">privacy policy</a>. <button>Ok</button></div>');
-		//hide on click
-		Fstage('#cookie-consent button').on('click', function() {
-			localStorage.setItem(opts.key, 1);
-			Fstage('#cookie-consent').remove();
-		});
-		//hide on page click
-		Fstage('a').on('click', function() {
-			if(this.href.indexOf('://') === -1 || this.href.indexOf(location.hostname) !== -1) {
-				if(this.href.indexOf(opts.url) === -1) {
-					localStorage.setItem(opts.key, 1);
-				}
+		this.append('<div id="cookie-consent">' + opts.text + ' ' + opts.policy + ' <button>' + opts.action + '</button></div>');
+		//on load?
+		if(opts.onLoad) {
+			requestAnimationFrame(function() {
+				opts.onLoad(document.getElementById('cookie-consent'));
+			});
+		}
+		//on ok
+		Fstage('#cookie-consent button').on('click', function(e) {
+			//run callback
+			var res = opts.onOk ? opts.onOk(e) : true;
+			//after callback
+			var onEnd = function() {
+				localStorage.setItem(opts.key, 1);
+				Fstage('#cookie-consent').remove();
+			};
+			//is promise?
+			if(res && res.then) {
+				return res.then(function(res) {
+					if(res !== false) {
+						onEnd();
+					}
+				});
+			}
+			//sync response
+			if(res !== false) {
+				onEnd();
 			}
 		});
+		//on nav?
+		if(opts.onNav) {
+			Fstage('a').on('click', opts.onNav);
+		}
 		//chain it
 		return this;
 	};
@@ -1332,8 +1518,38 @@
 
 	//Forked: https://github.com/patrick-steele-idem/morphdom/
 	Fstage.domDiff = function(from, to, opts = {}) {
+		//get node key helper
+		var getNodeKey = function(node) {
+			//set vars
+			var key = '';
+			//custom callback?
+			if(opts.onGetKey) {
+				key = opts.onGetKey(node, opts.key);
+			} else if( node.getAttribute && !node.classList.contains('page')) {
+				key = node.getAttribute(opts.key || 'id');
+			}
+			//return
+			return key || '';
+		};
+		//find keyed nodes helper
+		var findKeyedNodes = function(node, res = {}) {
+			if(node.nodeType === 1 || node.nodeType === 11) {
+				var curChild = node.firstChild;
+				while(curChild) {
+					var key = getNodeKey(curChild);
+					if(key) {
+						res[key] = curChild;
+					}
+					res = findKeyedNodes(curChild, res);
+					curChild = curChild.nextSibling;
+				}
+			}
+			return res;
+		};
 		//update node helper
 		var updateNode = function(from, to) {
+			//delete node key
+			delete fromNodesLookup[getNodeKey(to)];
 			//equivalent node?
 			if(from.isEqualNode(to)) {
 				return;
@@ -1388,7 +1604,7 @@
 			//set vars
 			var curToChild = to.firstChild;
 			var curFromChild = from.firstChild;
-			var curToKey, curFromKey, fromNextSibling, toNextSibling;
+			var curToKey, curFromKey, fromNextSibling, toNextSibling, matchingFromEl;
 			//handle textarea node?
 			if(from.nodeName === 'TEXTAREA') {
 				from.value = to.value;
@@ -1398,25 +1614,55 @@
 			outer: while(curToChild) {
 				//set next 'to' sibling
 				toNextSibling = curToChild.nextSibling;
+				//get 'to' node key
+				curToKey = getNodeKey(curToChild);
 				//walk 'from' children
 				while(curFromChild) {
-					//set vars
-					var isCompatible = undefined;
 					//set next 'from' sibling
 					fromNextSibling = curFromChild.nextSibling;
 					//is same node?
-					if(curToChild.isSameNode && curToChild.isSameNode(curFromChild)) {
+					if(curToChild === curFromChild) {
 						//move to next sibling
 						curToChild = toNextSibling;
 						curFromChild = fromNextSibling;
 						continue outer;
 					}
+					//compatible flag
+					var isCompatible = undefined;
+					//get 'from' node key
+					curFromKey = getNodeKey(curFromChild);
 					//same node type?
 					if(curFromChild.nodeType === curToChild.nodeType) {
 						//is element?
 						if(curFromChild.nodeType === 1) {
-							isCompatible = (curFromChild.nodeName === curToChild.nodeName);
-							isCompatible && updateNode(curFromChild, curToChild);
+							//has key?
+							if(curToKey) {
+                                //keys not matching?
+                                if(curToKey !== curFromKey) {
+                                    //match found in lookup?
+                                    if((matchingFromEl = fromNodesLookup[curToKey])) {
+										if(fromNextSibling === matchingFromEl) {
+											isCompatible = false;
+										} else {
+											from.insertBefore(matchingFromEl, curFromChild);
+											if(curFromKey) {
+												keyedRemovalList.push(curFromKey);
+											} else {
+												removeNode(curFromChild, from, true);
+											}
+											curFromChild = matchingFromEl;
+										}
+									} else {
+										isCompatible = false;
+                                    }
+                                }
+                            } else if(curFromKey) {
+								isCompatible = false;
+                            }
+							isCompatible = (isCompatible !== false) && (curFromChild.nodeName === curToChild.nodeName);
+							if(isCompatible) {
+								updateNode(curFromChild, curToChild);
+							}
 						}
 						//is text or comment?
 						if(curFromChild.nodeType === 3 || curFromChild.nodeType === 8) {
@@ -1430,23 +1676,39 @@
 						curToChild = toNextSibling;
 						curFromChild = fromNextSibling;
 						continue outer;
-					} else {
-						//remove node
-						from.removeChild(curFromChild);
-						curFromChild = fromNextSibling;
 					}
+					if(curFromKey) {
+						keyedRemovalList.push(curFromKey);
+                    } else {
+						removeNode(curFromChild, from, true);
+					}
+					curFromChild = fromNextSibling;
 				}
 				//append node
-				from.appendChild(curToChild);
+                if(curToKey && (matchingFromEl = fromNodesLookup[curToKey]) && matchingFromEl.nodeName === curToChild.nodeName) {
+					from.appendChild(matchingFromEl);
+					updateNode(matchingFromEl, curToChild);
+				} else {
+					if(curToChild.actualize) {
+						curToChild = curToChild.actualize(from.ownerDocument || document);
+					}
+					from.appendChild(curToChild);
+					nodeAdded(curToChild);
+                }
 				//move to next sibling
 				curToChild = toNextSibling;
 				curFromChild = fromNextSibling;
 			}
-			//still nodes to remove?
+			//clean up from?
 			while(curFromChild) {
-				var nextChild = curFromChild.nextSibling;
-				from.removeChild(curFromChild);
-				curFromChild = nextChild;
+				fromNextSibling = curFromChild.nextSibling;
+				curFromKey = getNodeKey(curFromChild);
+				if(curFromKey) {
+					keyedRemovalList.push(curFromKey);
+				} else {
+					removeNode(curFromChild, from, true);
+                }
+                curFromChild = fromNextSibling;
 			}
 			//handle input node?
 			if(from.nodeName === 'INPUT') {
@@ -1523,8 +1785,53 @@
 				updateAttrBool(from, to, 'selected');
 			}
 		};
-		//set vars
+		//node added helper
+		var nodeAdded = function(el) {
+			var curChild = el.firstChild;
+			while(curChild) {
+				var nextSibling = curChild.nextSibling;
+                var key = getNodeKey(curChild);
+                //key = null;
+                if(key) {
+					var unmatchedFromEl = fromNodesLookup[key];
+					if(unmatchedFromEl && curChild.nodeName === unmatchedFromEl.nodeName) {
+						curChild.parentNode.replaceChild(unmatchedFromEl, curChild);
+						updateNode(unmatchedFromEl, curChild);
+					} else {
+						nodeAdded(curChild);
+                    }
+				} else {
+					nodeAdded(curChild);
+				}
+                curChild = nextSibling;
+            }
+        };
+        //remove node helper
+        var removeNode = function(node, parentNode, skipKeyedNodes) {
+			if(parentNode) {
+				parentNode.removeChild(node);
+			}
+			walkDiscardedNodes(node, skipKeyedNodes);
+		};
+		//walk discarded nodes helper
+		var walkDiscardedNodes = function(node, skipKeyedNodes) {
+			if(node.nodeType === 1) {
+				var curChild = node.firstChild;
+				while(curChild) {
+					var key = getNodeKey(curChild);
+					if(key && skipKeyedNodes) {
+						keyedRemovalList.push(curFromKey);
+                    } else if(curChild.firstChild) {
+						walkDiscardedNodes(curChild, skipKeyedNodes);
+					}
+                    curChild = curChild.nextSibling;
+				}
+			}
+		};
+		//start update
 		var updated = from;
+		var keyedRemovalList = [];
+		var fromNodesLookup = findKeyedNodes(from);
 		//convert html to nodes?
 		if(typeof to === 'string') {
 			var tmp = from.cloneNode(false);
@@ -1555,10 +1862,25 @@
 		}
 		//update node?
 		if(updated !== to) {
+			//update node
 			updateNode(updated, to);
+			//check keyed nodes
+			for(var i=0; i < keyedRemovalList.length; i++) {
+				//node to remove
+				var toRemove = fromNodesLookup[keyedRemovalList[i]];
+				//can remove?
+				if(toRemove) {
+					removeNode(toRemove, toRemove.parentNode, false);
+				}
+			}
 		}
 		//replace from node?
 		if(updated !== from && from.parentNode) {
+			//virtual DOM?
+			if(updated.actualize) {
+				updated = updated.actualize(from.ownerDocument || document);
+			}
+			//replace node
 			from.parentNode.replaceChild(updated, from);
 		}
 		//return
@@ -1800,71 +2122,178 @@
 **/
 (function(undefined) {
 
-	var _count = 0;
-	var _pubsub = Fstage.pubsub;
+	//static vars
+	var events = {};
+	var ignore = {};
+	var counter = 0;
+	var reserved = [ 'proxyId', 'onProxy', 'proxyLocked', 'proxyTarget', 'merge' ];
 
-	var _path = function(root, key) {
-		return root + (root ? '.' : '') + key;
+	//path helper
+	var fullPath = function(base, key) {
+		return base + (base ? '.' : '') + key;
 	};
 
-	Fstage.observe = function(obj, base = null, path = '') {
+	//public api
+	Fstage.observe = function(obj, opts = {}) {
 		//is proxy?
-		if(!obj || obj.__isProxy) {
+		if(!obj || obj.proxyId) {
 			return obj;
 		}
-		//set ID?
-		if(base === null) {
-			obj.__id = (++_count);
-		}
-		//set base
-		base = base || obj;
-		//set local vars
-		var evName = 'object.observe.' + base.__id;
-		var reserved = [ 'isProxy', 'onProxy', 'lockedProxy', 'baseProxy', 'proxyTarget', '__id' ];
+		//set vars
+		var deep = !!opts.deep;
+		var path = opts.path || '';
+		var base = opts.base || obj;
+		var id = base.proxyId || (++counter);
+		//setup IDs
+		events[id] = events[id] || {};
+		ignore[id] = ignore[id] || [];
 		//create proxy
 		var proxy = new Proxy(obj, {
+			//getters
 			get: function(o, k) {
-				if(k === 'isProxy') {
-					return true;
-				} else if(k === 'proxyTarget') {
-					return o;
-				} else if(k === 'onProxy') {
-					return function(fn) { return _pubsub.on(evName, fn) }
-				} else if(!reserved.includes(k) && o[k] && typeof o[k] === 'object' && !o[k].isProxy) {
-					o[k] = Fstage.observe(o[k], base, _path(path, k));
+				//proxy ID?
+				if(k === 'proxyId') {
+					this.id = this.id || id;
+					return this.id;
 				}
+				//proxy locked?
+				if(k === 'proxyLocked') {
+					return !!this.locked;
+				}
+				//proxy target?
+				if(k === 'proxyTarget') {
+					return o;
+				}
+				//add listener?
+				if(k === 'onProxy') {
+					return function(action, fn) {
+						events[id][action] = events[id][action] || [];
+						events[id][action].push(fn);
+					}
+				}
+				//merge into proxy?
+				if(k === 'merge') {
+					return function(key, value, opts = {}) {
+						//get path
+						var fp = fullPath(path, key);
+						//should observe?
+						if(opts.observe === undefined) {
+							opts.observe = true;
+						}
+						//deep merge?
+						if(opts.deep === undefined) {
+							opts.deep = !!opts.observe;
+						}
+						//add to ignore list?
+						if(!opts.observe && !ignore[id].includes(fp)) {
+							ignore[id].push(fp);
+						}
+						//run merge
+						return Fstage.obj.set(base, fp, value, opts);
+					}
+				}
+				//get full path
+				var fp = fullPath(path, k);
+				//can observe?
+				if(!ignore[id].includes(fp)) {
+					//deep observe?
+					if(deep && !reserved.includes(k) && o[k] && typeof o[k] === 'object') {
+						o[k] = Fstage.observe(o[k], {
+							base: base,
+							path: fp,
+							deep: true
+						});
+					}
+					//access event
+					for(var i=0; i < (events[id]['access'] || []).length; i++) {
+						events[id]['access'][i]({
+							obj: base,
+							path: fp,
+							val: o[k]
+						});
+					}
+				}
+				//return
 				return o[k];
 			},
+			//setters
 			set: function(o, k, v) {
-				if(k === 'lockedProxy') {
-					base.proxyTarget.lockedProxy = !!v;
-				} else if(!reserved.includes(k) && o[k] !== v) {
-					if(base.lockedProxy) {
-						throw new Error('Proxy is locked');
-					}
-					var f = o[k]; o[k] = v;
-					var t = (f === undefined) ? 'add' : 'change';
-					_pubsub.emit(evName, { obj: base, path: _path(path, k), type: t, from: f, to: v });
+				//update locked?
+				if(k === 'proxyLocked') {
+					this.locked = !!v;
+					return true;
 				}
+				//is reserved?
+				if(reserved.includes(k)) {
+					throw new Error('Proxy property is reserved: ' + k);
+				}
+				//is locked?
+				if(base.proxyLocked) {
+					throw new Error('Proxy is locked');
+				}
+				//can update?
+				if(o[k] !== v) {
+					//update
+					var f = o[k];
+					o[k] = v;
+					//get full path
+					var fp = fullPath(path, k);
+					//can observe?
+					if(!ignore[id].includes(fp)) {
+						//change event
+						for(var i=0; i < (events[id]['change'] || []).length; i++) {
+							events[id]['change'][i]({
+								obj: base,
+								path: fp,
+								type: (f === undefined) ? 'add' : 'update',
+								from: f,
+								to: v
+							});
+						}
+					}
+				}
+				//return
 				return true;
 			},
+			//deletes
 			deleteProperty: function(o, k) {
-				if(!reserved.includes(k) && o[k] !== undefined) {
-					if(base.lockedProxy) {
-						throw new Error('Proxy is locked');
-					}
-					var f = o[k]; delete o[k];
-					_pubsub.emit(evName, { obj: base, path: _path(path, k), type: 'remove', from: f, to: undefined });
+				//is reserved?
+				if(reserved.includes(k)) {
+					throw new Error('Proxy property is reserved: ' + k);
 				}
+				//is locked?
+				if(base.proxyLocked) {
+					throw new Error('Proxy is locked');
+				}
+				//can delete?
+				if(o[k] !== undefined) {
+					//delete
+					var f = o[k];
+					delete o[k];
+					//get full path
+					var fp = fullPath(path, k);
+					//can observe?
+					if(!ignore[id].includes(fp)) {
+						//change event
+						for(var i=0; i < (events[id]['change'] || []).length; i++) {
+							events[id]['change'][i]({
+								obj: base,
+								path: fp,
+								type: 'remove',
+								from: f,
+								to: undefined
+							});
+						}
+					}
+				}
+				//return
 				return true;
 			}
 		});
 		//update base?
-		if(obj === base) {
+		if(!base.proxyId) {
 			base = proxy;
 		}
-		//set base proxy
-		obj.baseProxy = base;
 		//return
 		return proxy;
 	};
@@ -1876,255 +2305,681 @@
 **/
 (function(undefined) {
 
-	var store = function(name, state = {}) {
+	var queue = [];
+	var storeId = 0;
 
-		var _state = {};
-		var _changes = {};
-		var _selectors = {};
-		var _hasDispatched = false;
-		var _prefix = 'store.' + name + '.';
+	Fstage.store = function(state = {}, opts = {}) {
 
-		var _watchState = function(state) {
-			//create proxy?
-			if(!state || !state.isProxy) {
-				//observe object
-				state = api._observe(state || {});
-				//lock state
-				state.lockedProxy = true;
-				//listen for changes
-				state.onProxy(function(change) {
-					api._objKey.set(_changes, change.path, change.to);
-				});
-			}
-			//return
-			return state;
-		};
+		//local vars
+		var fnId = 0;
+		var paths = {};
+		var tokens = {};
+		var actions = {};
+		var tracking = null;
+		var locked = (opts.locked !== false);
+		var pubsub = opts.pubsub || Fstage.pubsub;
+		var evPrefix = 'store.' + (++storeId) + '.';
 
+		//public api
 		var api = {
 
-			_objKey: Fstage.objKey,
-			_pubsub: Fstage.pubsub,
-			_observe: Fstage.observe,
-			_memoize: Fstage.memoize,
-
-			actions: {},
-
-			instance: function(name, state = {}) {
-				return new store(name, state);
+			init: function(data) {
+				//observe state
+				state = Fstage.observe(data || {}, {
+					deep: !!opts.deep
+				});
+				//lock state
+				state.proxyLocked = locked;
+				//listen for state access
+				state.onProxy('access', function(data) {
+					//is tracking?
+					if(!tracking) return;
+					//set vars
+					var path = data.path;
+					var token = tracking.__react.fnId;
+					//create arrays
+					paths[path] = paths[path] || [];
+					tokens[token] = tokens[token] || [];
+					//subscribe function?
+					if(!paths[path].includes(tracking)) {
+						paths[path].push(tracking);
+						tokens[token].push(path);
+					}
+				});
+				//listen for state changes
+				state.onProxy('change', function(data) {
+					//set vars
+					var path = data.path;
+					//loop through functions to call
+					for(var i=0; i < (paths[path] || []).length; i++) {
+						//get function
+						var fn = paths[path][i];
+						//launch queue?
+						if(!queue.length) {
+							requestAnimationFrame(function() {
+								//loop through queue
+								while(queue.length) {
+									var fn = queue.shift();
+									fn();
+								}
+							});
+						}
+						//add to queue?
+						if(!queue.includes(fn)) {
+							queue.push(fn);
+						}
+					}
+				});
+				//return
+				return api;
 			},
 
 			name: function() {
 				return name;
 			},
 
-			initState: function(state) {
-				//stop here?
-				if(_hasDispatched) return;
-				//watch state?
-				if(state) {
-					_state = _watchState(state);
-				}
+			state: function() {
+				return state;
 			},
 
-			getState: function(key = null) {
-				//use selector?
-				if(key && _selectors[key]) {
-					return _selectors[key].call(this, _state);
-				}
-				//find by key
-				return api._objKey.get(_state, key);
+			actions: function() {
+				return actions;
 			},
 
-			on: function(key, fn) {
-				//key is function?
-				if(typeof key === 'function') {
-					fn = key;
-					key = null;
-				}
-				//return listener
-				return api._pubsub.on(_prefix + 'change', function(state, changes, action) {
-					//has key?
-					if(key && key.length) {
-						//use selector?
-						if(_selectors[key]) {
-							state = _selectors[key].call(this, changes);
-						} else {
-							state = api._objKey.get(changes, key);
-						}
-					}
-					//run callback?
-					if(state !== undefined) {
-						fn(state, action);
-					}
-				});
+			inQueue: function(fn) {
+				return queue.includes(fn);
 			},
 
-			off: function(token) {
-				return api._pubsub.off(_prefix + 'change', token);
+			hasRun: function(name) {
+				return !!(actions[name] && actions[name].run);
 			},
 
-			dispatch: function(name, payload, opts = {}) {
-				//set vars
-				var promise = null;
-				var isError = Object.prototype.toString.call(payload) === "[object Error]";
-				//create action
-				var action = {
-					type: name,
-					payload: payload,
-					status: opts.status || 'complete',
-					reducer: opts.reducer || null
-				};
-				//update flag
-				_hasDispatched = true;
-				//has constant?
-				if(!api.actions[name] && !Object.values(api.actions).includes(name)) {
-					console.warn('No constant associated with store action', name);
+			dispatch: function(name, payload = null, opts = {}) {
+				//action created?
+				if(!actions[name]) {
+					throw new Error('Action not defined: ' + name);
 				}
-				//process action?
-				if(!opts.status) {
-					//run middleware
-					action = api._pubsub.emit(_prefix + 'middleware', action, {
-						ctx: this,
-						filter: true
-					});
-				}
-				//process payload?
-				if(typeof action.payload !== 'undefined') {
-					//is error?
-					if(isError || (action.payload && action.payload.error)) {
-						action.status = 'error';
-					}
-					//is promise?
-					if(action.payload && action.payload.then) {
-						//cache promise
-						promise = action.payload;
-						//cache reducer
-						var reducer = action.reducer;						
-						//reset action
-						action.payload = null;
-						action.status = 'pending';
-						//add actions
-						promise = promise.then(function(result) {
-							return api.dispatch(name, result, {
-								status: 'complete',
-								reducer: reducer
-							});;
-						}).catch(function(error) {
-							return api.dispatch(name, error, {
-								status: 'error',
-								reducer: reducer
-							});
-						});
-					} else {
-						//unlock state
-						_state.lockedProxy = false;
-						//call local reducer?
-						if(action.reducer) {
-							//is function?
-							if(typeof action.reducer === 'function') {
-								action.reducer.call(this, _state, action);
-							} else {
-								api._objKey.set(_state, action.reducer, action.payload);
-							}
-						}
-						//call custom reducers
-						api._pubsub.emit(_prefix + 'reduce', [ _state, action ], {
-							ctx: this,
-							method: 'apply'
-						});
-						//lock state
-						_state.lockedProxy = true;
-					}
-				}
-				//update action
-				delete action.reducer;
-				//has changes?
-				var hasChanges = Object.keys(_changes).length;
-				//changes found?
-				if(hasChanges) {
-					//alert store listeners
-					api._pubsub.emit(_prefix + 'change', [ _state, _changes, action ], {
-						method: 'apply'
-					});
-					//reset vars
-					_changes = {};
-				}
-				//did anything happen?
-				if(!hasChanges && !action.payload && !promise) {
-					action.status = 'error';
-					action.payload = new Error("No changes were processed by the store");
-				}
-				//return promise
-				return new Promise(function(resolve, reject) {
-					//is complete?
-					if(action.status === 'complete') {
-						resolve(action);
-					}
-					//is error?
-					if(action.status === 'error') {
-						reject(action.payload);
-					}
-					//is pending
-					promise.then(function(result) {
-						resolve(result);
-					}).catch(function(error) {
-						reject(error);
-					});
-				});
-			},
-
-			reducer: function(name, fn) {
-				//name is function?
-				if(typeof name === 'function') {
-					fn = name;
-					name = '';
-				}
-				//add listener
-				return api._pubsub.on(_prefix + 'reduce', function(state, action) {
-					//execute callback?
-					if(!name || action.type === name) {
-						return fn(state, action);
-					}
-					//default
-					return state;
-				});
-			},
-
-			selector: function(name, fn = null, memoize = false) {
-				//add selector?
-				if(fn !== null) {
-					_selectors[name] = memoize ? api._memoize(fn) : fn;
-				}
-				//return
-				return _selectors[name];
+				//call action
+				return actions[name](payload, opts);
 			},
 
 			middleware: function(name, fn) {
-				//name is function?
-				if(typeof name === 'function') {
-					fn = name;
-					name = '';
-				}
-				//add listener
-				return api._pubsub.on(_prefix + 'middleware', function(action) {
-					//execute callback?
-					if(!name || action.type === name) {
-						return fn(action);
+				//register action
+				actions[name] = actions[name] || function(payload = null, opts = {}) {
+					//set vars
+					var promise = null;
+					var useMiddleware = !opts.status;
+					var isError = Object.prototype.toString.call(payload) === "[object Error]";
+					//create action
+					var action = {
+						type: name,
+						payload: payload,
+						status: opts.status || 'complete',
+						reducer: opts.reducer || null
+					};
+					//process action?
+					if(useMiddleware) {
+						//run middleware
+						action = pubsub.emit(evPrefix + name, action, {
+							ctx: api,
+							filter: true
+						});
+						//mark as run
+						actions[name].run = true;
 					}
-					//default
-					return action;
-				});
+					//process payload?
+					if(typeof action.payload !== 'undefined') {
+						//is error?
+						if(isError || (action.payload && action.payload.error)) {
+							action.status = 'error';
+						}
+						//is promise?
+						if(action.payload && action.payload.then) {
+							//cache promise
+							promise = action.payload;						
+							//reset action
+							action.payload = null;
+							action.status = 'pending';
+							//add actions
+							promise = promise.then(function(result) {
+								return api.dispatch(name, result, {
+									status: 'complete',
+									reducer: action.reducer
+								});;
+							}).catch(function(error) {
+								return api.dispatch(name, error, {
+									status: 'error',
+									reducer: action.reducer
+								});
+							});
+						} else if(action.reducer && !isError) {
+							//unlock state
+							state.proxyLocked = false;
+							//call reducer
+							action.reducer.call(api, state, action.payload);
+							//reset lock
+							state.proxyLocked = locked;
+						}
+					}
+					//return promise
+					return new Promise(function(resolve, reject) {
+						//is complete?
+						if(action.status === 'complete') {
+							resolve(action.payload);
+						}
+						//is error?
+						if(action.status === 'error') {
+							reject(action.payload);
+						}
+						//is pending
+						promise.then(function(result) {
+							resolve(result);
+						}).catch(function(error) {
+							reject(error);
+						});
+					});
+				};
+				//add middleware
+				return pubsub.on(evPrefix + name, fn);
+			},
+
+			react: function(fn, opts = {}) {
+				//is wrapped?
+				if(fn.__react && fn.__react.stateId === state.proxyId) {
+					return fn;
+				}
+				//wrap function
+				var wrap = function() {
+					//reset?
+					if(opts.reset) {
+						fn = api.unreact(wrap);
+					}
+					//mark as tracked
+					var prev = tracking;
+					tracking = wrap;
+					//get args
+					var args = [].slice.call(arguments);
+					//execute
+					if(opts.ctx) {
+						var res = fn.apply(opts.ctx, args);
+					} else {
+						var res = fn(...args);
+					}
+					//previous
+					tracking = prev;
+					//return
+					return res;
+				};
+				//cache vars
+				wrap.__react = {
+					fn: fn,
+					fnRoot: fn.__react ? fn.__react.fnRoot : fn,
+					fnId: (++fnId),
+					stateId: state.proxyId
+				};
+				//return
+				return wrap;
+			},
+
+			unreact: function(fn) {
+				//is wrapped?
+				if(!fn.__react || fn.__react.stateId !== state.proxyId) {
+					return fn;
+				}
+				//set vars
+				var token = fn.__react.fnId;
+				//loop through tokens
+				for(var i=0; i < (tokens[token] || []).length; i++) {
+					//get path
+					var path = tokens[token][i];
+					var index = paths[path].indexOf(fn);
+					//remove?
+					if(index >= 0) {
+						paths[path].splice(index, 1);
+					}
+				}
+				//delete token?
+				if(tokens[token]) {
+					delete tokens[token];
+				}
+				//return
+				return fn.__react.fn;
 			}
 
 		};
 
-		_state = _watchState(_state);
-
-		return api;
+		//return
+		return api.init(state);
 
 	};
-	
-	Fstage.store = new store('default');
+
+})();
+
+/**
+ * VIEW COMPONENTS
+ *
+ * el.render
+ * el.onDidMount
+ * el.onDidUpdate
+ * el.onDidUnmount
+**/
+(function(undefined) {
+
+	var _registered = {};
+	var _queue = [];
+	var _store = null;
+	var _rootEl = null;
+	var _mutations = null;
+
+	var _getProps = function(el) {
+		//set vars
+		var props = {};
+		//parse attributes?
+		if(el.attributes.length) {
+			//get parent
+			var parentEl = el.closest('[data-component');
+			//loop through attributes
+			for(var i=0; i < el.attributes.length; i++) {
+				//parse name and value
+				var k = el.attributes[i].name;
+				var v = el.attributes[i].value;
+				//valid prop?
+				if(k.indexOf('on') !== 0) {
+					//use parent value?
+					if(parentEl && v.indexOf('this.') === 0) {
+						//split key
+						var parts = v.replace('this.', '').split('.');
+						var v = parentEl;
+						//loop through parts
+						for(var i=0; i < parts.length; i++) {
+							//next level
+							v = v[parts[i]];
+							//not found?
+							if(v === undefined) {
+								v = null;
+								break;
+							}
+						}
+					}
+					//add prop
+					props[k] = v;
+				}
+			}
+		}
+		//return
+		return Object.freeze(props);
+	};
+
+	var _setProps = function(el, props) {
+		//remove old attributes
+		for(var i=0; i < el.attributes.length; i++) {
+			//needs removing?
+			if(!props[el.attributes[i].name]) {
+				el.removeAttribute(el.attributes[i].name);
+			}
+		}
+		//set new attributes
+		for(var i in props) {
+			el.setAttribute(i, props[i]);
+		}
+		//set props
+		el.props = props;
+		//return
+		return el;	
+	};
+
+	var _syncComponent = function(el, opts = {}) {
+		//anything to make?
+		if(!el.tagName || (el.isComponent && !el.orphanedComponent)) {
+			return el;
+		}
+		//set vars
+		var isNew = !el.isComponent;
+		var wasOrphaned = el.orphanedComponent;
+		var name = opts.name || el.getAttribute('data-component') || el.tagName.toLowerCase();
+		//is registered?
+		if(!_registered[name]) {
+			return el;
+		}
+		//setup helWWper
+		var setupEl = function() {
+			//set orphaned state
+			el.orphanedComponent = !opts.parent && !document.body.contains(el);
+			//is attached to DOM?
+			if(!el.orphanedComponent) {
+				//set parent
+				el.parentComponent = opts.parent || (el.parentNode ? el.parentNode.closest('[data-component]') : null);
+				//add child to parent?
+				if(el.parentComponent && !el.parentComponent.childComponents.includes(el)) {
+					el.parentComponent.childComponents.push(el);
+				}
+				//set state
+				el.state = el.state || {};
+				el.store = _store.state();
+				el.actions = _store.actions();
+				//set props
+				el.props = _getProps(el);
+				//set context
+				el.context = opts.context || el.context || (el.parentComponent ? el.parentComponent.context : null);
+			}
+		};
+		//reuse instance?
+		if(opts.linked && opts.linked.isComponent) {
+			//same component type?
+			if(name === opts.linked.getAttribute('data-component')) {
+				//set vars
+				var didChange = false;
+				//remove old attributes
+				for(var i=0; i < opts.linked.attributes.length; i++) {
+					//needs removing?
+					if(!el.hasAttribute(opts.linked.attributes[i].name)) {
+						//update flag
+						didChange = true;
+						//remove attribute
+						opts.linked.removeAttribute(opts.linked.attributes[i].name);
+					}
+				}
+				//set new attributes
+				for(var i=0; i < el.attributes.length; i++) {
+					//needs updating?
+					if(opts.linked.getAttribute(el.attributes[i].name) !== el.attributes[i].value) {
+						//update flag
+						didChange = true;
+						//update attribute
+						opts.linked.setAttribute(el.attributes[i].name, el.attributes[i].value);
+					}
+				}
+				//update el
+				el = opts.linked;
+				el.__skip = true;
+				//not new
+				isNew = false;
+				//stop here?
+				if(!didChange) {
+					return el;
+				}
+			}
+		}
+		//create now?
+		if(isNew) {
+			//mark as component
+			el.isComponent = true;
+			//set attribute
+			el.setAttribute('data-component', name);
+			//merge base
+			el = Object.assign(el, _baseComponent);
+			//setup
+			setupEl();
+			//get object
+			var obj = _registered[name];
+			//create .instance?
+			if(typeof obj === 'function') {
+				obj.apply(el, [ el, el.context ]);
+			} else {
+				el = Object.assign(el, obj);
+			}
+			//create local store
+			var store = components._store(el.state, {
+				locked: false,
+				deep: true
+			});
+			//attach local store
+			el.__update = store.react(el.__update, {
+				ctx: el,
+				reset: true
+			});
+			//update local state
+			el.state = store.state();
+		}
+		//render component?
+		if(!el.orphanedComponent) {
+			//run setup?
+			if(!isNew) {
+				setupEl();
+			}
+			//attach global store
+			el.__update = _store.react(el.__update, {
+				ctx: el,
+				reset: true
+			});
+			//render
+			el.__update({
+				isNew: isNew,
+				parent: opts.parent || null
+			});				
+		}
+		//return
+		return el;
+	};
+
+	var _baseComponent = {
+
+		props: null,
+		state: null,
+		store: null,
+		actions: null,
+		isComponent: true,
+		childComponents: [],
+		parentComponent: null,
+
+		esc: function(input, type = 'html') {
+			return components._escape(input, type);
+		},
+
+		escAttr: function(input) {
+			return this.esc(input, 'attr');
+		},
+		
+		__update: function(opts = {}) {
+			//can render?
+			if(this.orphanedComponent) {
+				return;
+			}
+			//set vars
+			var el = this;
+			var html = el.render();
+			var hook = opts.isNew ? 'onDidMount' : 'onDidUpdate';
+			//update html?
+			if(html || html === '') {
+				//clone element
+				var newEl = el.cloneNode(false);
+				//set html
+				newEl.innerHTML = components._pubsub.emit('components.filterHtml', html, {
+					filter: true
+				});
+				//scan children
+				var oldChildren = el.querySelectorAll('*');
+				var newChildren = newEl.querySelectorAll('*');
+				//loop through nodes
+				for(var i=0; i < newChildren.length; i++) {
+					//sync component
+					_syncComponent(newChildren[i], {
+						parent: el,
+						linked: oldChildren[i] || null
+					});
+				}
+				//diff the DOM
+				components._domDiff(el, newEl, {
+					beforeUpdateNode: function(from, to) {
+						//has parent?
+						if(opts.parent) {
+							//skip update?
+							if(from.__skip && el !== from) {
+								return false;
+							}
+							return;
+						}
+						//run event
+						var res = components._pubsub.emit('components.beforeUpdateNode', [ from, to, el ], {
+							method: 'apply'
+						});
+						//skip update?
+						if(from.__skip || res.includes(false)) {
+							from.__skip = false;
+							return false;
+						}
+					},
+					afterUpdateNode: function(from, to) {
+						//has parent?
+						if(opts.parent) {
+							return;
+						}
+						//run event
+						components._pubsub.emit('components.afterUpdateNode', [ from, to, el ], {
+							method: 'apply'
+						});
+					}
+				});
+				//call hook
+				requestAnimationFrame(function() {
+					el[hook] && el[hook]();
+				});
+			}
+		}
+
+	};
+
+	var components = {
+
+		_store: Fstage.store,
+		_pubsub: Fstage.pubsub,
+		_escape: Fstage.escape,
+		_domDiff: Fstage.domDiff,
+
+		root: function() {
+			return _rootEl;
+		},
+
+		store: function(state = {}) {
+			//create store
+			_store = _store || components._store(state, {
+				deep: true
+			});
+			//return
+			return _store;
+		},
+
+		create: function(name) {
+			return _syncComponent(document.createElement(name));
+		},
+
+		find: function(selector) {
+			//set vars
+			var res = [];
+			var nodes = _rootEl.querySelectorAll(selector);
+			//loop through nodes
+			for(var i=0; i < nodes.length; i++) {
+				//is component?
+				if(nodes[i].isComponent) {
+					res.push(nodes[i]);
+				}
+			}
+			//return
+			return res;
+		},
+
+		register: function(name, fn) {
+			//cache function
+			_registered[name.toLowerCase()] = fn;
+			//chain it
+			return this;
+		},
+
+		onFilterHtml: function(fn) {
+			return this._pubsub.on('components.filterHtml', fn);
+		},
+
+		onBeforeUpdateNode: function(fn) {
+			return this._pubsub.on('components.beforeUpdateNode', fn);
+		},
+
+		onAfterUpdateNode: function(fn) {
+			return this._pubsub.on('components.afterUpdateNode', fn);
+		},
+
+		start: function(name, rootEl, opts = {}) {
+			//already started?
+			if(_mutations) {
+				return _rootEl;
+			}
+			//cache root?
+			if(!_rootEl) {
+				//is selector?
+				if(typeof rootEl === 'string') {
+					rootEl = document.querySelector(rootEl);
+				}
+				//cache node
+				_rootEl = rootEl;
+				//init global store
+				components.store(opts.state);
+				//extend element class
+				HTMLElement.prototype.component = function() {
+					return this.closest('[data-component');
+				};
+			}
+			//create observer
+			_mutations = new MutationObserver(function(mutationsList, observer) {
+				//loop through changes
+				mutationsList.forEach(function(mutation) {
+					//check added nodes
+					mutation.addedNodes.forEach(function(el) {
+						//sync component
+						_syncComponent(el);
+					});
+					//check removed nodes
+					mutation.removedNodes.forEach(function(el) {
+						//is component?
+						if(!el.isComponent) {
+							return;
+						}
+						//call did unmount?
+						if(el.onDidUnmount) {
+							el.onDidUnmount();
+						}
+						//detach global store
+						el.__update = _store.unreact(el.__update);
+						//has parent?
+						if(el.parentComponent) {
+							//get index
+							var index = el.parentComponent.childComponents.indexOf(el);
+							//remove item?
+							if(index > -1) {
+								el.parentComponent.childComponents.splice(index, 1);
+							}
+							//remove reference
+							el.parentComponent = null;
+						}
+						//reset element
+						el.props = null;
+						el.states = null;
+						el.context = null;
+						el.orphanedComponent = true;
+					});
+				});
+			});
+			//observe changes
+			_mutations.observe(_rootEl, {
+				childList: true,
+				subtree: true
+			});
+			//return
+			return _syncComponent(_rootEl, {
+				name: name,
+				context: opts.context || null
+			});
+		},
+
+		stop: function() {
+			//stop observing?
+			if(_mutations) {
+				_mutations.disconnect();
+				_mutations = null;
+			}
+		}
+
+	};
+
+	Fstage.components = components;
 
 })();
 
@@ -2173,13 +3028,16 @@
 
 		//listen for clicks
 		window.addEventListener('click', function(e) {
-			//set vars
-			var el = e.target;
+			//get target
+			var el = e.target.closest('[' + opts.attr + ']');
+			//valid route?
+			if(!el) return;
+			//get params
 			var name = el.getAttribute(opts.attr);
 			var mode = el.getAttribute('data-history') || 'push';
 			var params = (el.getAttribute('data-params') || '').split(';');
 			//go back?
-			if(mode === 'back') {
+			if(name === 'back') {
 				return api.back();
 			}
 			//stop here?
@@ -2388,508 +3246,6 @@
 })();
 
 /**
- * VIEW COMPONENTS
- *
- * el.onCreated
- * el.render
- * el.onDidMount
- *
- * el.onShouldUpdate
- * el.render
- * el.onDidUpdate
- *
- * el.onDidUnmount
-**/
-(function(undefined) {
-
-	var _registered = {};
-	var _queue = [];
-	var _rootEl = null;
-	var _mutations = null;
-	var _canQueue = false;
-
-	var _getProps = function(el) {
-		//set vars
-		var props = {};
-		//parse attributes?
-		if(el.attributes.length) {
-			//get parent
-			var parentEl = el.closest('[data-component');
-			//loop through attributes
-			for(var i=0; i < el.attributes.length; i++) {
-				//parse name and value
-				var k = el.attributes[i].name;
-				var v = el.attributes[i].value;
-				//valid prop?
-				if(k.indexOf('on') !== 0) {
-					//use parent value?
-					if(parentEl && v.indexOf('this.') === 0) {
-						//split key
-						var parts = v.replace('this.', '').split('.');
-						var v = parentEl;
-						//loop through parts
-						for(var i=0; i < parts.length; i++) {
-							//next level
-							v = v[parts[i]];
-							//not found?
-							if(v === undefined) {
-								v = null;
-								break;
-							}
-						}
-					}
-					//add prop
-					props[k] = v;
-				}
-			}
-		}
-		//return
-		return Object.freeze(props);
-	};
-
-	var _setProps = function(el, props) {
-		//remove old attributes
-		for(var i=0; i < el.attributes.length; i++) {
-			//needs removing?
-			if(!props[el.attributes[i].name]) {
-				el.removeAttribute(el.attributes[i].name);
-			}
-		}
-		//set new attributes
-		for(var i in props) {
-			el.setAttribute(i, props[i]);
-		}
-		//set props
-		el.props = props;
-		//return
-		return el;	
-	};
-
-	var _syncComponent = function(el, opts = {}) {
-		//anything to make?
-		if(!el.tagName || (el.isComponent && !el.orphanedComponent)) {
-			return el;
-		}
-		//set vars
-		var isNew = !el.isComponent;
-		var wasOrphaned = el.orphanedComponent;
-		var name = opts.name || el.getAttribute('data-component') || el.tagName.toLowerCase();
-		//is registered?
-		if(!_registered[name]) {
-			return el;
-		}
-		//setup helWWper
-		var setupEl = function() {
-			//set orphaned state
-			el.orphanedComponent = !opts.parent && !document.body.contains(el);
-			//is attached to DOM?
-			if(!el.orphanedComponent) {
-				//set parent
-				el.parentComponent = opts.parent || (el.parentNode ? el.parentNode.closest('[data-component]') : null);
-				//add child to parent?
-				if(el.parentComponent && !el.parentComponent.childComponents.includes(el)) {
-					el.parentComponent.childComponents.push(el);
-				}
-				//set context
-				el.context = opts.context || el.context || (el.parentComponent ? el.parentComponent.context : null);
-				//set props
-				el.props = el.props || _getProps(el);
-				//set state
-				el.state = el.state || {};
-			}
-		};
-		//reuse instance?
-		if(opts.linked) {
-			//is component
-			if(opts.linked && opts.linked.isComponent) {
-				//same component type?
-				if(name === opts.linked.getAttribute('data-component')) {
-					//remove old attributes
-					for(var i=0; i < opts.linked.attributes.length; i++) {
-						//needs removing?
-						if(!el.hasAttribute(opts.linked.attributes[i].name)) {
-							opts.linked.removeAttribute(opts.linked.attributes[i].name);
-						}
-					}
-					//set new attributes
-					for(var i=0; i < el.attributes.length; i++) {
-						opts.linked.setAttribute(el.attributes[i].name, el.attributes[i].value);
-					}
-					//update el
-					el = opts.linked;
-					el.__skip = true;
-					//not new
-					isNew = false;
-				}
-			}
-		}
-		//create now?
-		if(isNew) {
-			//mark as component
-			el.isComponent = true;
-			//set attribute
-			el.setAttribute('data-component', name);
-			//merge base
-			el = Object.assign(el, _baseComponent);
-			//setup
-			setupEl();
-			//get object
-			var obj = _registered[name];
-			//create instance?
-			if(typeof obj === 'function') {
-				//pause updates
-				_canQueue = false;
-				//call object
-				obj.apply(el, [ el, el.context ]);
-				//resume updates
-				_canQueue = true;
-			} else {
-				//merge object
-				el = Object.assign(el, obj);
-			}
-			//call created?
-			if(el.onCreated) {
-				el.onCreated();
-			}
-		}
-		//render component?
-		if(!el.orphanedComponent) {
-			//run setup?
-			if(!isNew) {
-				setupEl();
-			}
-			//run render
-			_renderComponent(el, {
-				parent: opts.parent || null,
-				nextState: isNew ? null : el.state,
-				nextProps: isNew ? null : _getProps(el)
-			});				
-		}
-		//return
-		return el;
-	};
-
-	var _renderComponent = function(el, opts = {}) {
-		//set vars
-		var html = '';
-		var render = true;
-		var prevProps = el.props;
-		var prevState = Object.freeze(el.state);
-		var nextProps = opts.nextProps || prevProps;
-		var nextState = opts.nextState || prevState;
-		var isUpdate = !!(opts.nextProps || opts.nextState);
-		//can render?
-		if(!el.isComponent || el.orphanedComponent) {
-			return;
-		}
-		//should update?
-		if(isUpdate && el.onShouldUpdate) {
-			//stop here?
-			if(el.onShouldUpdate(nextProps, nextState) === false) {
-				html = el.innerHTML;
-				render = false;
-			}
-		}
-		//can render?
-		if(render) {
-			//update vars?
-			if(isUpdate) {
-				el.state = nextState;
-				_setProps(el, nextProps);
-			}
-			//generate html
-			html = el.render();
-		}
-		//update html?
-		if(html || html === '') {
-			//clone element
-			var newEl = el.cloneNode(false);
-			//set html
-			newEl.innerHTML = components._pubsub.emit('components.filterHtml', html, {
-				filter: true
-			});
-			//scan children
-			var oldChildren = el.querySelectorAll('*');
-			var newChildren = newEl.querySelectorAll('*');
-			//loop through nodes
-			for(var i=0; i < newChildren.length; i++) {
-				//sync component
-				_syncComponent(newChildren[i], {
-					parent: el,
-					linked: oldChildren[i] || null
-				});
-			}
-			//diff the DOM
-			components._domDiff(el, newEl, {
-				beforeUpdateNode: function(from, to) {
-					//has parent?
-					if(opts.parent) {
-						//skip update?
-						if(from.__skip && el !== from) {
-							return false;
-						}
-						return;
-					}
-					//run event
-					var res = components._pubsub.emit('components.beforeUpdateNode', [ from, to, el ], {
-						method: 'apply'
-					});
-					//skip update?
-					if(from.__skip || res.includes(false)) {
-						from.__skip = false;
-						return false;
-					}
-				},
-				afterUpdateNode: function(from, to) {
-					//has parent?
-					if(opts.parent) {
-						return;
-					}
-					//run event
-					components._pubsub.emit('components.afterUpdateNode', [ from, to, el ], {
-						method: 'apply'
-					});
-				}
-			});
-			//did mount?
-			if(render && !isUpdate && el.onDidMount) {
-				requestAnimationFrame(function() {
-					el.onDidMount();
-				});
-			}
-			//did update?
-			if(render && isUpdate && el.onDidUpdate) {
-				requestAnimationFrame(function() {
-					el.onDidUpdate(prevProps, prevState);
-				});
-			}
-		}
-	};
-
-	var _baseComponent = {
-
-		props: null,
-		state: null,
-		isComponent: true,
-		childComponents: [],
-		parentComponent: null,
-
-		setState: function(obj) {
-			//set vars
-			var el = this;
-			var changed = false;
-			//has new state?
-			if(!el.__newState) {
-				el.__newState = {};
-			}
-			//check object
-			for(var i in obj) {
-				//skip value?
-				if(!obj.hasOwnProperty(i) || el.state[i] === obj[i]) {
-					continue;
-				}
-				//mark as changed
-				changed = true;
-				//update new state
-				el.__newState[i] = obj[i];
-			}
-			//return promise
-			return new Promise(function(resolve) {
-				//set vars
-				var invoke = !_queue.length;
-				//any changes?
-				if(!changed) {
-					return resolve(changed);
-				}
-				//update now?
-				if(!_canQueue) {
-					el.state = Object.freeze(Object.assign({}, el.state, el.__newState));
-					el.__newState = {};
-					return resolve(changed);
-				}
-				//add to queue?
-				if(!_queue.includes(el)) {
-					_queue.push(el);
-				}
-				//queue changes
-				requestAnimationFrame(function() {
-					//loop through queue
-					while(invoke && _queue.length) {
-						//next element
-						var el = _queue.shift();
-						//get new state
-						var nextProps = _getProps(el);
-						var nextState = Object.freeze(Object.assign({}, el.state, el.__newState));
-						//re-render
-						_renderComponent(el, {
-							nextProps: nextProps,
-							nextState: nextState
-						});
-						//reset changes
-						el.__newState = {};
-					}
-					//resolve
-					resolve(changed);
-				});
-			});
-		},
-
-		onStoreChange: function(key, fn) {
-			//key is function?
-			if(typeof key === 'function') {
-				fn = key;
-				key = null;
-			}
-			//add listener
-			return components._store.on(key, fn.bind(this));
-		},
-
-		doAction: function(name, payload) {
-			return components._store.dispatch(name, payload);
-		},
-
-		esc: function(input, type = 'html') {
-			return components._escape(input, type);
-		},
-
-		escAttr: function(input) {
-			return this.esc(input, 'attr');
-		}
-
-	};
-
-	var components = {
-
-		_store: Fstage.store,
-		_pubsub: Fstage.pubsub,
-		_escape: Fstage.escape,
-		_domDiff: Fstage.domDiff,
-
-		root: function() {
-			return _rootEl;
-		},
-
-		create: function(name) {
-			return _syncComponent(document.createElement(name));
-		},
-
-		find: function(selector) {
-			//set vars
-			var res = [];
-			var nodes = _rootEl.querySelectorAll(selector);
-			//loop through nodes
-			for(var i=0; i < nodes.length; i++) {
-				//is component?
-				if(nodes[i].isComponent) {
-					res.push(nodes[i]);
-				}
-			}
-			//return
-			return res;
-		},
-
-		register: function(name, fn) {
-			//cache function
-			_registered[name.toLowerCase()] = fn;
-			//chain it
-			return this;
-		},
-
-		onFilterHtml: function(fn) {
-			return this._pubsub.on('components.filterHtml', fn);
-		},
-
-		onBeforeUpdateNode: function(fn) {
-			return this._pubsub.on('components.beforeUpdateNode', fn);
-		},
-
-		onAfterUpdateNode: function(fn) {
-			return this._pubsub.on('components.afterUpdateNode', fn);
-		},
-
-		start: function(name, rootEl, context = null) {
-			//already started?
-			if(_mutations) {
-				return _rootEl;
-			}
-			//cache root?
-			if(!_rootEl) {
-				//is selector?
-				if(typeof rootEl === 'string') {
-					rootEl = document.querySelector(rootEl);
-				}
-				//cache node
-				_rootEl = rootEl;
-				//extend element class
-				HTMLElement.prototype.component = function() {
-					return this.closest('[data-component');
-				};
-			}
-			//create observer
-			_mutations = new MutationObserver(function(mutationsList, observer) {
-				//loop through changes
-				mutationsList.forEach(function(mutation) {
-					//check added nodes
-					mutation.addedNodes.forEach(function(el) {
-						//sync component
-						_syncComponent(el);
-					});
-					//check removed nodes
-					mutation.removedNodes.forEach(function(el) {
-						//is component?
-						if(!el.isComponent) {
-							return;
-						}
-						//call did unmount?
-						if(el.onDidUnmount) {
-							el.onDidUnmount();
-						}
-						//has parent?
-						if(el.parentComponent) {
-							//get index
-							var index = el.parentComponent.childComponents.indexOf(el);
-							//remove item?
-							if(index > -1) {
-								el.parentComponent.childComponents.splice(index, 1);
-							}
-							//remove reference
-							el.parentComponent = null;
-						}
-						//reset element
-						el.props = null;
-						el.states = null;
-						el.context = null;
-						el.orphanedComponent = true;
-					});
-				});
-			});
-			//observe changes
-			_mutations.observe(_rootEl, {
-				childList: true,
-				subtree: true
-			});
-			//return
-			return _syncComponent(_rootEl, {
-				name: name,
-				context: context
-			});
-		},
-
-		stop: function() {
-			//stop observing?
-			if(_mutations) {
-				_mutations.disconnect();
-				_mutations = null;
-			}
-		}
-
-	};
-
-	Fstage.components = components;
-
-})();
-
-/**
  * FORM VALIDATION
 **/
 (function(undefined) {
@@ -2900,11 +3256,17 @@
 		var values = {};
 		var errors = {};
 		var form = document[name];
-		//ensure fields set
-		opts.fields = opts.fields || {};
 		//valid form?
 		if(!form) {
 			throw new Error('Form not found:' + name);
+		}
+		//already created?
+		if(form.step) {
+			return form;
+		}
+		//set fields?
+		if(!opts.fields) {
+			opts.fields = {};
 		}
 		//validate helper
 		var validate = function(field) {

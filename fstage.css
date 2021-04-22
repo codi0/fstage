@@ -116,6 +116,10 @@ iframe {
 	height: auto;
 }
 
+.collapsed {
+	margin-top: 0;
+}
+
 .hidden {
 	visibility: hidden;
 	width: 0 !important;
@@ -180,6 +184,7 @@ legend {
 label {
 	display: block;
 	font-size: var(--small-font-size);
+	font-weight: normal;
 }
 
 label + * {
@@ -528,6 +533,7 @@ nav .d {
 
 	nav .menu {
 		display: flex;
+		align-items: center;
 		position: static;
 		height: 100%;
 		box-shadow: none;
@@ -561,14 +567,19 @@ nav .d {
 	--mid: 2;
 	--max: 3;
 	--gap: 0px;
+	--top: 0px;
 	display: flex;
 	flex-flow: row wrap;
 	justify-content: flex-start;
 	width: calc(100% + var(--gap));
-	margin: calc(-1 * var(--gap)) 0 0 calc(-1 * var(--gap));
+	margin: calc((-1 * var(--gap)) + var(--top)) 0 0 calc(-1 * var(--gap)) !important;
 }
 
-.grid .item {
+* + .grid {
+	--top: var(--body-vertical-rhythm);
+}
+
+.grid > * {
 	flex-basis: calc(calc(100% / var(--min)) - var(--gap));
 	margin: var(--gap) 0 0 var(--gap);
 	transform: translateX(0%);
@@ -576,7 +587,7 @@ nav .d {
 
 @media (min-width: 40em) {
 
-	.grid .item {
+	.grid > * {
 		flex-basis: calc(calc(100% / var(--mid)) - var(--gap));
 	}
 
@@ -584,7 +595,7 @@ nav .d {
 
 @media (min-width: 60em) {
 
-	.grid .item {
+	.grid > * {
 		flex-basis: calc(calc(100% / var(--max)) - var(--gap));
 	}
 
@@ -602,12 +613,13 @@ nav .d {
 
 .carousel .grid {
 	--gap: 20px;
+	grid-auto-flow:column; 
 	flex-flow: nowrap;
 	overflow-x: hidden;
 	scroll-behavior: smooth;
 }
 
-.carousel .grid .item {
+.carousel .grid > * {
 	flex-shrink: 0;
 	flex-grow: 0;
 	transition: transform 300ms ease-in-out;
@@ -833,11 +845,12 @@ nav .d {
 	border-bottom: none;
 }
 
-#cookie-consent button {
+#cookie-consent input, #cookie-consent button {
+	max-width: 200px;
 	width: auto;
 	height: auto;
 	padding: 5px 10px;
-	margin: 0 0 0 10px;
+	margin: 0 0 0 5px;
 	color: var(--background);
 	background: var(--color);
 }

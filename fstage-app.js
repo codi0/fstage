@@ -15,7 +15,8 @@
 		var status = {
 			init: false,
 			loaded: false,
-			ready: false
+			ready: false,
+			waiting: []
 		};
 
 		//app exports
@@ -50,7 +51,6 @@
 			router: Fstage.router,
 			pubsub: Fstage.pubsub,
 			components: Fstage.components,
-			store: Fstage.store,
 
 			export: function(module, path = null) {
 				//guess path?
@@ -59,25 +59,31 @@
 				}
 				//parse path
 				var parts = path.split('/');
+				var name = parts.pop();
+				var type = '';
 				//has parts?
-				if(parts.length > 1) {
-					//extra parts
-					var type = parts[parts.length-2];
-					var name = parts[parts.length-1];
-					//parts found?
-					if(type && name) {
-						//swap round?
-						if(!exported[type] && exported[name + 's']) {
-							var tmp = type;
-							type = name + 's';
-							name = tmp;
-						}
-						//valid module?
-						if(exported[type]) {
-							exported[type][name] = module;
+				if(name && parts.length) {
+					//use name as type?
+					if(exported[name + 's']) {
+						type = name;
+						name = parts.pop()
+					} else {
+						//find type
+						for(var i=0; i < parts.length; i++) {
+							if(exported[parts[i]]) {
+								type = parts[i];
+								break;
+							}
 						}
 					}
 				}
+				//parts found?
+				if(type && name && exported[type]) {
+					exported[type][name] = module;
+				} else {
+					throw new Error("Unable to export module: " + path);
+				}
+				
 			},
 
 			about: {
@@ -132,27 +138,23 @@
 				},
 
 				isWaiting: function(wait = false, opts = {}) {
-					//create cache?
-					if(!this._waiting) {
-						this._waiting = [];
-					}
 					//return now?
 					if(wait === false) {
-						return this._waiting.length > 0;
+						return status.waiting.length > 0;
 					}
 					//add to wait list?
 					if(wait && wait !== true) {
-						this._waiting.push(wait);
+						status.waiting.push(wait);
 						wait = true;
 					}
 					//set vars
 					var that = this;
-					var count = this._waiting.length;
+					var count = status.waiting.length;
 					//process promises
-					var res = Promise.all(this._waiting).then(function() {
+					var res = Promise.all(status.waiting).then(function() {
 						//completed?
-						if(that._waiting.length === count) {
-							that._waiting = [];
+						if(status.waiting.length === count) {
+							status.waiting = [];
 							return opts.nested ? true : (count > 0);
 						}
 						//mark as nested
@@ -252,7 +254,7 @@
 					//get function
 					var fn = exported.middleware[i];
 					//init middleware
-					new fn(self.store, self);
+					new fn(self.components.store(), self);
 				}
 				//register components
 				for(var i in exported.components) {
@@ -300,6 +302,14 @@
 
 			onLaunch: function(fn) {
 				return status.launched ? fn.call(self, root) : self.pubsub.on('app.launch', fn);
+			},
+
+			onDownload: function(fn) {
+				return self.onLaunch(function() {
+					self.about.isWaiting(true).then(function(didWait) {
+						fn.call(self, didWait);
+					});
+				});
 			},
 
 			onReady: function(fn) {
