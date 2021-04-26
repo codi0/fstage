@@ -179,11 +179,11 @@
 
 	Fstage.escHtml = Fstage.escHTML = function(input) {
 		var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '/': '&#x2F;', ':': '&#58;' };
-		return String(input).replace(/&amp;/g, '&').replace(/[&<>"'\/:]/g, function(i) { return map[i]; });
+		return String(input || '').replace(/&amp;/g, '&').replace(/[&<>"'\/:]/g, function(i) { return map[i]; });
 	};
 
 	Fstage.escJs = function(input) {
-		return String(input).replace(/([\(\)\'\"\r\n\t\v\0\b\f\\])/g, "\\$1");
+		return String(input || '').replace(/([\(\)\'\"\r\n\t\v\0\b\f\\])/g, "\\$1");
 	};
 
 	Fstage.escAttr = function(input) {
@@ -251,7 +251,7 @@
 		get: function(obj, key) {
 			//split key?
 			if(typeof key === 'string') {
-				key = key.split('.');
+				key = key ? key.split('.') : [];
 			} else {
 				key = key || [];
 			}
@@ -274,23 +274,19 @@
 			var tmp = obj;
 			//split key?
 			if(typeof key === 'string') {
-				key = key.split('.');
+				key = key ? key.split('.') : [];
 			} else {
 				key = key || [];
 			}
 			//loop through key parts
 			for(var i=0; i < key.length; i++) {
-				//next level?
-				if((i+1) < key.length) {
-					tmp = tmp[key[i]] = tmp[key[i]] || {};
-					continue;
-				}
-				//deep merge?
-				if(opts.deep && val && typeof val === 'object') {
-					tmp[key[i]] = this.merge(tmp[key[i]], val, opts);
-				} else {
-					tmp[key[i]] = val;
-				}
+				tmp = tmp[key[i]] = tmp[key[i]] || {};
+			}
+			//deep merge?
+			if(opts.deep && val && typeof val === 'object') {
+				tmp = this.merge(tmp, val, opts);
+			} else {
+				tmp = val;
 			}
 			//return
 			return obj;
@@ -329,10 +325,10 @@
 					arr = tmp;
 				}
 				//return
-				return arr || {};
+				return arr;
 			};
 			//format update
-			update = arr2obj(update);
+			update = arr2obj(update) || {};
 			//loop through update
 			for(var k in update) {
 				//skip property?
@@ -2126,11 +2122,11 @@
 	var events = {};
 	var ignore = {};
 	var counter = 0;
-	var reserved = [ 'proxyId', 'onProxy', 'proxyLocked', 'proxyTarget', 'merge' ];
+	var reserved = [ 'proxyId', 'onProxy', 'proxyLocked', 'proxyTarget', 'merge', 'filter' ];
 
 	//path helper
 	var fullPath = function(base, key) {
-		return base + (base ? '.' : '') + key;
+		return base + (base && key ? '.' : '') + (key || '');
 	};
 
 	//public api
@@ -2174,6 +2170,12 @@
 				//merge into proxy?
 				if(k === 'merge') {
 					return function(key, value, opts = {}) {
+						//key is value?
+						if(key && typeof key === 'object') {
+							opts = value || {};
+							value = key;
+							key = '';
+						}
 						//get path
 						var fp = fullPath(path, key);
 						//should observe?
@@ -2190,6 +2192,35 @@
 						}
 						//run merge
 						return Fstage.obj.set(base, fp, value, opts);
+					}
+				}
+				//filter object?
+				if(k === 'filter') {
+					return function(key, filters) {
+						//key is value?
+						if(key && typeof key === 'object') {
+							filters = key;
+							key = '';
+						}
+						//set vars
+						var sort = null;
+						var fp = fullPath(path, key);
+						var obj = Fstage.obj.get(base, fp);
+						//format filters?
+						if(filters.sort) {
+							sort = filters.sort;
+							delete filters.sort;
+						}
+						//run filters
+						if(obj && filters) {
+							obj = Fstage.obj.filter(obj, filters);
+						}
+						//run sort?
+						if(obj && sort) {
+							obj = Fstage.obj.sort(obj, sort);
+						}
+						//return
+						return obj || {};
 					}
 				}
 				//get full path
@@ -2555,434 +2586,6 @@
 
 })();
 
-/**
- * VIEW COMPONENTS
- *
- * el.render
- * el.onDidMount
- * el.onDidUpdate
- * el.onDidUnmount
-**/
-(function(undefined) {
-
-	var _registered = {};
-	var _queue = [];
-	var _store = null;
-	var _rootEl = null;
-	var _mutations = null;
-
-	var _getProps = function(el) {
-		//set vars
-		var props = {};
-		//parse attributes?
-		if(el.attributes.length) {
-			//get parent
-			var parentEl = el.closest('[data-component');
-			//loop through attributes
-			for(var i=0; i < el.attributes.length; i++) {
-				//parse name and value
-				var k = el.attributes[i].name;
-				var v = el.attributes[i].value;
-				//valid prop?
-				if(k.indexOf('on') !== 0) {
-					//use parent value?
-					if(parentEl && v.indexOf('this.') === 0) {
-						//split key
-						var parts = v.replace('this.', '').split('.');
-						var v = parentEl;
-						//loop through parts
-						for(var i=0; i < parts.length; i++) {
-							//next level
-							v = v[parts[i]];
-							//not found?
-							if(v === undefined) {
-								v = null;
-								break;
-							}
-						}
-					}
-					//add prop
-					props[k] = v;
-				}
-			}
-		}
-		//return
-		return Object.freeze(props);
-	};
-
-	var _setProps = function(el, props) {
-		//remove old attributes
-		for(var i=0; i < el.attributes.length; i++) {
-			//needs removing?
-			if(!props[el.attributes[i].name]) {
-				el.removeAttribute(el.attributes[i].name);
-			}
-		}
-		//set new attributes
-		for(var i in props) {
-			el.setAttribute(i, props[i]);
-		}
-		//set props
-		el.props = props;
-		//return
-		return el;	
-	};
-
-	var _syncComponent = function(el, opts = {}) {
-		//anything to make?
-		if(!el.tagName || (el.isComponent && !el.orphanedComponent)) {
-			return el;
-		}
-		//set vars
-		var isNew = !el.isComponent;
-		var wasOrphaned = el.orphanedComponent;
-		var name = opts.name || el.getAttribute('data-component') || el.tagName.toLowerCase();
-		//is registered?
-		if(!_registered[name]) {
-			return el;
-		}
-		//setup helWWper
-		var setupEl = function() {
-			//set orphaned state
-			el.orphanedComponent = !opts.parent && !document.body.contains(el);
-			//is attached to DOM?
-			if(!el.orphanedComponent) {
-				//set parent
-				el.parentComponent = opts.parent || (el.parentNode ? el.parentNode.closest('[data-component]') : null);
-				//add child to parent?
-				if(el.parentComponent && !el.parentComponent.childComponents.includes(el)) {
-					el.parentComponent.childComponents.push(el);
-				}
-				//set state
-				el.state = el.state || {};
-				el.store = _store.state();
-				el.actions = _store.actions();
-				//set props
-				el.props = _getProps(el);
-				//set context
-				el.context = opts.context || el.context || (el.parentComponent ? el.parentComponent.context : null);
-			}
-		};
-		//reuse instance?
-		if(opts.linked && opts.linked.isComponent) {
-			//same component type?
-			if(name === opts.linked.getAttribute('data-component')) {
-				//set vars
-				var didChange = false;
-				//remove old attributes
-				for(var i=0; i < opts.linked.attributes.length; i++) {
-					//needs removing?
-					if(!el.hasAttribute(opts.linked.attributes[i].name)) {
-						//update flag
-						didChange = true;
-						//remove attribute
-						opts.linked.removeAttribute(opts.linked.attributes[i].name);
-					}
-				}
-				//set new attributes
-				for(var i=0; i < el.attributes.length; i++) {
-					//needs updating?
-					if(opts.linked.getAttribute(el.attributes[i].name) !== el.attributes[i].value) {
-						//update flag
-						didChange = true;
-						//update attribute
-						opts.linked.setAttribute(el.attributes[i].name, el.attributes[i].value);
-					}
-				}
-				//update el
-				el = opts.linked;
-				el.__skip = true;
-				//not new
-				isNew = false;
-				//stop here?
-				if(!didChange) {
-					return el;
-				}
-			}
-		}
-		//create now?
-		if(isNew) {
-			//mark as component
-			el.isComponent = true;
-			//set attribute
-			el.setAttribute('data-component', name);
-			//merge base
-			el = Object.assign(el, _baseComponent);
-			//setup
-			setupEl();
-			//get object
-			var obj = _registered[name];
-			//create .instance?
-			if(typeof obj === 'function') {
-				obj.apply(el, [ el, el.context ]);
-			} else {
-				el = Object.assign(el, obj);
-			}
-			//create local store
-			var store = components._store(el.state, {
-				locked: false,
-				deep: true
-			});
-			//attach local store
-			el.__update = store.react(el.__update, {
-				ctx: el,
-				reset: true
-			});
-			//update local state
-			el.state = store.state();
-		}
-		//render component?
-		if(!el.orphanedComponent) {
-			//run setup?
-			if(!isNew) {
-				setupEl();
-			}
-			//attach global store
-			el.__update = _store.react(el.__update, {
-				ctx: el,
-				reset: true
-			});
-			//render
-			el.__update({
-				isNew: isNew,
-				parent: opts.parent || null
-			});				
-		}
-		//return
-		return el;
-	};
-
-	var _baseComponent = {
-
-		props: null,
-		state: null,
-		store: null,
-		actions: null,
-		isComponent: true,
-		childComponents: [],
-		parentComponent: null,
-
-		esc: function(input, type = 'html') {
-			return components._escape(input, type);
-		},
-
-		escAttr: function(input) {
-			return this.esc(input, 'attr');
-		},
-		
-		__update: function(opts = {}) {
-			//can render?
-			if(this.orphanedComponent) {
-				return;
-			}
-			//set vars
-			var el = this;
-			var html = el.render();
-			var hook = opts.isNew ? 'onDidMount' : 'onDidUpdate';
-			//update html?
-			if(html || html === '') {
-				//clone element
-				var newEl = el.cloneNode(false);
-				//set html
-				newEl.innerHTML = components._pubsub.emit('components.filterHtml', html, {
-					filter: true
-				});
-				//scan children
-				var oldChildren = el.querySelectorAll('*');
-				var newChildren = newEl.querySelectorAll('*');
-				//loop through nodes
-				for(var i=0; i < newChildren.length; i++) {
-					//sync component
-					_syncComponent(newChildren[i], {
-						parent: el,
-						linked: oldChildren[i] || null
-					});
-				}
-				//diff the DOM
-				components._domDiff(el, newEl, {
-					beforeUpdateNode: function(from, to) {
-						//has parent?
-						if(opts.parent) {
-							//skip update?
-							if(from.__skip && el !== from) {
-								return false;
-							}
-							return;
-						}
-						//run event
-						var res = components._pubsub.emit('components.beforeUpdateNode', [ from, to, el ], {
-							method: 'apply'
-						});
-						//skip update?
-						if(from.__skip || res.includes(false)) {
-							from.__skip = false;
-							return false;
-						}
-					},
-					afterUpdateNode: function(from, to) {
-						//has parent?
-						if(opts.parent) {
-							return;
-						}
-						//run event
-						components._pubsub.emit('components.afterUpdateNode', [ from, to, el ], {
-							method: 'apply'
-						});
-					}
-				});
-				//call hook
-				requestAnimationFrame(function() {
-					el[hook] && el[hook]();
-				});
-			}
-		}
-
-	};
-
-	var components = {
-
-		_store: Fstage.store,
-		_pubsub: Fstage.pubsub,
-		_escape: Fstage.escape,
-		_domDiff: Fstage.domDiff,
-
-		root: function() {
-			return _rootEl;
-		},
-
-		store: function(state = {}) {
-			//create store
-			_store = _store || components._store(state, {
-				deep: true
-			});
-			//return
-			return _store;
-		},
-
-		create: function(name) {
-			return _syncComponent(document.createElement(name));
-		},
-
-		find: function(selector) {
-			//set vars
-			var res = [];
-			var nodes = _rootEl.querySelectorAll(selector);
-			//loop through nodes
-			for(var i=0; i < nodes.length; i++) {
-				//is component?
-				if(nodes[i].isComponent) {
-					res.push(nodes[i]);
-				}
-			}
-			//return
-			return res;
-		},
-
-		register: function(name, fn) {
-			//cache function
-			_registered[name.toLowerCase()] = fn;
-			//chain it
-			return this;
-		},
-
-		onFilterHtml: function(fn) {
-			return this._pubsub.on('components.filterHtml', fn);
-		},
-
-		onBeforeUpdateNode: function(fn) {
-			return this._pubsub.on('components.beforeUpdateNode', fn);
-		},
-
-		onAfterUpdateNode: function(fn) {
-			return this._pubsub.on('components.afterUpdateNode', fn);
-		},
-
-		start: function(name, rootEl, opts = {}) {
-			//already started?
-			if(_mutations) {
-				return _rootEl;
-			}
-			//cache root?
-			if(!_rootEl) {
-				//is selector?
-				if(typeof rootEl === 'string') {
-					rootEl = document.querySelector(rootEl);
-				}
-				//cache node
-				_rootEl = rootEl;
-				//init global store
-				components.store(opts.state);
-				//extend element class
-				HTMLElement.prototype.component = function() {
-					return this.closest('[data-component');
-				};
-			}
-			//create observer
-			_mutations = new MutationObserver(function(mutationsList, observer) {
-				//loop through changes
-				mutationsList.forEach(function(mutation) {
-					//check added nodes
-					mutation.addedNodes.forEach(function(el) {
-						//sync component
-						_syncComponent(el);
-					});
-					//check removed nodes
-					mutation.removedNodes.forEach(function(el) {
-						//is component?
-						if(!el.isComponent) {
-							return;
-						}
-						//call did unmount?
-						if(el.onDidUnmount) {
-							el.onDidUnmount();
-						}
-						//detach global store
-						el.__update = _store.unreact(el.__update);
-						//has parent?
-						if(el.parentComponent) {
-							//get index
-							var index = el.parentComponent.childComponents.indexOf(el);
-							//remove item?
-							if(index > -1) {
-								el.parentComponent.childComponents.splice(index, 1);
-							}
-							//remove reference
-							el.parentComponent = null;
-						}
-						//reset element
-						el.props = null;
-						el.states = null;
-						el.context = null;
-						el.orphanedComponent = true;
-					});
-				});
-			});
-			//observe changes
-			_mutations.observe(_rootEl, {
-				childList: true,
-				subtree: true
-			});
-			//return
-			return _syncComponent(_rootEl, {
-				name: name,
-				context: opts.context || null
-			});
-		},
-
-		stop: function() {
-			//stop observing?
-			if(_mutations) {
-				_mutations.disconnect();
-				_mutations = null;
-			}
-		}
-
-	};
-
-	Fstage.components = components;
-
-})();
-
 /* VIEW ROUTING */
 
 (function(undefined) {
@@ -3085,17 +2688,20 @@
 
 			start: function(merge = {}) {
 				//has started?
-				if(_started) return;
-				//update flag
-				_started = true;
-				//merge opts
-				opts = Object.assign(opts, merge);
-				//load initial route?
-				if(opts.defHome) {
-					api.trigger(opts.defHome, {
-						init: true
-					}, 'replace');
+				if(!_started) {
+					//update flag
+					_started = true;
+					//merge opts
+					opts = Object.assign(opts, merge);
+					//load initial route?
+					if(opts.defHome) {
+						api.trigger(opts.defHome, {
+							init: true
+						}, 'replace');
+					}
 				}
+				//return
+				return this;
 			},
 
 			is: function(route) {
@@ -3242,6 +2848,485 @@
 	};
 	
 	Fstage.router = new router();
+
+})();
+
+/**
+ * VIEW COMPONENTS
+ *
+ * el.css
+ * el.html
+ * el.onDidMount
+ * el.onDidUpdate
+ * el.onDidUnmount
+**/
+(function(undefined) {
+
+	var _registered = {};
+	var _queue = [];
+	var _store = null;
+	var _rootEl = null;
+	var _mutations = null;
+
+	var _getProps = function(el) {
+		//set vars
+		var props = {};
+		//parse attributes?
+		if(el.attributes.length) {
+			//get parent
+			var parentEl = el.closest('[data-component');
+			//loop through attributes
+			for(var i=0; i < el.attributes.length; i++) {
+				//parse name and value
+				var k = el.attributes[i].name;
+				var v = el.attributes[i].value;
+				//valid prop?
+				if(k.indexOf('on') !== 0) {
+					//use parent value?
+					if(parentEl && v.indexOf('this.') === 0) {
+						//split key
+						var parts = v.replace('this.', '').split('.');
+						var v = parentEl;
+						//loop through parts
+						for(var i=0; i < parts.length; i++) {
+							//next level
+							v = v[parts[i]];
+							//not found?
+							if(v === undefined) {
+								v = null;
+								break;
+							}
+						}
+					}
+					//add prop
+					props[k] = v;
+				}
+			}
+		}
+		//return
+		return Object.freeze(props);
+	};
+
+	var _setProps = function(el, props) {
+		//remove old attributes
+		for(var i=0; i < el.attributes.length; i++) {
+			//needs removing?
+			if(!props[el.attributes[i].name]) {
+				el.removeAttribute(el.attributes[i].name);
+			}
+		}
+		//set new attributes
+		for(var i in props) {
+			el.setAttribute(i, props[i]);
+		}
+		//set props
+		el.props = props;
+		//return
+		return el;	
+	};
+
+	var _syncComponent = function(el, opts = {}) {
+		//anything to make?
+		if(!el.tagName || (el.isComponent && !el.orphanedComponent)) {
+			return el;
+		}
+		//set vars
+		var isNew = !el.isComponent;
+		var wasOrphaned = el.orphanedComponent;
+		var name = opts.name || el.getAttribute('data-component') || el.tagName.toLowerCase();
+		//is registered?
+		if(!_registered[name]) {
+			return el;
+		}
+		//setup helWWper
+		var setupEl = function() {
+			//set orphaned state
+			el.orphanedComponent = !opts.parent && !document.body.contains(el);
+			//is attached to DOM?
+			if(!el.orphanedComponent) {
+				//set parent
+				el.parentComponent = opts.parent || (el.parentNode ? el.parentNode.closest('[data-component]') : null);
+				//add child to parent?
+				if(el.parentComponent && !el.parentComponent.childComponents.includes(el)) {
+					el.parentComponent.childComponents.push(el);
+				}
+				//set state
+				el.state = el.state || {};
+				el.store = _store.state();
+				el.actions = _store.actions();
+				//set props.
+				el.props = _getProps(el);
+				//set context
+				el.context = opts.context || el.context || (el.parentComponent ? el.parentComponent.context : null);
+			}
+		};
+		//reuse instance?
+		if(opts.linked && opts.linked.isComponent) {
+			//same component type?
+			if(name === opts.linked.getAttribute('data-component')) {
+				//set vars
+				var didChange = false;
+				//remove old attributes
+				for(var i=0; i < opts.linked.attributes.length; i++) {
+					//needs removing?
+					if(!el.hasAttribute(opts.linked.attributes[i].name)) {
+						//update flag
+						didChange = true;
+						//remove attribute
+						opts.linked.removeAttribute(opts.linked.attributes[i].name);
+					}
+				}
+				//set new attributes
+				for(var i=0; i < el.attributes.length; i++) {
+					//needs updating?
+					if(opts.linked.getAttribute(el.attributes[i].name) !== el.attributes[i].value) {
+						//update flag
+						didChange = true;
+						//update attribute
+						opts.linked.setAttribute(el.attributes[i].name, el.attributes[i].value);
+					}
+				}
+				//update el
+				el = opts.linked;
+				el.__skip = true;
+				//not new
+				isNew = false;
+				//stop here?
+				if(!didChange) {
+					return el;
+				}
+			}
+		}
+		//create now?
+		if(isNew) {
+			//mark as component
+			el.isComponent = true;
+			//set attribute
+			el.setAttribute('data-component', name);
+			//merge base
+			el = Object.assign(el, _baseComponent);
+			//setup
+			setupEl();
+			//get object
+			var obj = _registered[name];
+			//create .instance?
+			if(typeof obj === 'function') {
+				obj.apply(el, [ el, el.context ]);
+			} else {
+				el = Object.assign(el, obj);
+			}
+			//create local store
+			var store = components._store(el.state, {
+				locked: false,
+				deep: true
+			});
+			//attach local store
+			el.render = store.react(el.render, {
+				ctx: el,
+				reset: true
+			});
+			//update local state
+			el.state = store.state();
+			//load css?
+			if(el.css) {
+				var rules = el.css();
+				//has rules?
+				if(rules) {
+					//get stylesheet
+					var style = document.getElementById('component-rules');
+					//create stylesheet?
+					if(!style) {
+						style = document.createElement('style');
+						style.id = 'component-rules';
+						document.head.appendChild(style);
+					}
+					//parse rules?
+					if(typeof rules === 'string') {
+						rules = rules.split('}');
+					}
+					//loop through rules
+					for(var i=0; i < rules.length; i++) {
+						var rule = rules[i].trim();
+						if(rule) {
+							console.log(style.sheet.cssRules.length);
+							style.sheet.insertRule(rule + '}', style.sheet.cssRules.length);
+						}
+					}
+				}
+			}
+		}
+		//render component?
+		if(!el.orphanedComponent) {
+			//run setup?
+			if(!isNew) {
+				setupEl();
+			}
+			//attach global store
+			el.render = _store.react(el.render, {
+				ctx: el,
+				reset: true
+			});
+			//render
+			el.render({
+				isNew: isNew,
+				parent: opts.parent || null
+			});				
+		}
+		//return
+		return el;
+	};
+
+	var _baseComponent = {
+
+		props: null,
+		state: null,
+		store: null,
+		actions: null,
+		isComponent: true,
+		childComponents: [],
+		parentComponent: null,
+
+		esc: function(input, type = 'html') {
+			return components._escape(input, type);
+		},
+
+		escAttr: function(input) {
+			return this.esc(input, 'attr');
+		},
+		
+		render: function(opts = {}) {
+			//can render?
+			if(this.orphanedComponent) {
+				return;
+			}
+			//set vars
+			var el = this;
+			var html = el.html();
+			var hook = opts.isNew ? 'onDidMount' : 'onDidUpdate';
+			//update html?
+			if(html || html === '') {
+				//clone element
+				var newEl = el.cloneNode(false);
+				//set html
+				newEl.innerHTML = components._pubsub.emit('components.filterHtml', html, {
+					filter: true
+				});
+				//scan children
+				var oldChildren = el.querySelectorAll('*');
+				var newChildren = newEl.querySelectorAll('*');
+				//loop through nodes
+				for(var i=0; i < newChildren.length; i++) {
+					//sync component
+					_syncComponent(newChildren[i], {
+						parent: el,
+						linked: oldChildren[i] || null
+					});
+				}
+				//diff the DOM
+				components._domDiff(el, newEl, {
+					beforeUpdateNode: function(from, to) {
+						//has parent?
+						if(opts.parent) {
+							//skip update?
+							if(from.__skip && el !== from) {
+								return false;
+							}
+							return;
+						}
+						//run event
+						var res = components._pubsub.emit('components.beforeUpdateNode', [ from, to, el ], {
+							method: 'apply'
+						});
+						//skip update?
+						if(from.__skip || res.includes(false)) {
+							delete from.__skip;
+							return false;
+						}
+					},
+					afterUpdateNode: function(from, to) {
+						//has parent?
+						if(opts.parent) {
+							return;
+						}
+						//run event
+						components._pubsub.emit('components.afterUpdateNode', [ from, to, el ], {
+							method: 'apply'
+						});
+					}
+				});
+				//call hook?
+				if(el[hook]) {
+					requestAnimationFrame(el[hook]);
+				}
+			}
+		}
+
+	};
+
+	var components = {
+
+		_store: Fstage.store,
+		_router: Fstage.router,
+		_pubsub: Fstage.pubsub,
+		_escape: Fstage.escape,
+		_domDiff: Fstage.domDiff,
+
+		store: function(state = null) {
+			//init store
+			_store = _store || components._store(state, {
+				deep: true
+			});
+			//return
+			return _store;
+		},
+
+		router: function(opts = null) {
+			//start router?
+			if(opts) {
+				components._router.start(opts)
+			}
+			//return
+			return components._router;
+		},
+
+		root: function() {
+			return _rootEl;
+		},
+
+		create: function(name) {
+			return _syncComponent(document.createElement(name));
+		},
+
+		find: function(selector) {
+			//set vars
+			var res = [];
+			var nodes = _rootEl.querySelectorAll(selector);
+			//loop through nodes
+			for(var i=0; i < nodes.length; i++) {
+				//is component?
+				if(nodes[i].isComponent) {
+					res.push(nodes[i]);
+				}
+			}
+			//return
+			return res;
+		},
+
+		register: function(name, fn) {
+			//cache function
+			_registered[name.toLowerCase()] = fn;
+			//chain it
+			return this;
+		},
+
+		onFilterHtml: function(fn) {
+			return this._pubsub.on('components.filterHtml', fn);
+		},
+
+		onBeforeUpdateNode: function(fn) {
+			return this._pubsub.on('components.beforeUpdateNode', fn);
+		},
+
+		onAfterUpdateNode: function(fn) {
+			return this._pubsub.on('components.afterUpdateNode', fn);
+		},
+
+		start: function(name, rootEl, opts = {}) {
+			//already started?
+			if(_mutations) {
+				return _rootEl;
+			}
+			//cache root?
+			if(!_rootEl) {
+				//is selector?
+				if(typeof rootEl === 'string') {
+					rootEl = document.querySelector(rootEl);
+				}
+				//cache node
+				_rootEl = rootEl;
+				//init store
+				var s = components.store().state();
+				//use router?
+				if(opts.router) {
+					//start router
+					var router = components.router(opts.router);
+					//set current route
+					opts.state = opts.state || {};
+					opts.state.route = router.current();
+					//listen for route change
+					router.on(':all', function(route) {
+						var prev = s.proxyLocked;
+						s.proxyLocked = false;
+						s.route = route;
+						s.proxyLocked = prev;
+					});		
+				}
+				//merge initial state
+				var prev = s.proxyLocked;
+				s.proxyLocked = false;
+				s.merge(opts.state);
+				s.proxyLocked = prev;
+			}
+			//create observer
+			_mutations = new MutationObserver(function(mutationsList, observer) {
+				//loop through changes
+				mutationsList.forEach(function(mutation) {
+					//check added nodes
+					mutation.addedNodes.forEach(function(el) {
+						//sync component
+						_syncComponent(el);
+					});
+					//check removed nodes
+					mutation.removedNodes.forEach(function(el) {
+						//is component?
+						if(!el.isComponent) {
+							return;
+						}
+						//call did unmount?
+						if(el.onDidUnmount) {
+							el.onDidUnmount();
+						}
+						//detach global store
+						el.render = _store.unreact(el.render);
+						//mark as orphaned
+						el.orphanedComponent = true;
+						//has parent?
+						if(el.parentComponent) {
+							//get index
+							var index = el.parentComponent.childComponents.indexOf(el);
+							//remove item?
+							if(index > -1) {
+								el.parentComponent.childComponents.splice(index, 1);
+							}
+							//remove reference
+							el.parentComponent = null;
+						}
+					});
+				});
+			});
+			//observe changes
+			_mutations.observe(_rootEl, {
+				childList: true,
+				subtree: true
+			});
+			//return
+			return _syncComponent(_rootEl, {
+				name: name,
+				context: opts.context || null
+			});
+		},
+
+		stop: function() {
+			//stop observing?
+			if(_mutations) {
+				_mutations.disconnect();
+				_mutations = null;
+			}
+		}
+
+	};
+
+	Fstage.components = components;
 
 })();
 
