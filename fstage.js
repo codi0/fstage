@@ -227,7 +227,7 @@
 		//return
 		return function() {
 			//create key
-			var key = Fstage.hash(JSON.stringify(arguments));
+			var key = Fstage.hash(arguments);
 			//get result
 			cache[key] = cache[key] || fn.apply(this, arguments);
 			//return
@@ -417,35 +417,6 @@
 			return obj;
 		}
 
-	};
-
-})();
-
-/**
- * TICKS
-**/
-(function(undefined) {
-
-	var _prom = null
-	var _state = [];
-	var _next = [];
-
-	Fstage.tick = function(fn, next = false) {
-		//register callback
-		(next ? _next : _state).push(fn);
-		//create promise
-		_prom = _prom || Promise.resolve().then(function() {
-			//copy callbacks
-			var cb = _state.concat(_next);
-			//reset state
-			_prom = null; _state = []; _next = [];
-			//execute callbacks
-			while(cb.length) cb.shift().call();
-		});
-	};
-		
-	Fstage.nextTick = function(fn) {
-		return this.tick(fn, true);
 	};
 
 })();

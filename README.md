@@ -1,12 +1,13 @@
 # fstage
 
-A lean javascript library for developing modern web apps, at under 9kb (minified and gzipped).
+A lean javascript library for developing modern web apps, at under 15kb (minified and gzipped).
 
 It's a collection of helper functions that are used at codi.io when prototying and developing front-end code, without any build or
 compilation steps required. Any significant updates will be shared here, as the library evolves.
 
-It follows the jQuery syntax closely for DOM manipulation, though does not replicate all jQuery functions. All functions are split into
-modules that can easily be extracted and used in isolation or as part of the library (see fstage.js file for code and comments).
+It follows jQuery syntax closely for DOM manipulation, though does not replicate all jQuery functions and goes far beyond the scope of jQuery,
+housing features such as global statement management and reactive view components. All functions are split into modules that can easily be
+extracted and used in isolation or as part of the library (see fstage.js file for code and comments).
 
 # CDN links
 
@@ -17,45 +18,47 @@ modules that can easily be extracted and used in isolation or as part of the lib
 
 It assumes support for Promise, fetch and Proxy; which are now well established in all major browsers. Internet Explorer is not supported.
 
-# Other notes
-
-Some methods apply specific classes (e.g. animate, notice, hidden) to generate smooth transitions, which must be defined using css.
-A sample fstage.css file is provided for convenience.
-
 # Modules API
 
 (1) CORE
 
-	Fstage(selector, context = document)  //replicates jQuery syntax for chaining DOM methods
+	Fstage(selector, context = document)  //replicates jQuery syntax for chaining methods
 	Fstage(selector).get(index)  //returns selected DOM node by array index
 	Fstage(selector).each(callback)  //executes callback for each selected DOM node
 
-(2) HELPERS
+(2) UTILS
 
 	Fstage.each(array|object, callback)  //executes callback on every key of the array/object
-	Fstage.extend(obj1, obj2...)  //merges two or more objects together
+	Fstage.extend(obj1, obj2...)  //shallow merge of two or more objects
+	Fstage.copy(array|object)  //returns a shallow copy of an array or object
 	Fstage.type(input)  //returns input type as a string (E.g. object, array, string, boolean)
-	Fstage.toNodes(html, first = false)  //converts HTML string to array of nodes
-	Fstage.stripHtml(str)  //strips HTML from a string
-	Fstage.escHtml(str)  //escapes HTML characters in a string
-	Fstage.copy(input)  //creates a deep copy of the input
-	Fstage.debounce(callback, waitMs = 100)  //limits the rate at which the callback is executed
-	Fstage.ready(callback)  //delays executing callback until DOM is ready
 	Fstage.isEmpty(input)  //checks whether javascript variable of any type is empty
 	Fstage.isUrl(input)  //checks whether javascript variable is a valid http(s) URL
+	Fstage.capitalize(string)  //capitalizes the first letter of a string
+	Fstage.ready(callback)  //delays executing callback until DOM is ready
+	Fstage.parseHTML(string, first = false)  //converts HTML string to array of nodes
+	Fstage.stripHTML(string)  //strips HTML from a string
+	Fstage.escape(string, type = 'html')  //escapes a string, with optional type (html, js, attr)
+	Fstage.debounce(callback, waitMs = 100)  //limits the rate at which the callback is executed
+	Fstage.memoize(callback)  //caches output of function using hash of input parameters
 	Fstage.hash(string|array|object)  //converts input into a numeric hash
 	Fstage.deviceId(uid = '')  //creates hash using versionless user agent and optional user identifier
 
-(3) TICKS
+(3) OBJECT
 
-	Fstage.tick(callback)  //registers callback to execute at end of current tick
-	Fstage.nextTick(callback)  //registers callback to execute at start of next tick
+	Fstage.obj.get(object, key)  //returns nested value from object by property key (E.g. user.address.city)
+	Fstage.obj.set(object, key, val, opts = {})  //sets nested object property value using key
+	Fstage.obj.merge(object, patch, opts = {})  //merges patch into object
+	Fstage.obj.filter(object, filters = {})  //filters object properties by one or more key=>val pairs
+	Fstage.obj.sort(object, order = {})  //sorts object properties by key, with optional limit/offset/desc
 
 (4) PUBSUB
 
-	Fstage.pub(id, data = {})  //publishes event with specified ID, and optional data
-	Fstage.sub(id, callback)  //subscribes to event with specified ID
-	Fstage.unsub(id, callback)  //unsubscribes to event with specified ID
+	Fstage.pubsub.has(id)  //returns whether any callbacks subscribed to the specified ID
+	Fstage.pubsub.on(id, callback)  //subscribes to event with specified ID, returning a token
+	Fstage.pubsub.off(token)  //unsubscribes to event with specified ID
+	Fstage.pubsub.emit(id, data = {})  //publishes event with specified ID, and optional data
+	Fstage.pubsub.waitFor(tokens)  //allows one callback to wait for others before completing
 
 (5) DOM EVENTS
 
@@ -66,7 +69,6 @@ A sample fstage.css file is provided for convenience.
 
 (6) DOM SELECTION
 
-	Fstage.select(selector, context = document)  //returns array of DOM nodes
 	Fstage(selector).find(selector)  //returns all matching children of each selected DOM node
 	Fstage(selector).closest(selector)  //returns first matching child of each selected DOM node
 	Fstage(selector).parent()  //returns parent node of each selected DOM node
@@ -96,31 +98,54 @@ A sample fstage.css file is provided for convenience.
 	Fstage(selector).animate(effect, opts = {})  //manages animation on each selected DOM node using classes (requires fstage.css)
 	Fstage(selector).sliding({ x: true, y: false, onStart: null, onMove: null, onEnd: null })  //controls sliding via options provided
 	Fstage(selector).notice(text, { type: 'info', animate: 'none', prepend: false, hide: 0 })  //shows and hides notices (requires fstage.css)
-	Fstage.pageTransition(toEl, toEffect, fromEl, fromEffect, opts = {})  //executes page transition from one element to another
+	Fstage(selector).overlay(text, opts = {})  //creates a dialogue overlay
+	Fstage(selector).carousel(opts = {})  //creates a responsive carousel
+	Fstage(selector).cookieConsent(opts = {})  //creates an unobtrusive cookie consent banner at the bottom of the page
+	Fstage.transition(toEl, toEffect, fromEl, fromEffect, opts = {})  //executes page transition from one element to another
 
 (9) DOM DIFFING
 
-	Fstage.syncDom(fromNode, toNode|toHtml, opts = {})  //updates specified DOM node to new state with the minimum necessary changes
+	Fstage.domDiff(fromNode, toNode|toHtml, opts = {})  //updates specified DOM node to new state with the minimum necessary changes
+
+(10) SERVER CALLS
+
+	Fstage.ajax(url, opts = {})  //retrieves response from server URL
+	Fstage.websocket(url)  //creates websocket object, with auto-reconnect and on/off/trigger methods to listen and send messages
 
 (10) DOM REACTIVITY
 
 	Fstage.watch(input)  //creates proxy of input and emits any changes via Fstage.pub('watch')
 	Fstage.component(name, { el: null, parent: null, data: null, template: null })  //renders html and automatically updates if data changes
 
-(11) VIEW ROUTING
+(11) OBJECT OBSERVER
 
-	Fstage.router.current()  //returns current route name
+	Fstage.observe(object, opts = {})  //returns a wrapped object to observe property access and changes, using wrapped.onProxy('access|change', callback)
+
+(12) STATE MANAGEMENT
+
+	Fstage.store(state = {}, opts = {})  //uses object observer to listen for property changes and automatically call functions that access those properties
+
+(13) VIEW ROUTING
+
+	Fstage.router.start()  //starts router
+	Fstage.router.current()  //returns current route object
+	Fstage.router.is(name)  //check whether name matches current route
 	Fstage.router.has(name)  //check whether route has any registered callbacks
 	Fstage.router.on(name, callback)  //register route and add callback
-	Fstage.router.off(name, callback)  //remove route callback
 	Fstage.router.trigger(name, data = {}, mode = 'push|replace|null')  //manually execute route with optional data and history API mode
 	Fstage.router.redirect(name, data = {})  //as trigger method, with mode set to 'replace' to overwrite last entry
+	Fstage.router.refresh()  //triggers the current route again
 	Fstage.router.back()  //navigates back to the previous route
-	Fstage.router.url(name)  //generates URL for given route
-	Fstage.router.views(views)  //registers a collection of view objects as routes
-	Fstage.router.start({ baseUrl: '', attr: 'data-route', home: '', notfound: '', pageCss: '', sectionCss: '' })  //starts router
+	Fstage.router.setState(state = {})  //updates current route object
 
-(12) FORM VALIDATION
+(14) VIEW COMPONENTS
+
+	Fstage.components.store()  //returns global state object, if attached
+	Fstage.components.router()  //returns router object, if attached
+	Fstage.components.register(name, callback)  //registers component using function or object literal
+	Fstage.components.start(opts = {})  //initial render of components, starting with root component
+
+(15) FORM VALIDATION
 
 	Fstage.form(name, opts)  //returns an enhanced form element, opts contains 'fields' object (name, filter, validator)
 	Fstage.form.isValid(field = null)  //validates form values against fields object, and also fires onBlur for a given field
@@ -128,8 +153,3 @@ A sample fstage.css file is provided for convenience.
 	Fstage.form.val(field = null)  //returns filtered value[s]
 	Fstage.form.reset(field = null, skip = [])  //clears values and errors
 	Fstage.form.step(name = null)  //returns current form step (if set), or sets step name
-
-(13) SERVER CALLS
-
-	Fstage.ajax(url, opts = {})  //retrieves response from server URL
-	Fstage.websocket(url)  //creates websocket object, with auto-reconnect and on/off/trigger methods to listen and send messages
