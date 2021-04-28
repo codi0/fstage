@@ -1,0 +1,19 @@
+{
+	"dir": "ltr",
+	"lang": "en",
+	"name": "Fstage",
+	"short_name": "Fstage",
+	"description": "Example Fstage app",
+	"start_url": "http://localhost/",
+	"scope": "/",
+	"display": "standalone",
+	"theme_color": "#00425e",
+	"background_color": "#ffffff",
+	"icons": [
+		{
+			"src": "img/logo/icon.png",
+			"type": "image/png",
+			"sizes": "160x160"
+		}
+	]
+}

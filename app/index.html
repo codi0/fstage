@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+
+	<meta charset="utf-8">
+	<title>Fstage example app</title>
+
+	<meta name="viewport" content="viewport-fit=cover, width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no">
+	<meta name="apple-mobile-web-app-capable" content="yes">
+	<meta name="mobile-web-app-capable" content="yes">
+	<meta name="format-detection" content="telephone=no">
+	<meta name="msapplication-tap-highlight" content="no">
+
+	<link rel="preconnect" href="https://cdn.jsdelivr.net">
+	<link rel="icon" href="data:,">
+
+	<style>
+	html, body {
+		width: 100%;
+		height: 100%;
+		padding: 0;
+		margin: 0;
+	}
+
+	.hidden {
+		visibility: hidden;
+	}
+
+	.logo {
+		--width: 100px;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		justify-content: center;
+		width: 100%;
+		height: 100%;
+		margin: 0;
+		text-align: center;
+	}
+
+	.logo img {
+		display: inline-flex;
+		flex-direction: column;
+		width: var(--width);
+		height: var(--width);
+	}
+
+	.logo .name {
+		color: #012847;
+		font-size: 2.0em;
+		font-weight: bold;
+		letter-spacing: -1px;
+		margin-top: 2px;
+	}
+
+	.logo .desc {
+		max-width: 280px;
+		margin-top: 30px;
+		font-size: 1.3em;
+	}
+
+	#splash {
+		position: absolute;
+		top: 0; left: 0;
+		width: 100%;
+		height: 100%;
+		background: #fff;
+		z-index: 999;
+	}
+
+	#splash .logo {
+		--width: 80px;
+	}
+
+	.pwa #splash .logo {
+		display: none;
+	}
+
+	#splash .loading, #splash noscript {
+		position: absolute;
+		bottom: 40px;
+		width: 100%;
+		text-align: center;
+	}
+
+	#splash noscript {
+		color: red;
+	}
+	</style>
+
+	<script>
+	//tmp config
+	window.TMP = {
+
+		isDemo: false,
+		isHybrid: !!window._cordovaNative,
+		isPwa: window.matchMedia('(display-mode: standalone)').matches,
+
+		docEl: document.documentElement,
+
+		assets: [
+
+			//css
+			"https://cdn.jsdelivr.net/gh/codi0/fstage@0.2.2/fstage.min.css",
+			"css/style.css",
+
+			//js
+			"https://cdn.jsdelivr.net/gh/codi0/fstage@0.2.2/fstage.min.js",
+			"js/config.js",
+			"js/services/user.js",
+			"js/middleware/user.js",
+			"js/components/app.js",
+			"js/components/welcome.js",
+			"js/components/about.js",
+			"js/launcher.js"
+
+		]
+
+	};
+
+	//set title
+	document.title = 'Loading...'
+
+	//is hybrid?
+	if(TMP.isHybrid) {
+		TMP.docEl.classList.add('hybrid');
+	}
+	
+	//is pwa?
+	if(TMP.isPwa) {
+		TMP.docEl.classList.add('pwa');
+	}
+	</script>
+
+</head>
+<body>
+
+	<div id="splash">
+		<div class="logo">
+			<img src="img/logo.png" alt="Fstage" width="80" height="80">
+		</div>
+		<div class="loading hidden">
+			App loading...
+		</div>
+		<noscript>
+			Please enable javascript to continue
+		</noscript>
+	</div>
+
+	<div id="root"></div>
+
+	<script>
+	window.addEventListener('load', function() {
+
+		//non-blocking
+		setTimeout(function() {
+
+			//can use service worker?
+			if('serviceWorker' in window.navigator) {
+				//worker event dispatcher
+				var swEvent = function(name, args = {}) {
+					var done = false;
+					var callback = function() {
+						if(!done && document.readyState === 'complete') {
+							var e = new CustomEvent(name, { detail: args });
+							document.dispatchEvent(e);
+							done = true;
+						}
+					};
+					callback();
+					document.addEventListener('readystatechange', callback);
+				};
+				//register service worker
+				navigator.serviceWorker.register('sw.js').then(function(reg) {
+					//set vars
+					var isNew = !navigator.serviceWorker.controller;
+					//callback
+					var callback = function() {
+						swEvent('swUpdate', { reg: reg, isNew: isNew });
+					};
+					//state change listener
+					var stateChangeListener = function() {
+						reg.installing.postMessage('skipWaiting');
+						reg.installing.addEventListener('statechange', function(e) {
+							if(this.state === 'installed') {
+								callback();
+							}
+						});
+					};
+					//is waiting?
+					if(reg.waiting) {
+						reg.waiting.postMessage('skipWaiting');
+						return callback();
+					}
+					//is installing?
+					if(reg.installing) {
+						return stateChangeListener();
+					}
+					//ask for notification?
+					if(reg.active && location.hash.indexOf('#push=') === 0) {
+						var id = location.hash.split('=')[1];
+						reg.active.postMessage({ action: 'getNotification', id: id });
+						location.hash = '';
+					}
+					//listen for state change
+					reg.addEventListener('updatefound', stateChangeListener);
+				}).catch(function(error) {
+					//show error
+					console.error(error.message);
+					//dispatch event
+					swEvent('swFailed', error);
+				});
+				//listen for messages
+				navigator.serviceWorker.addEventListener('message', function(e) {
+					//force refresh?
+					if(e.data === 'forceRefresh') {
+						location.reload();
+						return;
+					}
+				});
+			} else {
+				//show error
+				console.error('Service worker not supported');
+			}
+
+			//load assets
+			TMP.assets.forEach(function(url) {
+				//set vars
+				var el = null;
+				var type = url.split('?')[0].split('.').pop();
+				//css?
+				if(type === 'css') {
+					el = document.createElement('link');
+					el.rel = "stylesheet";
+					el.href = url;
+					document.documentElement.firstChild.appendChild(el);
+				}
+				//javascript?
+				if(type === 'js') {
+					el = document.createElement('script');
+					el.async = false;
+					el.src = url;
+					document.documentElement.firstChild.appendChild(el);
+				}	
+			});
+
+			//load manifest?
+			if(!TMP.isHybrid) {
+				var manifest = document.createElement('link');
+				manifest.rel = "manifest";
+				manifest.href = "manifest.json";
+				TMP.docEl.firstChild.appendChild(manifest);
+			}
+			
+			//load icon?
+			if(!TMP.isHybrid) {
+				var icon = document.querySelector('[rel="icon"]');
+				icon.type = "image/png";
+				icon.sizes = "any";
+				icon.href = "img/icon.png";
+			}
+
+			//loading message
+			setTimeout(function() {
+				var loading = document.querySelector('#splash .loading');
+				loading.classList.remove('hidden');
+			}, 2000);
+
+			//delete tmp
+			delete window.TMP;
+
+		}, 0);
+
+	});
+	</script>
+
+</body>
+</html>

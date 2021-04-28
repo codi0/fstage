@@ -2,21 +2,24 @@
 
 A lean javascript library for developing modern web apps, at under 15kb (minified and gzipped).
 
-It's a collection of helper functions that are used at codi.io when prototying and developing front-end code, without any build or
-compilation steps required. Any significant updates will be shared here, as the library evolves.
+Fstage was created to help prototye and develop codi.io projects, without any build or compilation steps required.
+Any significant updates will be shared here, as the library evolves.
 
-It follows jQuery syntax closely for DOM manipulation, though does not replicate all jQuery functions and goes far beyond the scope of jQuery,
-housing features such as global statement management and reactive view components. All functions are split into modules that can easily be
-extracted and used in isolation or as part of the library (see fstage.js file for code and comments).
+All functions are split into modules that can easily be extracted and used in isolation or as part of the library
+(see fstage.js file for code and comments).
 
 # CDN links
 
-	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.2.1/fstage.min.css">
-	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.2.1/fstage.min.js"></script>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.2.2/fstage.min.css">
+	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.2.2/fstage.min.js"></script>
 
 # Browser support
 
-It assumes support for Promise, fetch and Proxy; which are now well established in all major browsers. Internet Explorer is not supported.
+Support for ES6 Promise, fetch and Proxy is required. Internet Explorer is not supported.
+
+# Skeleton app
+
+See the "app" directory for a very simple skeleton app; incorporating services, components and middleware.
 
 # Modules API
 

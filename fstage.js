@@ -2,7 +2,7 @@
  * FSTAGE.js
  *
  * About: A lean javascript library for developing modern web apps
- * Version: 0.2.1
+ * Version: 0.2.2
  * License: MIT
  * Source: https://github.com/codi0/fstage
  *
@@ -3910,6 +3910,10 @@
 
 			onTrack: function(fn) {
 				return self.pubsub.on('app.track', fn);
+			},
+
+			onUpdate: function(fn) {
+				return document.addEventListener('swUpdate', fn);
 			}
 
 		};
