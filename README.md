@@ -22,7 +22,7 @@ It assumes support for Promise, fetch and Proxy; which are now well established 
 
 (1) CORE
 
-	Fstage(selector, context = document)  //replicates jQuery syntax for chaining methods
+	Fstage(selector, context = document)  //replicates jQuery DOM select
 	Fstage(selector).get(index)  //returns selected DOM node by array index
 	Fstage(selector).each(callback)  //executes callback for each selected DOM node
 
@@ -38,42 +38,19 @@ It assumes support for Promise, fetch and Proxy; which are now well established 
 	Fstage.ready(callback)  //delays executing callback until DOM is ready
 	Fstage.parseHTML(string, first = false)  //converts HTML string to array of nodes
 	Fstage.stripHTML(string)  //strips HTML from a string
-	Fstage.escape(string, type = 'html')  //escapes a string, with optional type (html, js, attr)
 	Fstage.debounce(callback, waitMs = 100)  //limits the rate at which the callback is executed
 	Fstage.memoize(callback)  //caches output of function using hash of input parameters
 	Fstage.hash(string|array|object)  //converts input into a numeric hash
 	Fstage.deviceId(uid = '')  //creates hash using versionless user agent and optional user identifier
+	Fstage.scroll(number|node)  //scroll to an element or pixel position on the screen
 
-(3) OBJECT
-
-	Fstage.obj.get(object, key)  //returns nested value from object by property key (E.g. user.address.city)
-	Fstage.obj.set(object, key, val, opts = {})  //sets nested object property value using key
-	Fstage.obj.merge(object, patch, opts = {})  //merges patch into object
-	Fstage.obj.filter(object, filters = {})  //filters object properties by one or more key=>val pairs
-	Fstage.obj.sort(object, order = {})  //sorts object properties by key, with optional limit/offset/desc
-
-(4) PUBSUB
-
-	Fstage.pubsub.has(id)  //returns whether any callbacks subscribed to the specified ID
-	Fstage.pubsub.on(id, callback)  //subscribes to event with specified ID, returning a token
-	Fstage.pubsub.off(token)  //unsubscribes to event with specified ID
-	Fstage.pubsub.emit(id, data = {})  //publishes event with specified ID, and optional data
-	Fstage.pubsub.waitFor(tokens)  //allows one callback to wait for others before completing
-
-(5) DOM EVENTS
-
-	Fstage(selector).on(eventTypes, delegatedSelector, callback)  //attaches event callback to each selected DOM node
-	Fstage(selector).one(eventTypes, delegatedSelector, callback)  //event callback will only ever be called once
-	Fstage(selector).off(eventTypes, callback)  //detaches event callback from each selected DOM node
-	Fstage(selector).trigger(eventTypes, data = {})  //triggers custom event, with optional data passed
-
-(6) DOM SELECTION
+(3) DOM SELECTION
 
 	Fstage(selector).find(selector)  //returns all matching children of each selected DOM node
 	Fstage(selector).closest(selector)  //returns first matching child of each selected DOM node
 	Fstage(selector).parent()  //returns parent node of each selected DOM node
 
-(7) DOM MANIPULATION
+(4) DOM MANIPULATION
 
 	Fstage(selector).hasClass(classNames)  //checks whether first selected DOM node contains one or more classes
 	Fstage(selector).addClass(classNames, esc = true)  //adds one or more classes to each selected DOM node
@@ -93,7 +70,14 @@ It assumes support for Promise, fetch and Proxy; which are now well established 
 	Fstage(selector).text(text)  //sets textContent of each selected DOM node
 	Fstage(selector).val(value, esc = true)  //sets value of each selected DOM node
 
-(8) DOM EFFECTS
+(5) DOM EVENTS
+
+	Fstage(selector).on(eventTypes, delegatedSelector, callback)  //attaches event callback to each selected DOM node
+	Fstage(selector).one(eventTypes, delegatedSelector, callback)  //event callback will only ever be called once
+	Fstage(selector).off(eventTypes, callback)  //detaches event callback from each selected DOM node
+	Fstage(selector).trigger(eventTypes, data = {})  //triggers custom event, with optional data passed
+
+(6) DOM EFFECTS
 
 	Fstage(selector).animate(effect, opts = {})  //manages animation on each selected DOM node using classes (requires fstage.css)
 	Fstage(selector).sliding({ x: true, y: false, onStart: null, onMove: null, onEnd: null })  //controls sliding via options provided
@@ -103,19 +87,30 @@ It assumes support for Promise, fetch and Proxy; which are now well established 
 	Fstage(selector).cookieConsent(opts = {})  //creates an unobtrusive cookie consent banner at the bottom of the page
 	Fstage.transition(toEl, toEffect, fromEl, fromEffect, opts = {})  //executes page transition from one element to another
 
-(9) DOM DIFFING
+(7) DOM DIFFING
 
 	Fstage.domDiff(fromNode, toNode|toHtml, opts = {})  //updates specified DOM node to new state with the minimum necessary changes
 
-(10) SERVER CALLS
+(8) SERVER CALLS
 
 	Fstage.ajax(url, opts = {})  //retrieves response from server URL
 	Fstage.websocket(url)  //creates websocket object, with auto-reconnect and on/off/trigger methods to listen and send messages
 
-(10) DOM REACTIVITY
+(9) PUBSUB
 
-	Fstage.watch(input)  //creates proxy of input and emits any changes via Fstage.pub('watch')
-	Fstage.component(name, { el: null, parent: null, data: null, template: null })  //renders html and automatically updates if data changes
+	Fstage.pubsub.has(id)  //returns whether any callbacks subscribed to the specified ID
+	Fstage.pubsub.on(id, callback)  //subscribes to event with specified ID, returning a token
+	Fstage.pubsub.off(token)  //unsubscribes to event with specified ID
+	Fstage.pubsub.emit(id, data = {})  //publishes event with specified ID, and optional data
+	Fstage.pubsub.waitFor(tokens)  //allows one callback to wait for others before completing
+
+(10) OBJECT HELPERS
+
+	Fstage.obj.get(object, key)  //returns nested value from object by property key (E.g. user.address.city)
+	Fstage.obj.set(object, key, val, opts = {})  //sets nested object property value using key
+	Fstage.obj.merge(object, patch, opts = {})  //merges patch into object
+	Fstage.obj.filter(object, filters = {})  //filters object properties by one or more key=>val pairs
+	Fstage.obj.sort(object, order = {})  //sorts object properties by key, with optional limit/offset/desc
 
 (11) OBJECT OBSERVER
 
@@ -125,7 +120,12 @@ It assumes support for Promise, fetch and Proxy; which are now well established 
 
 	Fstage.store(state = {}, opts = {})  //uses object observer to listen for property changes and automatically call functions that access those properties
 
-(13) VIEW ROUTING
+(13) TEMPLATE LITERALS
+
+	Fstage.lit(arr = null, callback = null)  //parse and auto-escape template literals, as well as acting as a loop/callback wrapper in embedded expressions
+	Fstage.esc(string, type = 'html')  //escapes a string, with optional type (html, js, attr)
+
+(14) VIEW ROUTING
 
 	Fstage.router.start()  //starts router
 	Fstage.router.current()  //returns current route object
@@ -138,14 +138,14 @@ It assumes support for Promise, fetch and Proxy; which are now well established 
 	Fstage.router.back()  //navigates back to the previous route
 	Fstage.router.setState(state = {})  //updates current route object
 
-(14) VIEW COMPONENTS
+(15) VIEW COMPONENTS
 
 	Fstage.components.store()  //returns global state object, if attached
 	Fstage.components.router()  //returns router object, if attached
 	Fstage.components.register(name, callback)  //registers component using function or object literal
 	Fstage.components.start(opts = {})  //initial render of components, starting with root component
 
-(15) FORM VALIDATION
+(16) FORM VALIDATION
 
 	Fstage.form(name, opts)  //returns an enhanced form element, opts contains 'fields' object (name, filter, validator)
 	Fstage.form.isValid(field = null)  //validates form values against fields object, and also fires onBlur for a given field
@@ -153,3 +153,7 @@ It assumes support for Promise, fetch and Proxy; which are now well established 
 	Fstage.form.val(field = null)  //returns filtered value[s]
 	Fstage.form.reset(field = null, skip = [])  //clears values and errors
 	Fstage.form.step(name = null)  //returns current form step (if set), or sets step name
+	
+(17) APP SHELL
+
+	Fstage.app()  //creates a framework for a reactive app that utilises Fstage modules 

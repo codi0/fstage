@@ -135,7 +135,7 @@
 	};
 
 	Fstage.capitalize = function(input) {
-	  return input ? input.charAt(0).toUpperCase() + input.slice(1) : '';
+		return input ? input.charAt(0).toUpperCase() + input.slice(1) : '';
 	};
 
 	Fstage.ready = Fstage.fn.ready = function(fn) {
@@ -147,7 +147,7 @@
 		document.addEventListener('DOMContentLoaded', fn);
 	};
 
-	Fstage.toNodes = Fstage.parseHTML = function(input, first = false) {
+	Fstage.parseHTML = function(input, first = false) {
 		//parse html string?
 		if(typeof input === 'string') {
 			var d = document.createElement('template');
@@ -160,34 +160,10 @@
 		return first ? (input[0] || null) : input;
 	};
 
-	Fstage.stripHtml = Fstage.stripHTML = function(html) {
+	Fstage.stripHTML = function(html) {
 		var el = document.createElement('div');
 		el.innerHTML = String(html);
 		return el.textContent;
-	};
-
-	Fstage.escape = function(input, type) {
-		//get method
-		var method = 'esc' + Fstage.capitalize(type);
-		//method exists?
-		if(type && Fstage[method]) {
-			return Fstage[method](input);
-		}
-		//default
-		return Fstage.escHtml(input);
-	};
-
-	Fstage.escHtml = Fstage.escHTML = function(input) {
-		var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '/': '&#x2F;', ':': '&#58;' };
-		return String(input || '').replace(/&amp;/g, '&').replace(/[&<>"'\/:]/g, function(i) { return map[i]; });
-	};
-
-	Fstage.escJs = function(input) {
-		return String(input || '').replace(/([\(\)\'\"\r\n\t\v\0\b\f\\])/g, "\\$1");
-	};
-
-	Fstage.escAttr = function(input) {
-		return this.escHtml(this.escJs(input));
 	};
 
 	Fstage.debounce = function(fn, wait = 100) {
@@ -196,7 +172,8 @@
 		//return closure
 		return function() {
 			//set vars
-			var ctx = this, args = arguments;
+			var ctx = this;
+			var args = [].slice.call(arguments);
 			//clear timeout
 			tid && clearTimeout(tid);
 			//set timeout
@@ -239,345 +216,299 @@
 		return Fstage.hash(uid + navigator.userAgent.replace(/[0-9\.\s]/g, ''));
 	};
 
-})();
-
-/**
- * OBJECT HELPERS
-**/
-(function(undefined) {
-
-	Fstage.obj = {
-
-		get: function(obj, key) {
-			//split key?
-			if(typeof key === 'string') {
-				key = key ? key.split('.') : [];
-			} else {
-				key = key || [];
-			}
-			//loop through key parts
-			for(var i=0; i < key.length; i++) {
-				//next level
-				obj = obj[key[i]];
-				//not found?
-				if(obj === undefined) {
-					break;
-				}
-			}
-			//return
-			return obj;
-		},
-
-		set: function(obj, key, val, opts = {}) {
-			//set vars
-			var obj = obj || {};
-			var tmp = obj;
-			//split key?
-			if(typeof key === 'string') {
-				key = key ? key.split('.') : [];
-			} else {
-				key = key || [];
-			}
-			//loop through key parts
-			for(var i=0; i < key.length; i++) {
-				tmp = tmp[key[i]] = tmp[key[i]] || {};
-			}
-			//deep merge?
-			if(opts.deep && val && typeof val === 'object') {
-				tmp = this.merge(tmp, val, opts);
-			} else {
-				tmp = val;
-			}
-			//return
-			return obj;
-		},
-
-		merge: function(obj, update, opts = {}) {
-			//is object?
-			if(!obj || typeof obj !== 'object') {
-				obj = {};
-			}
-			//copy object?
-			if(opts.copy) {
-				obj = Object.assign({}, obj);
-			}
-			//is function?
-			if(typeof update === 'function') {
-				return update(obj, this.merge);
-			}
-			//set default arr key?
-			if(opts.arrKey === undefined) {
-				opts.arrKey = 'id';
-			}
-			//arr to obj helper
-			var arr2obj = function(arr) {
-				//can update?
-				if(opts.arrKey && arr && typeof arr[0] === 'object' && (opts.arrKey in arr[0])) {
-					//tmp obj
-					var tmp = {};
-					//loop through array
-					for(var i=0; i < arr.length; i++) {
-						if(opts.arrKey in arr[i]) {
-							tmp[arr[i][opts.arrKey]] = arr[i];
-						}
-					}
-					//update
-					arr = tmp;
-				}
-				//return
-				return arr;
-			};
-			//format update
-			update = arr2obj(update) || {};
-			//loop through update
-			for(var k in update) {
-				//skip property?
-				if(!update.hasOwnProperty(k)) {
-					continue;
-				}
-				//get value
-				var v = arr2obj(update[k]);
-				//copy value
-				if(!v || !obj[k] || obj[k] === v || typeof v !== 'object' || Array.isArray(v)) {
-					obj[k] = v;
-				} else {
-					obj[k] = this.merge(obj[k], v, opts);
-				}
-			}
-			//return
-			return obj;
-		},
-
-		filter: function(obj, filters) {
-			//can filter?
-			if(obj && filters) {
-				//set vars
-				var tmp = {};
-				//loop through object
-				for(var i in obj) {
-					//set flag
-					var keep = true;
-					//loop through filters
-					for(var j in filters) {
-						//delete record?
-						if(obj[i][j] != filters[j]) {
-							keep = false;
-							break;
-						}
-					}
-					//keep?
-					if(keep) {
-						tmp[i] = obj[i];
-					}
-				}
-				//update
-				obj = tmp;
-			}
-			//return
-			return obj;
-		},
-
-		sort: function(obj, order) {
-			//can order?
-			if(obj && order) {
-				//set vars
-				var arr = [];
-				var limit = order.limit || 0;
-				var offset = order.offset || 0;
-				//create array
-				for(var i in obj) {
-					var item = obj[i];
-					arr.push([ i, item ]);
-				}
-				//sort array?
-				if(order.key) {
-					arr.sort(function(a, b) {
-						var one = order.desc ? -1 : 1;
-						var two = order.desc ? 1 : -1;
-						return (a[1][order.key] > b[1][order.key]) ? one : two;
-					});
-				}
-				//reset
-				obj = {};
-				//re-create object
-				for(var i=0; i < arr.length; i++) {
-					//use offset?
-					if(offset && i < offset) {
-						continue;
-					}
-					//use limit?
-					if(limit && i >= (limit + offset)) {
-						break;
-					}
-					//add item
-					obj[arr[i][0]] = arr[i][1];
-				}
-			}
-			//return
-			return obj;
+	Fstage.scroll = function(position = null, opts = {}) {
+		//set opts
+		opts = Object.assign({
+			parent: document.body,
+			scroller: '.scroller',
+			bottom: '.bottom'
+		}, opts);
+		//has scroller?
+		if(opts.scroller) {
+			opts.parent = opts.parent.querySelector(opts.scroller) || opts.parent;
 		}
-
+		//scroll to bottom?
+		if(opts.bottom && !position) {
+			if(opts.parent === opts.parent.closest(opts.bottom)) {
+				position = opts.parent.scrollHeight;
+			}
+		}
+		//calculate scroll position?
+		if(position && position.nodeType) {
+			var tmp = 0;
+			while(position && position !== opts.parent) {
+				tmp += position.offsetTop;
+				position = position.parentNode;
+			}
+			position = tmp;
+		}
+		//set scroll position
+		opts.parent.scrollTop = Number(position) + (opts.adjust || 0);
 	};
 
 })();
 
 /**
- * PUBSUB
+ * DOM SELECTION
 **/
 (function(undefined) {
 
-	var pubsub = function(name) {
-
-		var _cbs = {};
-		var _id = null;
-		var _queue = {};
-
-		var _guid = 0;
-		var _prefix = 'id.' + name + '.';
-
-		var _invoke = function(id, token) {
-			//valid request?
-			if(!_cbs[id] || !_cbs[id][token]) {
-				throw new Error('Invalid callback');
+	Fstage.fn.find = function(s) {
+		//set vars
+		var res = [];
+		//loop through elements
+		for(var i=0; i < this.length; i++) {
+			//select with context
+			var tmp = Fstage.select(s, this[i]);
+			//add elements
+			for(var j=0; j < tmp.length; j++) {
+				res.push(tmp[j]);
 			}
-			//call listener?
-			if(!_queue[id].res[token]) {
-				//set vars
-				var ctx = _queue[id].ctx;
-				var args = _queue[id].args;
-				var filter = _queue[id].filter;
-				var method = _queue[id].method;
-				//invoke callback
-				var res = _cbs[id][token][method](ctx, args);
-				//cache result
-				_queue[id].res[token] = res;
-				//is filter?
-				if(filter && res !== undefined) {
-					if(method === 'apply') {
-						_queue[id].args[0] = res;
-					} else {
-						_queue[id].args = res;
-					}	
+		}
+		//return
+		return Fstage(res);
+	};
+
+	Fstage.fn.closest = Fstage.closest = function(s, target = null, parent = null) {
+		//set vars
+		var res = [];
+		var els = target ? [ target ] : this;
+		//loop through elements
+		for(var i=0; i < els.length; i++) {
+			//set target
+			var t = els[i];
+			//traverse dom tree
+			while(t && t !== document) {
+				//match found?
+				if(t.matches(s)) {
+					res.push(t);
+					break;
+				}
+				//stop here?
+				if(t === parent) {
+					break;
+				}
+				//get parent
+				t = t.parentNode;
+			}
+		}
+		//return
+		return Fstage(res);
+	};
+
+	Fstage.fn.parent = function(s = null) {
+		//loop through elements
+		for(var i=0; i < this.length; i++) {
+			//get parent
+			var parent = this[i].parentNode;
+			//skip parent?
+			if(!parent || (s && !parent.matches(s))) {
+				continue;
+			}
+			//set parent
+			this[i] = parent;
+		}
+		//chain it
+		return this;
+	};
+
+})();
+
+/**
+ * DOM MANIPULATION
+**/
+(function(undefined) {
+
+	Fstage.fn.hasClass = function(cls, esc = true, action = 'contains') {
+		//set vars
+		var res = null;
+		var contains = (action === 'contains');
+		//escape input?
+		if(esc && cls) {
+			cls = Fstage.esc(cls);
+		}
+		//split class list
+		cls = cls.trim().split(/\s+/g);
+		//loop through elements
+		for(var i=0; i < this.length; i++) {
+			//loop through classes
+			for(var j=0; j < cls.length; j++) {
+				//skip class?
+				if(cls[j] === '') continue;
+				//execute method
+				var tmp = this[i].classList[action](cls[j]);
+				//update result?
+				if(contains && res !== false) {
+					res = tmp;
 				}
 			}
-			//return
-			return _queue[id].res[token];
-		};
+			//break?
+			if(contains) {
+				break;
+			}
+		}
+		//return
+		return contains ? (res || false) : this;
+	};
 
-		var _result = function(arr, singular = false) {
-			//get singular result?
-			if(singular && arr.length) {
-				while(arr.length) {
-					var tmp = arr.pop();
-					if(tmp !== undefined) {
-						return tmp;
-					}
+	Fstage.fn.addClass = function(cls, esc = true) {
+		return this.hasClass(cls, esc, 'add');
+	};
+
+	Fstage.fn.removeClass = function(cls, esc = true) {
+		return this.hasClass(cls, esc, 'remove');
+	};
+
+	Fstage.fn.toggleClass = function(cls, esc = true) {
+		return this.hasClass(cls, esc, 'toggle');
+	};
+
+	Fstage.fn.css = function(key, val, esc = true) {
+		//get value?
+		if(val === undefined) {
+			return this[0] ? (this[0].style[key] || '') : '';
+		}
+		//escape input?
+		if(esc && val) {
+			key = Fstage.esc(key);
+			val = Fstage.esc(val);
+		}
+		//loop through elements
+		for(var i=0; i < this.length; i++) {
+			if(val) {
+				this[i].style.setProperty(key, val);
+			} else {
+				this[i].style.removeProperty(key);
+			}
+		}
+		//chain it
+		return this;
+	};
+
+	Fstage.fn.attr = function(key, val, esc = true) {
+		//get value?
+		if(val === undefined) {
+			return this[0] ? this[0].getAttribute(key) : '';
+		}
+		//escape input?
+		if(esc && val) {
+			key = Fstage.esc(key);
+			val = Fstage.esc(val);
+		}
+		//loop through elements
+		for(var i=0; i < this.length; i++) {
+			if(val) {
+				this[i].setAttribute(key, val);
+			} else {
+				this[i].removeAttribute(key);
+			}
+		}
+		//chain it
+		return this;
+	};
+
+	Fstage.fn.append = function(html, action = 'append') {
+		//create nodes
+		var nodes = Fstage.parseHTML(html);
+		//loop through elements
+		for(var i=0; i < this.length; i++) {
+			//loop through nodes
+			for(var j=0; j < nodes.length; j++) {
+				//clone node
+				var n = nodes[j].cloneNode(true);
+				//selection action
+				if(action === 'append') {
+					this[i].appendChild(n);
+				} else if(action === 'prepend') {
+					this[i].insertBefore(n, this[i].firstChild);
+				} else if(action === 'before') {
+					this[i].parentNode.insertBefore(n, this[i]);
+				} else if(action === 'after') {
+					this[i].parentNode.insertBefore(n, this[i].nextSibling);
+				} else if(action === 'wrap') {
+					this[i].parentNode.insertBefore(n, this[i]);
+					n.appendChild(this[i]);
+				} else if(action === 'replace') {
+					this[i].parentNode.replaceChild(n, this[i]);
 				}
 			}
-			//return
-			return singular ? null : arr;
-		};
+		}
+		//chain it
+		return this;
+	};
 
-		return {
+	Fstage.fn.prepend = function(html) {
+		return this.append(html, 'prepend');
+	};
 
-			instance: function(name) {
-				return new pubsub(name);
-			},
+	Fstage.fn.after = function(html) {
+		return this.append(html, 'after');
+	};
 
-			name: function() {
-				return name;
-			},
+	Fstage.fn.before = function(html) {
+		return this.append(html, 'before');
+	};
 
-			has: function(id) {
-				return !!_cbs[id];
-			},
+	Fstage.fn.wrap = function(html) {
+		return this.append(html, 'wrap');
+	};
 
-			on: function(id, fn) {
-				//set object
-				_cbs[id] = _cbs[id] || {};
-				//generate token
-				var token = _prefix + (++_guid);
-				//add subscriber
-				_cbs[id][token] = fn;
-				//return
-				return token;
-			},
+	Fstage.fn.replaceWith = function(html) {
+		return this.append(html, 'replace');
+	};
 
-			off: function(id, token) {
-				//token found?
-				if(_cbs[id] && _cbs[id][token]) {
-					delete _cbs[id][token];
-				}
-			},
-
-			emit: function(id, args = null, opts = {}) {
-				//set vars
-				var proms = [];
-				var last = _id;
-				//cache ID
-				_id = id;
-				//create queue
-				_queue[id] = {
-					res: {},
-					args: args,
-					ctx: opts.ctx || null,
-					async: opts.async,
-					filter: opts.filter,
-					method: opts.method || 'call'
-				};
-				//is filter?
-				if(opts.filter) {
-					proms.push(opts.method === 'apply' ? args[0] : args);
-				}
-				//loop through subscribers
-				for(var token in (_cbs[id] || {})) {
-					proms.push(_invoke(id, token));
-				}
-				//delete queue
-				delete _queue[id];
-				_id = last;
-				//sync return?
-				if(!opts.async) {
-					return _result(proms, opts.filter);
-				}
-				//return promise
-				return Promise.all(proms).then(function(res) {
-					return _result(res, opts.filter);
-				});
-			},
-
-			waitFor: function(tokens) {
-				//valid request?
-				if(!_id || !_queue[_id]) {
-					throw new Error('No emit currently in progress');
-				}
-				//set vars
-				var proms = [];
-				var isMulti = true;
-				//to array?
-				if(typeof tokens === 'string') {
-					tokens = [ tokens ];
-					isMulti = false;
-				}
-				//loop through tokens
-				for(var i=0; i < (tokens || []).length; i++) {
-					proms.push(_invoke(_id, tokens[i]));
-				}
-				//return immediately?
-				if(!_queue[_id].async) {
-					return _result(proms, !isMulti);
-				}
-				//return
-				return Promise.all(proms).then(function(res) {
-					return _result(res, !isMulti);
-				});
+	Fstage.fn.remove = function(node) {
+		//loop through elements
+		for(var i=0; i < this.length; i++) {
+			if(!node) {
+				this[i].parentNode.removeChild(this[i]);
+			} else if(node === true) {
+				this[i].innerHTML = '';
+			} else {
+				this[i].removeChild(node);
 			}
-	
-		};
+		}
+		//chain it
+		return this;
+	};
 
-	}
-	
-	Fstage.pubsub = new pubsub('default');
+	Fstage.fn.empty = function() {
+		return this.remove(true);
+	};
+
+	Fstage.fn.html = function(val, action = 'innerHTML') {
+		//get value?
+		if(val === undefined) {
+			return this[0] ? this[0][action] : '';
+		}
+		//loop through elements
+		for(var i=0; i < this.length; i++) {
+			this[i][action] = val;
+		}
+		//chain it
+		return this;
+	};
+
+	Fstage.fn.text = function(val) {
+		return this.html(val, 'textContent');
+	};
+
+	Fstage.fn.val = function(val, esc = true) {
+		//get value?
+		if(val === undefined) {
+			return this[0] ? this[0].value : '';
+		}
+		//escape input?
+		if(esc && val) {
+			val = Fstage.esc(val);
+		}
+		//loop through elements
+		for(var i=0; i < this.length; i++) {
+			this[i].value = val || '';
+		}
+		//chain it
+		return this;
+	};
 
 })();
 
@@ -710,270 +641,6 @@
 				//dispatch event
 				this[j].dispatchEvent(e);
 			}
-		}
-		//chain it
-		return this;
-	};
-
-})();
-
-/**
- * DOM SELECTION
-**/
-(function(undefined) {
-
-	Fstage.fn.find = function(s) {
-		//set vars
-		var res = [];
-		//loop through elements
-		for(var i=0; i < this.length; i++) {
-			//select with context
-			var tmp = Fstage.select(s, this[i]);
-			//add elements
-			for(var j=0; j < tmp.length; j++) {
-				res.push(tmp[j]);
-			}
-		}
-		//return
-		return Fstage(res);
-	};
-
-	Fstage.fn.closest = Fstage.closest = function(s, target = null, parent = null) {
-		//set vars
-		var res = [];
-		var els = target ? [ target ] : this;
-		//loop through elements
-		for(var i=0; i < els.length; i++) {
-			//set target
-			var t = els[i];
-			//traverse dom tree
-			while(t && t !== document) {
-				//match found?
-				if(t.matches(s)) {
-					res.push(t);
-					break;
-				}
-				//stop here?
-				if(t === parent) {
-					break;
-				}
-				//get parent
-				t = t.parentNode;
-			}
-		}
-		//return
-		return Fstage(res);
-	};
-
-	Fstage.fn.parent = function(s = null) {
-		//loop through elements
-		for(var i=0; i < this.length; i++) {
-			//get parent
-			var parent = this[i].parentNode;
-			//skip parent?
-			if(!parent || (s && !parent.matches(s))) {
-				continue;
-			}
-			//set parent
-			this[i] = parent;
-		}
-		//chain it
-		return this;
-	};
-
-})();
-
-/**
- * DOM MANIPULATION
-**/
-(function(undefined) {
-
-	Fstage.fn.hasClass = function(cls, esc = true, action = 'contains') {
-		//set vars
-		var res = null;
-		var contains = (action === 'contains');
-		//escape input?
-		if(esc && cls) {
-			cls = Fstage.escHtml(cls);
-		}
-		//split class list
-		cls = cls.trim().split(/\s+/g);
-		//loop through elements
-		for(var i=0; i < this.length; i++) {
-			//loop through classes
-			for(var j=0; j < cls.length; j++) {
-				//skip class?
-				if(cls[j] === '') continue;
-				//execute method
-				var tmp = this[i].classList[action](cls[j]);
-				//update result?
-				if(contains && res !== false) {
-					res = tmp;
-				}
-			}
-			//break?
-			if(contains) {
-				break;
-			}
-		}
-		//return
-		return contains ? (res || false) : this;
-	};
-
-	Fstage.fn.addClass = function(cls, esc = true) {
-		return this.hasClass(cls, esc, 'add');
-	};
-
-	Fstage.fn.removeClass = function(cls, esc = true) {
-		return this.hasClass(cls, esc, 'remove');
-	};
-
-	Fstage.fn.toggleClass = function(cls, esc = true) {
-		return this.hasClass(cls, esc, 'toggle');
-	};
-
-	Fstage.fn.css = function(key, val, esc = true) {
-		//get value?
-		if(val === undefined) {
-			return this[0] ? (this[0].style[key] || '') : '';
-		}
-		//escape input?
-		if(esc && val) {
-			key = Fstage.escHtml(key);
-			val = Fstage.escHtml(val);
-		}
-		//loop through elements
-		for(var i=0; i < this.length; i++) {
-			if(val) {
-				this[i].style.setProperty(key, val);
-			} else {
-				this[i].style.removeProperty(key);
-			}
-		}
-		//chain it
-		return this;
-	};
-
-	Fstage.fn.attr = function(key, val, esc = true) {
-		//get value?
-		if(val === undefined) {
-			return this[0] ? this[0].getAttribute(key) : '';
-		}
-		//escape input?
-		if(esc && val) {
-			key = Fstage.escHtml(key);
-			val = Fstage.escHtml(val);
-		}
-		//loop through elements
-		for(var i=0; i < this.length; i++) {
-			if(val) {
-				this[i].setAttribute(key, val);
-			} else {
-				this[i].removeAttribute(key);
-			}
-		}
-		//chain it
-		return this;
-	};
-
-	Fstage.fn.append = function(html, action = 'append') {
-		//create nodes
-		var nodes = Fstage.parseHTML(html);
-		//loop through elements
-		for(var i=0; i < this.length; i++) {
-			//loop through nodes
-			for(var j=0; j < nodes.length; j++) {
-				//clone node
-				var n = nodes[j].cloneNode(true);
-				//selection action
-				if(action === 'append') {
-					this[i].appendChild(n);
-				} else if(action === 'prepend') {
-					this[i].insertBefore(n, this[i].firstChild);
-				} else if(action === 'before') {
-					this[i].parentNode.insertBefore(n, this[i]);
-				} else if(action === 'after') {
-					this[i].parentNode.insertBefore(n, this[i].nextSibling);
-				} else if(action === 'wrap') {
-					this[i].parentNode.insertBefore(n, this[i]);
-					n.appendChild(this[i]);
-				} else if(action === 'replace') {
-					this[i].parentNode.replaceChild(n, this[i]);
-				}
-			}
-		}
-		//chain it
-		return this;
-	};
-
-	Fstage.fn.prepend = function(html) {
-		return this.append(html, 'prepend');
-	};
-
-	Fstage.fn.after = function(html) {
-		return this.append(html, 'after');
-	};
-
-	Fstage.fn.before = function(html) {
-		return this.append(html, 'before');
-	};
-
-	Fstage.fn.wrap = function(html) {
-		return this.append(html, 'wrap');
-	};
-
-	Fstage.fn.replaceWith = function(html) {
-		return this.append(html, 'replace');
-	};
-
-	Fstage.fn.remove = function(node) {
-		//loop through elements
-		for(var i=0; i < this.length; i++) {
-			if(!node) {
-				this[i].parentNode.removeChild(this[i]);
-			} else if(node === true) {
-				this[i].innerHTML = '';
-			} else {
-				this[i].removeChild(node);
-			}
-		}
-		//chain it
-		return this;
-	};
-
-	Fstage.fn.empty = function() {
-		return this.remove(true);
-	};
-
-	Fstage.fn.html = function(val, action = 'innerHTML') {
-		//get value?
-		if(val === undefined) {
-			return this[0] ? this[0][action] : '';
-		}
-		//loop through elements
-		for(var i=0; i < this.length; i++) {
-			this[i][action] = val;
-		}
-		//chain it
-		return this;
-	};
-
-	Fstage.fn.text = function(val) {
-		return this.html(val, 'textContent');
-	};
-
-	Fstage.fn.val = function(val, esc = true) {
-		//get value?
-		if(val === undefined) {
-			return this[0] ? this[0].value : '';
-		}
-		//escape input?
-		if(esc && val) {
-			val = Fstage.escHtml(val);
-		}
-		//loop through elements
-		for(var i=0; i < this.length; i++) {
-			this[i].value = val || '';
 		}
 		//chain it
 		return this;
@@ -2085,6 +1752,346 @@
 })();
 
 /**
+ * PUBSUB
+**/
+(function(undefined) {
+
+	var pubsub = function(name) {
+
+		var _cbs = {};
+		var _id = null;
+		var _queue = {};
+
+		var _guid = 0;
+		var _prefix = 'id.' + name + '.';
+
+		var _invoke = function(id, token) {
+			//valid request?
+			if(!_cbs[id] || !_cbs[id][token]) {
+				throw new Error('Invalid callback');
+			}
+			//call listener?
+			if(!_queue[id].res[token]) {
+				//set vars
+				var ctx = _queue[id].ctx;
+				var args = _queue[id].args;
+				var filter = _queue[id].filter;
+				var method = _queue[id].method;
+				//invoke callback
+				var res = _cbs[id][token][method](ctx, args);
+				//cache result
+				_queue[id].res[token] = res;
+				//is filter?
+				if(filter && res !== undefined) {
+					if(method === 'apply') {
+						_queue[id].args[0] = res;
+					} else {
+						_queue[id].args = res;
+					}	
+				}
+			}
+			//return
+			return _queue[id].res[token];
+		};
+
+		var _result = function(arr, singular = false) {
+			//get singular result?
+			if(singular && arr.length) {
+				while(arr.length) {
+					var tmp = arr.pop();
+					if(tmp !== undefined) {
+						return tmp;
+					}
+				}
+			}
+			//return
+			return singular ? null : arr;
+		};
+
+		return {
+
+			instance: function(name) {
+				return new pubsub(name);
+			},
+
+			name: function() {
+				return name;
+			},
+
+			has: function(id) {
+				return !!_cbs[id];
+			},
+
+			on: function(id, fn) {
+				//set object
+				_cbs[id] = _cbs[id] || {};
+				//generate token
+				var token = _prefix + (++_guid);
+				//add subscriber
+				_cbs[id][token] = fn;
+				//return
+				return token;
+			},
+
+			off: function(id, token) {
+				//token found?
+				if(_cbs[id] && _cbs[id][token]) {
+					delete _cbs[id][token];
+				}
+			},
+
+			emit: function(id, args = null, opts = {}) {
+				//set vars
+				var proms = [];
+				var last = _id;
+				//cache ID
+				_id = id;
+				//create queue
+				_queue[id] = {
+					res: {},
+					args: args,
+					ctx: opts.ctx || null,
+					async: opts.async,
+					filter: opts.filter,
+					method: opts.method || 'call'
+				};
+				//is filter?
+				if(opts.filter) {
+					proms.push(opts.method === 'apply' ? args[0] : args);
+				}
+				//loop through subscribers
+				for(var token in (_cbs[id] || {})) {
+					proms.push(_invoke(id, token));
+				}
+				//delete queue
+				delete _queue[id];
+				_id = last;
+				//sync return?
+				if(!opts.async) {
+					return _result(proms, opts.filter);
+				}
+				//return promise
+				return Promise.all(proms).then(function(res) {
+					return _result(res, opts.filter);
+				});
+			},
+
+			waitFor: function(tokens) {
+				//valid request?
+				if(!_id || !_queue[_id]) {
+					throw new Error('No emit currently in progress');
+				}
+				//set vars
+				var proms = [];
+				var isMulti = true;
+				//to array?
+				if(typeof tokens === 'string') {
+					tokens = [ tokens ];
+					isMulti = false;
+				}
+				//loop through tokens
+				for(var i=0; i < (tokens || []).length; i++) {
+					proms.push(_invoke(_id, tokens[i]));
+				}
+				//return immediately?
+				if(!_queue[_id].async) {
+					return _result(proms, !isMulti);
+				}
+				//return
+				return Promise.all(proms).then(function(res) {
+					return _result(res, !isMulti);
+				});
+			}
+	
+		};
+
+	}
+	
+	Fstage.pubsub = new pubsub('default');
+
+})();
+
+/**
+ * OBJECT HELPERS
+**/
+(function(undefined) {
+
+	Fstage.obj = {
+
+		get: function(obj, key) {
+			//split key?
+			if(typeof key === 'string') {
+				key = key ? key.split('.') : [];
+			} else {
+				key = key || [];
+			}
+			//loop through key parts
+			for(var i=0; i < key.length; i++) {
+				//next level
+				obj = obj[key[i]];
+				//not found?
+				if(obj === undefined) {
+					break;
+				}
+			}
+			//return
+			return obj;
+		},
+
+		set: function(obj, key, val, opts = {}) {
+			//set vars
+			var obj = obj || {};
+			var tmp = obj;
+			//split key?
+			if(typeof key === 'string') {
+				key = key ? key.split('.') : [];
+			} else {
+				key = key || [];
+			}
+			//loop through key parts
+			for(var i=0; i < key.length; i++) {
+				tmp = tmp[key[i]] = tmp[key[i]] || {};
+			}
+			//deep merge?
+			if(opts.deep && val && typeof val === 'object') {
+				tmp = this.merge(tmp, val, opts);
+			} else {
+				tmp = val;
+			}
+			//return
+			return obj;
+		},
+
+		merge: function(obj, update, opts = {}) {
+			//is object?
+			if(!obj || typeof obj !== 'object') {
+				obj = {};
+			}
+			//copy object?
+			if(opts.copy) {
+				obj = Object.assign({}, obj);
+			}
+			//is function?
+			if(typeof update === 'function') {
+				return update(obj, this.merge);
+			}
+			//set default arr key?
+			if(opts.arrKey === undefined) {
+				opts.arrKey = 'id';
+			}
+			//arr to obj helper
+			var arr2obj = function(arr) {
+				//can update?
+				if(opts.arrKey && arr && typeof arr[0] === 'object' && (opts.arrKey in arr[0])) {
+					//tmp obj
+					var tmp = {};
+					//loop through array
+					for(var i=0; i < arr.length; i++) {
+						if(opts.arrKey in arr[i]) {
+							tmp[arr[i][opts.arrKey]] = arr[i];
+						}
+					}
+					//update
+					arr = tmp;
+				}
+				//return
+				return arr;
+			};
+			//format update
+			update = arr2obj(update) || {};
+			//loop through update
+			for(var k in update) {
+				//skip property?
+				if(!update.hasOwnProperty(k)) {
+					continue;
+				}
+				//get value
+				var v = arr2obj(update[k]);
+				//copy value
+				if(!v || !obj[k] || obj[k] === v || typeof v !== 'object' || Array.isArray(v)) {
+					obj[k] = v;
+				} else {
+					obj[k] = this.merge(obj[k], v, opts);
+				}
+			}
+			//return
+			return obj;
+		},
+
+		filter: function(obj, filters) {
+			//can filter?
+			if(obj && filters) {
+				//set vars
+				var tmp = {};
+				//loop through object
+				for(var i in obj) {
+					//set flag
+					var keep = true;
+					//loop through filters
+					for(var j in filters) {
+						//delete record?
+						if(obj[i][j] != filters[j]) {
+							keep = false;
+							break;
+						}
+					}
+					//keep?
+					if(keep) {
+						tmp[i] = obj[i];
+					}
+				}
+				//update
+				obj = tmp;
+			}
+			//return
+			return obj;
+		},
+
+		sort: function(obj, order) {
+			//can order?
+			if(obj && order) {
+				//set vars
+				var arr = [];
+				var limit = order.limit || 0;
+				var offset = order.offset || 0;
+				//create array
+				for(var i in obj) {
+					var item = obj[i];
+					arr.push([ i, item ]);
+				}
+				//sort array?
+				if(order.key) {
+					arr.sort(function(a, b) {
+						var one = order.desc ? -1 : 1;
+						var two = order.desc ? 1 : -1;
+						return (a[1][order.key] > b[1][order.key]) ? one : two;
+					});
+				}
+				//reset
+				obj = {};
+				//re-create object
+				for(var i=0; i < arr.length; i++) {
+					//use offset?
+					if(offset && i < offset) {
+						continue;
+					}
+					//use limit?
+					if(limit && i >= (limit + offset)) {
+						break;
+					}
+					//add item
+					obj[arr[i][0]] = arr[i][1];
+				}
+			}
+			//return
+			return obj;
+		}
+
+	};
+
+})();
+
+/**
  * OBJECT OBSERVER
 **/
 (function(undefined) {
@@ -2361,8 +2368,8 @@
 							requestAnimationFrame(function() {
 								//loop through queue
 								while(queue.length) {
-									var fn = queue.shift();
-									fn();
+									queue[0]();
+									queue.shift();
 								}
 							});
 						}
@@ -2389,7 +2396,25 @@
 			},
 
 			inQueue: function(fn) {
-				return queue.includes(fn);
+				//set vars
+				var arr = [ fn ];
+				//get root?
+				if(fn.__react) {
+					arr.push(fn.__react.fnRoot);
+				}
+				//loop through queue
+				for(var i=0; i < queue.length; i++) {
+					//direct match?
+					if(arr.includes(queue[i])) {
+						return true;
+					}
+					//root match?
+					if(queue[i].__react && arr.includes(queue[i].__react.fnRoot)) {
+						return true;
+					}
+				}
+				//not found
+				return false;
 			},
 
 			hasRun: function(name) {
@@ -2557,6 +2582,99 @@
 
 })();
 
+/* TEMPLATE LITERALS */
+
+(function(undefined) {
+
+	Fstage.lit = function() {
+		//set vars
+		var output = '';
+		var inAttr = '';
+		var args = [].slice.call(arguments);
+		//is raw loop?
+		if(typeof args[1] === 'function') {
+			Fstage.each(args[0], function(k, v) {
+				output += (args[1].call(Fstage.lit, k, v) || '').trim();
+			});
+			return { raw: output };
+		}
+		//is raw?
+		if(typeof args[0] === 'function') {
+			return { raw: (args[0].call(Fstage.lit) || '').trim() };
+		}
+		//get input
+		var input = {
+			text: args.shift() || [],
+			params: args
+		};
+		//filter input
+		input = Fstage.pubsub.emit('lit.input', input, {
+			filter: true
+		});
+		//check attribute helper
+		var checkAttr = function(text, inAttr) {
+			if(text) {
+				var tmp = text.match(/\=\s?(\"|\')(.*)?/s);
+				if(tmp) {
+					return checkAttr(tmp[2] || '', tmp[1]);
+				}
+				if(inAttr) {
+					var tmp = text.split(inAttr);
+					if(tmp && tmp.length > 1) {
+						tmp.shift();
+						return checkAttr(tmp.join(inAttr), '');
+					}
+				}
+			}
+			return inAttr;
+		};
+		//loop through text
+		for(var i=0; i < input.text.length; i++) {
+			//add text
+			output += input.text[i];
+			//update inAttr
+			inAttr = checkAttr(input.text[i], inAttr);
+			//add param?
+			if(input.params[i]) {
+				if(typeof input.params[i].raw === 'string') {
+					output += input.params[i].raw;
+				} else {
+					output += Fstage.esc(input.params[i], inAttr ? 'attr' : 'html');
+				}
+			}
+		}
+		//return
+		return output.trim();
+	};
+
+	Fstage.esc = function(input, type) {
+		//method exists?
+		if(type && this.esc[type]) {
+			return this.esc[type](input);
+		}
+		//default
+		return this.esc.html(input);
+	};
+
+	Fstage.esc.html = function(input) {
+		var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '/': '&#x2F;', ':': '&#58;' };
+		return String(input || '').replace(/&amp;/g, '&').replace(/[&<>"'\/:]/g, function(i) { return map[i]; });
+	};
+
+	Fstage.esc.js = function(input) {
+		return String(input || '').replace(/([\(\)\'\"\r\n\t\v\0\b\f\\])/g, "\\$1");
+	};
+
+	Fstage.esc.css = function(input) {
+		return input;
+	};
+
+	Fstage.esc.attr = function(input) {
+		return this.html(this.js(input));
+	};
+
+})();
+
 /* VIEW ROUTING */
 
 (function(undefined) {
@@ -2574,8 +2692,7 @@
 			histId: 0,
 			isBack: false,
 			def404: null,
-			defHome: null,
-			attr: 'data-route'
+			defHome: null
 		}, opts);
 
 		//listen for navigation
@@ -2603,11 +2720,11 @@
 		//listen for clicks
 		window.addEventListener('click', function(e) {
 			//get target
-			var el = e.target.closest('[' + opts.attr + ']');
+			var el = e.target.closest('[data-route]');
 			//valid route?
 			if(!el) return;
 			//get params
-			var name = el.getAttribute(opts.attr);
+			var name = el.getAttribute('data-route');
 			var mode = el.getAttribute('data-history') || 'push';
 			var params = (el.getAttribute('data-params') || '').split(';');
 			//go back?
@@ -2838,62 +2955,22 @@
 	var _store = null;
 	var _rootEl = null;
 	var _mutations = null;
+	var _attrName = 'data-component';
 
 	var _getProps = function(el) {
 		//set vars
 		var props = {};
-		//parse attributes?
-		if(el.attributes.length) {
-			//get parent
-			var parentEl = el.closest('[data-component');
-			//loop through attributes
-			for(var i=0; i < el.attributes.length; i++) {
-				//parse name and value
-				var k = el.attributes[i].name;
-				var v = el.attributes[i].value;
-				//valid prop?
-				if(k.indexOf('on') !== 0) {
-					//use parent value?
-					if(parentEl && v.indexOf('this.') === 0) {
-						//split key
-						var parts = v.replace('this.', '').split('.');
-						var v = parentEl;
-						//loop through parts
-						for(var i=0; i < parts.length; i++) {
-							//next level
-							v = v[parts[i]];
-							//not found?
-							if(v === undefined) {
-								v = null;
-								break;
-							}
-						}
-					}
-					//add prop
-					props[k] = v;
-				}
-			}
+		//loop through attributes
+		for(var i=0; i < el.attributes.length; i++) {
+			var attr = el.attributes[i];
+			props[attr.name] = attr.value;
 		}
 		//return
 		return Object.freeze(props);
 	};
 
-	var _setProps = function(el, props) {
-		//remove old attributes
-		for(var i=0; i < el.attributes.length; i++) {
-			//needs removing?
-			if(!props[el.attributes[i].name]) {
-				el.removeAttribute(el.attributes[i].name);
-			}
-		}
-		//set new attributes
-		for(var i in props) {
-			el.setAttribute(i, props[i]);
-		}
-		//set props
-		el.props = props;
-		//return
-		return el;	
+	var _isEqualProps = function(el) {
+		return JSON.stringify(el.props || {}) === JSON.stringify(_getProps(el));
 	};
 
 	var _syncComponent = function(el, opts = {}) {
@@ -2904,19 +2981,19 @@
 		//set vars
 		var isNew = !el.isComponent;
 		var wasOrphaned = el.orphanedComponent;
-		var name = opts.name || el.getAttribute('data-component') || el.tagName.toLowerCase();
+		var name = opts.name || el.getAttribute(_attrName) || el.tagName.toLowerCase();
 		//is registered?
 		if(!_registered[name]) {
 			return el;
 		}
-		//setup helWWper
+		//setup helper
 		var setupEl = function() {
 			//set orphaned state
 			el.orphanedComponent = !opts.parent && !document.body.contains(el);
 			//is attached to DOM?
 			if(!el.orphanedComponent) {
 				//set parent
-				el.parentComponent = opts.parent || (el.parentNode ? el.parentNode.closest('[data-component]') : null);
+				el.parentComponent = opts.parent || (el.parentNode ? el.parentNode.closest('[' + _attrName + ']') : null);
 				//add child to parent?
 				if(el.parentComponent && !el.parentComponent.childComponents.includes(el)) {
 					el.parentComponent.childComponents.push(el);
@@ -2934,7 +3011,7 @@
 		//reuse instance?
 		if(opts.linked && opts.linked.isComponent) {
 			//same component type?
-			if(name === opts.linked.getAttribute('data-component')) {
+			if(name === opts.linked.getAttribute(_attrName)) {
 				//set vars
 				var didChange = false;
 				//remove old attributes
@@ -2973,9 +3050,9 @@
 			//mark as component
 			el.isComponent = true;
 			//set attribute
-			el.setAttribute('data-component', name);
+			el.setAttribute(_attrName, name);
 			//merge base
-			el = Object.assign(el, _baseComponent);
+			el = Object.assign(el, baseComponent);
 			//setup
 			setupEl();
 			//get object
@@ -3017,11 +3094,22 @@
 					}
 					//loop through rules
 					for(var i=0; i < rules.length; i++) {
+						//get rule
 						var rule = rules[i].trim();
-						if(rule) {
-							console.log(style.sheet.cssRules.length);
-							style.sheet.insertRule(rule + '}', style.sheet.cssRules.length);
+						//skip?
+						if(!rule) continue;
+						//scope rule?
+						if(rule.indexOf('scoped ') !== -1) {
+							//create ID?
+							if(!el.randId) {
+								el.randId = 'data-vc' + Math.floor(Math.random() * 10000);
+								el.setAttribute(el.randId, '');
+							}
+							//insert ID
+							rule = rule.replace('scoped ', '[' + el.randId + '] ');
 						}
+						//insert rule
+						style.sheet.insertRule(rule + '}', style.sheet.cssRules.length);
 					}
 				}
 			}
@@ -3039,7 +3127,7 @@
 			});
 			//render
 			el.render({
-				isNew: isNew,
+				isNew: isNew || wasOrphaned,
 				parent: opts.parent || null
 			});				
 		}
@@ -3047,99 +3135,13 @@
 		return el;
 	};
 
-	var _baseComponent = {
-
-		props: null,
-		state: null,
-		store: null,
-		actions: null,
-		isComponent: true,
-		childComponents: [],
-		parentComponent: null,
-
-		esc: function(input, type = 'html') {
-			return components._escape(input, type);
-		},
-
-		escAttr: function(input) {
-			return this.esc(input, 'attr');
-		},
-		
-		render: function(opts = {}) {
-			//can render?
-			if(this.orphanedComponent) {
-				return;
-			}
-			//set vars
-			var el = this;
-			var html = el.html();
-			var hook = opts.isNew ? 'onDidMount' : 'onDidUpdate';
-			//update html?
-			if(html || html === '') {
-				//clone element
-				var newEl = el.cloneNode(false);
-				//set html
-				newEl.innerHTML = components._pubsub.emit('components.filterHtml', html, {
-					filter: true
-				});
-				//scan children
-				var oldChildren = el.querySelectorAll('*');
-				var newChildren = newEl.querySelectorAll('*');
-				//loop through nodes
-				for(var i=0; i < newChildren.length; i++) {
-					//sync component
-					_syncComponent(newChildren[i], {
-						parent: el,
-						linked: oldChildren[i] || null
-					});
-				}
-				//diff the DOM
-				components._domDiff(el, newEl, {
-					beforeUpdateNode: function(from, to) {
-						//has parent?
-						if(opts.parent) {
-							//skip update?
-							if(from.__skip && el !== from) {
-								return false;
-							}
-							return;
-						}
-						//run event
-						var res = components._pubsub.emit('components.beforeUpdateNode', [ from, to, el ], {
-							method: 'apply'
-						});
-						//skip update?
-						if(from.__skip || res.includes(false)) {
-							delete from.__skip;
-							return false;
-						}
-					},
-					afterUpdateNode: function(from, to) {
-						//has parent?
-						if(opts.parent) {
-							return;
-						}
-						//run event
-						components._pubsub.emit('components.afterUpdateNode', [ from, to, el ], {
-							method: 'apply'
-						});
-					}
-				});
-				//call hook?
-				if(el[hook]) {
-					requestAnimationFrame(el[hook]);
-				}
-			}
-		}
-
-	};
-
 	var components = {
 
+		_lit: Fstage.lit,
+		_esc: Fstage.esc,
 		_store: Fstage.store,
 		_router: Fstage.router,
 		_pubsub: Fstage.pubsub,
-		_escape: Fstage.escape,
 		_domDiff: Fstage.domDiff,
 
 		store: function(state = null) {
@@ -3191,7 +3193,11 @@
 		},
 
 		onFilterHtml: function(fn) {
-			return this._pubsub.on('components.filterHtml', fn);
+			return this._pubsub.on('components.html', fn);
+		},
+
+		onFilterLit: function(fn) {
+			return this._pubsub.on('lit.input', fn);
 		},
 
 		onBeforeUpdateNode: function(fn) {
@@ -3215,6 +3221,10 @@
 				}
 				//cache node
 				_rootEl = rootEl;
+				//update attr?
+				if(opts.attr) {
+					_attrName = opts.attr;
+				}
 				//init store
 				var s = components.store().state();
 				//use router?
@@ -3292,6 +3302,98 @@
 			if(_mutations) {
 				_mutations.disconnect();
 				_mutations = null;
+			}
+		}
+
+	};
+
+	var baseComponent = {
+
+		props: null,
+		state: null,
+		store: null,
+		actions: null,
+		isComponent: true,
+		childComponents: [],
+		parentComponent: null,
+		
+		lit: components._lit,
+		esc: components._esc,
+
+		render: function(opts = {}) {
+			//can render?
+			if(this.orphanedComponent) {
+				return;
+			}
+			//set vars
+			var el = this;
+			var inQueue = components.store().inQueue(el.render);
+			var hook = opts.isNew ? 'onDidMount' : 'onDidUpdate';
+			//stop here?
+			if(!inQueue && !opts.isNew && _isEqualProps(el)) {
+				return;
+			}
+			//generate html
+			var html = el.html();
+			//update html?
+			if(typeof html === 'string') {
+				//clone element
+				var newEl = el.cloneNode(false);
+				//set html
+				newEl.innerHTML = components._pubsub.emit('components.html', html, {
+					filter: true
+				});
+				//scan children
+				var oldChildren = el.querySelectorAll('*');
+				var newChildren = newEl.querySelectorAll('*');
+				//loop through nodes
+				for(var i=0; i < newChildren.length; i++) {
+					//sync component
+					_syncComponent(newChildren[i], {
+						parent: el,
+						linked: oldChildren[i] || null
+					});
+				}
+				//any changes?
+				if(el.isEqualNode(newEl)) {
+					return;
+				}
+				//diff the DOM
+				components._domDiff(el, newEl, {
+					beforeUpdateNode: function(from, to) {
+						//has parent?
+						if(opts.parent) {
+							//skip update?
+							if(from.__skip && el !== from) {
+								return false;
+							}
+							return;
+						}
+						//run event
+						var res = components._pubsub.emit('components.beforeUpdateNode', [ from, to, el ], {
+							method: 'apply'
+						});
+						//skip update?
+						if(from.__skip || res.includes(false)) {
+							delete from.__skip;
+							return false;
+						}
+					},
+					afterUpdateNode: function(from, to) {
+						//has parent?
+						if(opts.parent) {
+							return;
+						}
+						//run event
+						components._pubsub.emit('components.afterUpdateNode', [ from, to, el ], {
+							method: 'apply'
+						});
+					}
+				});
+				//call hook?
+				if(el[hook]) {
+					requestAnimationFrame(el[hook]);
+				}
 			}
 		}
 
@@ -3498,6 +3600,331 @@
 		}, true);
 		//return
 		return form;
+	};
+
+})();
+
+/* APP SHELL */
+
+(function(undefined) {
+
+	Fstage.app = function() {
+	
+		//app status
+		var status = {
+			init: false,
+			loaded: false,
+			ready: false,
+			waiting: []
+		};
+
+		//app exports
+		var exported = {
+			utils: {},
+			services: {},
+			middleware: {},
+			components: {}
+		};
+
+		//platforms
+		var platforms = [
+			{ p: 'android', m: true, r: 'Android' },
+			{ p: 'ios', m: true, r: 'iPad|iPhone|watchOS' },
+			{ p: 'ios', m: false, r: 'Macintosh' },
+			{ p: 'windows', m: true, r: 'Windows Phone' },
+			{ p: 'windows', m: false, r: 'Windows' }
+		];
+
+		//public api
+		var self = {
+
+			config: {},
+			utils: Fstage,
+			router: Fstage.router,
+			pubsub: Fstage.pubsub,
+			components: Fstage.components,
+
+			export: function(module, path = null) {
+				//guess path?
+				if(path === null) {
+					path = /js\/(.*)\.js/g.exec(document.currentScript.src)[1];
+				}
+				//parse path
+				var parts = path.split('/');
+				var name = parts.pop();
+				var type = '';
+				//has parts?
+				if(name && parts.length) {
+					//use name as type?
+					if(exported[name + 's']) {
+						type = name;
+						name = parts.pop()
+					} else {
+						//find type
+						for(var i=0; i < parts.length; i++) {
+							if(exported[parts[i]]) {
+								type = parts[i];
+								break;
+							}
+						}
+					}
+				}
+				//parts found?
+				if(type && name && exported[type]) {
+					exported[type][name] = module;
+				} else {
+					throw new Error("Unable to export module: " + path);
+				}
+				
+			},
+
+			about: {
+
+				root: window,
+				docEl: document.documentElement,
+				appEl: document.getElementById('root'),
+
+				platform: '',
+				deviceId: Fstage.hash(navigator.userAgent.replace(/[0-9\.\s]/g, '')),
+
+				isMobile: false,
+				isHybrid: !!window._cordovaNative,
+				isPwa: window.matchMedia('(display-mode: standalone)').matches,
+
+				isOnline: function(wait = false) {
+					//get result
+					var res = self.db ? self.db.isOnline() : navigator.onLine;
+					//return now?
+					if(wait === false) {
+						return res;
+					}
+					//wait for online
+					return new Promise(function(resolve) {
+						//check at intervals
+						var tid = setInterval(function() {
+							//is online now?
+							if(self.about.isOnline()) {
+								clearInterval(tid);
+								resolve(true);
+							}
+						}, 100);
+					});
+				},
+
+				isReady: function(wait = false) {
+					//return now?
+					if(wait === false) {
+						return status.ready;
+					}
+					//wait for ready
+					return new Promise(function(resolve) {
+						//resolve now?
+						if(status.ready) { 
+							resolve(true);
+						} else {
+							self.pubsub.on('app.ready', function() {
+								resolve(true);
+							});
+						}
+					});
+				},
+
+				isWaiting: function(wait = false, opts = {}) {
+					//return now?
+					if(wait === false) {
+						return status.waiting.length > 0;
+					}
+					//add to wait list?
+					if(wait && wait !== true) {
+						status.waiting.push(wait);
+						wait = true;
+					}
+					//set vars
+					var that = this;
+					var count = status.waiting.length;
+					//process promises
+					var res = Promise.all(status.waiting).then(function() {
+						//completed?
+						if(status.waiting.length === count) {
+							status.waiting = [];
+							return opts.nested ? true : (count > 0);
+						}
+						//mark as nested
+						opts.nested = true;
+						//continue waiting
+						return that.isWaiting(wait, opts);
+					});
+					//is online?
+					if(!opts.waitOffline && !that.isOnline()) {
+						return Promise.resolve([]);
+					}
+					//return
+					return res;
+				}
+
+			},
+
+			logger: {
+			
+				track: function(name, params = {}) {
+					return self.pubsub.emit('app.track', {
+						name: name,
+						params: params
+					});
+				},
+
+				error: function(error, isFatal = false) {
+					return this.track('exception', {
+						exDescription: error,
+						exFatal: false
+					});
+				},
+
+				timer: function(name) {
+					if(self.config.debug) {
+						console.log(name + ':', Math.floor(performance.now()) + 'ms');
+					}
+				}
+
+			},
+
+			launch: function(callback = null) {
+				//app supported?
+				if(!self.about.isHybrid && !window.fetch) {
+					return alert('Your browser is out of date and not supported. Please switch browser to continue.');
+				}
+				//detect platform
+				platforms.some(function(el) {
+					//user-agent match?
+					if(!navigator.userAgent.match(new RegExp(el.r, 'i'))) {
+						return;
+					}
+					//is mobile?
+					if(el.m) {
+						self.about.isMobile = true;
+						self.about.docEl.classList.add('mobile');
+					}
+					//set platform
+					self.about.platform = el.p;
+					self.about.docEl.classList.add(el.p);
+					//break
+					return true;
+				});
+				//init event
+				status.init = true;
+				self.pubsub.emit('app.init', window, {
+					ctx: self
+				});
+				//register utils
+				for(var i in exported.utils) {
+					//call function?
+					if(typeof exported.utils[i] === 'function') {
+						exported.utils[i] = new exported.utils[i](self);
+					}
+					//merge utils
+					Object.assign(self.utils, exported.utils[i]);
+				}
+				//register services
+				for(var i in exported.services) {
+					//get object
+					self[i] = self[i] || {};
+					//call function?
+					if(typeof exported.services[i] === 'function') {
+						exported.services[i].apply(self[i], [ self[i], self ]);
+					} else {
+						Object.assign(self[i], exported.services[i]);
+					}
+				}
+				//start services
+				for(var i in exported.services) {
+					if(self[i].start) {
+						self[i].start();
+					}
+				}
+				//register middleware
+				for(var i in exported.middleware) {
+					//get function
+					var fn = exported.middleware[i];
+					//init middleware
+					new fn(self.components.store(), self);
+				}
+				//register components
+				for(var i in exported.components) {
+					self.components.register(i, exported.components[i]);
+				}
+				//register routes
+				for(var i in (self.routes || {})) {
+					self.router.on(self.routes[i], null);
+				}
+				//execute callback?
+				if(callback) {
+					callback.call(self, window);
+				}
+				//launch event
+				status.launched = true;
+				self.pubsub.emit('app.launch', window, {
+					ctx: self
+				});
+				//log launch time
+				self.logger.timer('App launched');
+				//onready callback
+				var onReady = function() {
+					//update flag
+					status.ready = true;
+					//ready event
+					self.pubsub.emit('app.ready', window, {
+						ctx: self
+					});
+					//log ready time
+					self.logger.timer('Device ready');
+				};
+				//is device ready?
+				if(self.about.isHybrid) {
+					document.addEventListener('deviceready', onReady);
+				} else {
+					onReady();
+				}
+				//return
+				return self;
+			},
+
+			onInit: function(fn) {
+				return status.init ? fn.call(self, window) : self.pubsub.on('app.init', fn);
+			},
+
+			onLaunch: function(fn) {
+				return status.launched ? fn.call(self, window) : self.pubsub.on('app.launch', fn);
+			},
+
+			onDownload: function(fn) {
+				return self.onLaunch(function() {
+					self.about.isWaiting(true).then(function(didWait) {
+						fn.call(self, didWait);
+					});
+				});
+			},
+
+			onReady: function(fn) {
+				return status.ready ? fn.call(self, window) : self.pubsub.on('app.ready', fn);
+			},
+
+			onTrack: function(fn) {
+				return self.pubsub.on('app.track', fn);
+			}
+
+		};
+
+		//set export
+		window.export = self.export;
+	
+		//capture errors
+		window.addEventListener('error', function(e) {
+			self.logger.error(e.error);
+		});
+
+		//return
+		return self;
+
 	};
 
 })();

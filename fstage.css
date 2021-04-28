@@ -433,6 +433,7 @@ main + footer {
 nav {
 	position: relative;
 	background: transparent;
+	margin-top: 0;
 }
 
 nav * + * {
@@ -518,7 +519,7 @@ nav .d {
 
 	nav a {
 		flex-grow: 1;
-		height: auto;
+		height: 100%;
 		text-align: center;
 	}
 
