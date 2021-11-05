@@ -10,8 +10,8 @@ All functions are split into modules that can easily be extracted and used in is
 
 # CDN links
 
-	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.2.2/fstage.min.css">
-	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.2.2/fstage.min.js"></script>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.2.3/fstage.min.css">
+	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.2.3/fstage.min.js"></script>
 
 # Browser support
 
@@ -156,7 +156,16 @@ See the "app" directory for a very simple skeleton app; incorporating services, 
 	Fstage.form.val(field = null)  //returns filtered value[s]
 	Fstage.form.reset(field = null, skip = [])  //clears values and errors
 	Fstage.form.step(name = null)  //returns current form step (if set), or sets step name
-	
-(17) APP SHELL
+
+(17) WEB PUSH
+
+	Fstage.webpush.init(url, vapidKey)  //sets the mandatory inputs required for push notifications
+	Fstage.webpush.can()  //returns true or false based on whether push notifications are supported by the device
+	Fstage.webpush.tags()  //returns the tags/topics currently subscribed to
+	Fstage.webpush.state(opts={})  //returns a promise containing the permission state for push notifications (prompt, granted, blocked)
+	Fstage.webpush.subscribe(tag)  //subscribes to push notifications, with an optional tag/topic, returning a promise with a true/false result
+	Fstage.webpush.unsubscribe(tag)  //unsubscribes to push notifications tag/topic, if provided, otherwise all notifications
+
+(18) APP SHELL
 
 	Fstage.app()  //creates a framework for a reactive app that utilises Fstage modules 
