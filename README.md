@@ -6,8 +6,8 @@ v0.3 is completely rewritten to use ES6 modules, with the ability to dynamically
 
 # CDN links
 
-	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.0/src/js/fstage.min.css">
-	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.0/src/css/fstage.min.js"></script>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.0/src/css/fstage.min.css">
+	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.0/src/js/fstage.min.js"></script>
 
 # Dynamic module loading
 
