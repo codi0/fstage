@@ -3,11 +3,13 @@
 var version = 'v0.0.1';
 
 
-/* SETUP */
+/* CONFIG */
 
-var App = {};
-var messages = {};
 importScripts('js/config.js');
+
+var messages = {};
+var config = self.__APPCONFIG || {};
+var host = config.host || location.protocol + '//' + location.hostname;
 
 
 /* LISTENERS */
@@ -15,14 +17,14 @@ importScripts('js/config.js');
 //install service worker
 self.addEventListener('install', function(e) {
 	//use debug?
-	if(App.config.debug) {
+	if(config.debug) {
 		console.log('Worker install', version);
 	}
 	//execute
 	e.waitUntil(
 		//pre-cache resouces
 		caches.open(version + '.offline').then(function(cache) {
-			return cache.addAll(App.config.swPreCache || []).catch(function(error) {
+			return cache.addAll(config.swPreCache || []).catch(function(error) {
 				console.error(error);
 			});
 		})
@@ -32,7 +34,7 @@ self.addEventListener('install', function(e) {
 //activate service worker
 self.addEventListener('activate', function(e) {
 	//use debug?
-	if(App.config.debug) {
+	if(config.debug) {
 		console.log('Worker activate', version);
 	}
 	//execute
@@ -78,17 +80,19 @@ self.addEventListener('fetch', function(e) {
 				//set vars
 				var opts = {};
 				var canCache = false;
+				//check cache policies
+				config.swCachePolicies = config.swCachePolicies || {};
 				//allow current host
-				App.config.swCacheHosts[App.config.host] = 'same-origin';
+				config.swCachePolicies[host] = 'same-origin';
 				//check cache hosts
-				for(var host in App.config.swCacheHosts) {
+				for(var k in config.swCachePolicies) {
 					//host match found?
-					if(host && e.request.url.indexOf(host) === 0) {
+					if(k && e.request.url.indexOf(k) === 0) {
 						//set flag
 						canCache = true;
 						//set mode
 						opts.credentials = 'omit';
-						opts.mode = App.config.swCacheHosts[host] || 'no-cors';
+						opts.mode = config.swCachePolicies[k] || 'no-cors';
 						//break
 						break;
 					}
@@ -103,7 +107,7 @@ self.addEventListener('fetch', function(e) {
 					return response;
 				}).catch(function(error) {
 					//use debug?
-					if(App.config.debug) {
+					if(config.debug) {
 						console.log('Failed request:', e.request.url);
 					}
 					//return
@@ -124,7 +128,7 @@ self.addEventListener('push', function(e) {
 		payload = payload.json();
 	}
 	//debugging?
-	if(App.config.debug) {
+	if(config.debug) {
 		console.log('SW push', payload, e);
 	}
 	//execute
@@ -134,7 +138,7 @@ self.addEventListener('push', function(e) {
 			//loop through clients
 			for(var i=0; i < clientList.length; i++) {
 				//is app?
-				if(clientList[i].url.indexOf(App.config.host) === 0) {
+				if(clientList[i].url.indexOf(host) === 0) {
 					//send data
 					clientList[i].postMessage(payload.data);
 					//is in focus?
@@ -150,8 +154,8 @@ self.addEventListener('push', function(e) {
 					body: payload.notification.body || '',
 					tag: payload.notification.tag || '',
 					data: payload.data || {},
-					badge: App.config.icon,
-					vibrate: App.config.vibrate
+					badge: config.icon,
+					vibrate: config.vibrate
 				});
 			}
 			//return
@@ -173,7 +177,7 @@ self.addEventListener('notificationclick', function(e) {
 	//was tapped
 	payload.wasTapped = true;
 	//debugging?
-	if(App.config.debug) {
+	if(config.debug) {
 		console.log('SW click', payload, e);
 	}
 	//close notification
@@ -185,7 +189,7 @@ self.addEventListener('notificationclick', function(e) {
 			//loop though clients
 			for(var i=0; i < clientList.length; i++) {
 				//is app?
-				if(clientList[i].url.indexOf(App.config.host) === 0) {
+				if(clientList[i].url.indexOf(host) === 0) {
 					//send data
 					clientList[i].postMessage(payload);
 					//focus client
@@ -197,7 +201,7 @@ self.addEventListener('notificationclick', function(e) {
 			//store payload
 			messages[id] = payload;
 			//open new tab
-			return clients.openWindow(App.config.host + '#push=' + id);
+			return clients.openWindow(host + '#push=' + id);
 		})
 	);
 });

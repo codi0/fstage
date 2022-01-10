@@ -87,73 +87,58 @@
 		color: red;
 	}
 	</style>
-
+	
 	<script>
-	//tmp config
-	window.TMP = {
+	//fstage config
+	window.Fstage = {
+	
+		config: {
+			libs: [
+				//use to load js or css assets immediately
+				"../../src/js/fstage.js", //or https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.0/fstage.min.js
+				"js/config.js",
+				"../../src/css/fstage.css", //or https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.0/fstage.min.css
+				"css/style.css",
+			],
+			modules: [
+				//use to customise which of the core Fstage ES6 modules are loaded (see fstage.js for a full list)
+			],
+			appendModules: [
+				//use to load additional ES6 modules, without replacing core modules (E.g. application modules)
+				location.pathname + "/js/app.mjs"
+			]
+		},
 
-		isDemo: false,
-		isHybrid: !!window._cordovaNative,
-		isPwa: window.matchMedia('(display-mode: standalone)').matches,
-
-		docEl: document.documentElement,
-
-		assets: [
-
-			//css
-			"https://cdn.jsdelivr.net/gh/codi0/fstage@0.2.3/fstage.min.css",
-			"css/style.css",
-
-			//js
-			"https://cdn.jsdelivr.net/gh/codi0/fstage@0.2.3/fstage.min.js",
-			"js/config.js",
-			"js/services/user.js",
-			"js/middleware/user.js",
-			"js/components/app.js",
-			"js/components/welcome.js",
-			"js/components/about.js",
-			"js/launcher.js"
-
-		]
-
+		env: {
+			isHybrid: !!window._cordovaNative,
+			isPwa: window.matchMedia('(display-mode: standalone)').matches,
+		}
+	
 	};
 
 	//set title
 	document.title = 'Loading...'
 
 	//is hybrid?
-	if(TMP.isHybrid) {
-		TMP.docEl.classList.add('hybrid');
+	if(Fstage.env.isHybrid) {
+		document.documentElement.classList.add('hybrid');
 	}
 	
 	//is pwa?
-	if(TMP.isPwa) {
-		TMP.docEl.classList.add('pwa');
+	if(Fstage.env.isPwa) {
+		document.documentElement.classList.add('pwa');
 	}
-	</script>
 
-</head>
-<body>
-
-	<div id="splash">
-		<div class="logo">
-			<img src="img/logo.png" alt="Fstage" width="80" height="80">
-		</div>
-		<div class="loading hidden">
-			App loading...
-		</div>
-		<noscript>
-			Please enable javascript to continue
-		</noscript>
-	</div>
-
-	<div id="root"></div>
-
-	<script>
+	//process after window loaded
 	window.addEventListener('load', function() {
 
 		//non-blocking
 		setTimeout(function() {
+
+			//browser supported?
+			if(!window.fetch) {
+				return alert('Your browser is out of date and not supported. Please use a different browser to continue.');
+			}
 
 			//can use service worker?
 			if('serviceWorker' in window.navigator) {
@@ -163,7 +148,7 @@
 					var callback = function() {
 						if(!done && document.readyState === 'complete') {
 							var e = new CustomEvent(name, { detail: args });
-							document.dispatchEvent(e);
+							window.dispatchEvent(e);
 							done = true;
 						}
 					};
@@ -224,36 +209,36 @@
 			}
 
 			//load assets
-			TMP.assets.forEach(function(url) {
+			Fstage.config.libs.forEach(function(url) {
 				//set vars
-				var el = null;
-				var type = url.split('?')[0].split('.').pop();
+				var el, type = url.split('?')[0].split('.').pop();
 				//css?
 				if(type === 'css') {
 					el = document.createElement('link');
 					el.rel = "stylesheet";
 					el.href = url;
-					document.documentElement.firstChild.appendChild(el);
 				}
 				//javascript?
-				if(type === 'js') {
+				if(type === 'js' || type === 'mjs') {
 					el = document.createElement('script');
+					el.type = (type === 'mjs') ? 'module' : '';
 					el.async = false;
 					el.src = url;
-					document.documentElement.firstChild.appendChild(el);
-				}	
+				}
+				//load asset?
+				el && document.documentElement.firstChild.appendChild(el);
 			});
 
 			//load manifest?
-			if(!TMP.isHybrid) {
+			if(!Fstage.env.isHybrid) {
 				var manifest = document.createElement('link');
 				manifest.rel = "manifest";
 				manifest.href = "manifest.json";
-				TMP.docEl.firstChild.appendChild(manifest);
+				document.documentElement.firstChild.appendChild(manifest);
 			}
 			
 			//load icon?
-			if(!TMP.isHybrid) {
+			if(!Fstage.env.isHybrid) {
 				var icon = document.querySelector('[rel="icon"]');
 				icon.type = "image/png";
 				icon.sizes = "any";
@@ -266,13 +251,27 @@
 				loading.classList.remove('hidden');
 			}, 2000);
 
-			//delete tmp
-			delete window.TMP;
-
 		}, 0);
 
 	});
 	</script>
+
+</head>
+<body>
+
+	<div id="splash">
+		<div class="logo">
+			<img src="img/logo.png" alt="Fstage" width="80" height="80">
+		</div>
+		<div class="loading hidden">
+			App loading...
+		</div>
+		<noscript>
+			Please enable javascript to continue
+		</noscript>
+	</div>
+
+	<div id="root"></div>
 
 </body>
 </html>
