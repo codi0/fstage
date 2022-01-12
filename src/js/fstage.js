@@ -199,7 +199,7 @@
 	if(Fstage.env.scriptPath) {
 
 		//private vars
-		var moduleTpl = Fstage.env.scriptPath.replace('/fstage.', '/{name}.').replace('.js', '.mjs');
+		var moduleTpl = Fstage.env.scriptPath.replace('/fstage.', '/{name}.').replace(/\.js$/, '.mjs');
 
 		//replace core modules?
 		if(Fstage.config.modules && Fstage.config.modules.length) {

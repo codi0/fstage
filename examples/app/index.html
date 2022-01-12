@@ -89,171 +89,185 @@
 	</style>
 	
 	<script>
-	//fstage config
-	window.Fstage = {
-	
-		config: {
-			libs: [
-				//use to load js or css assets immediately
-				"../../src/js/fstage.js", //or https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.0/src/js/fstage.min.js
-				"js/config.js",
-				"../../src/css/fstage.css", //or https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.0/src/css/fstage.min.css
-				"css/style.css",
-			],
-			modules: [
-				//use to customise which of the core Fstage ES6 modules are loaded (see fstage.js for a full list)
-			],
-			appendModules: [
-				//use to load additional ES6 modules, without replacing core modules (E.g. application modules)
-				location.pathname + "/js/app.mjs"
-			]
-		},
+	(function() {
 
-		env: {
-			isHybrid: !!window._cordovaNative,
-			isPwa: window.matchMedia('(display-mode: standalone)').matches,
+		//local vars
+		var useCdn = false;
+		var version = '0.3.0';
+		var isHybrid = !!window._cordovaNative;
+		var isPwa = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
+
+		//fstage file path
+		var filePath = function(type) {
+			return useCdn ? "https://cdn.jsdelivr.net/gh/codi0/fstage@" + version + "/src/" + type + "/fstage.min." + type : "../../src/" + type + "/fstage." + type;
+		};
+
+		//fstage config
+		window.Fstage = {
+		
+			config: {
+
+				libs: [
+					//use to load js or css assets immediately
+					filePath('js'),
+					"js/config.js",
+					filePath('css'),
+					"css/style.css",
+				],
+
+				modules: [
+					//use to customise which of the core Fstage ES6 modules are loaded (see fstage.js for a full list)
+				],
+
+				appendModules: [
+					//use to load additional ES6 modules, without replacing core modules (E.g. application modules)
+					location.pathname + "/js/app.mjs"
+				]
+
+			}
+		
+		};
+
+		//set title
+		document.title = 'Loading...'
+
+		//is hybrid?
+		if(isHybrid) {
+			document.documentElement.classList.add('hybrid');
 		}
-	
-	};
+		
+		//is pwa?
+		if(isPwa) {
+			document.documentElement.classList.add('pwa');
+		}
 
-	//set title
-	document.title = 'Loading...'
+		//process after window loaded
+		window.addEventListener('load', function() {
 
-	//is hybrid?
-	if(Fstage.env.isHybrid) {
-		document.documentElement.classList.add('hybrid');
-	}
-	
-	//is pwa?
-	if(Fstage.env.isPwa) {
-		document.documentElement.classList.add('pwa');
-	}
-
-	//process after window loaded
-	window.addEventListener('load', function() {
-
-		//non-blocking
-		setTimeout(function() {
-
-			//browser supported?
-			if(!window.fetch) {
-				return alert('Your browser is out of date and not supported. Please use a different browser to continue.');
-			}
-
-			//can use service worker?
-			if('serviceWorker' in window.navigator) {
-				//worker event dispatcher
-				var swEvent = function(name, args = {}) {
-					var done = false;
-					var callback = function() {
-						if(!done && document.readyState === 'complete') {
-							var e = new CustomEvent(name, { detail: args });
-							window.dispatchEvent(e);
-							done = true;
-						}
-					};
-					callback();
-					document.addEventListener('readystatechange', callback);
-				};
-				//register service worker
-				navigator.serviceWorker.register('sw.js').then(function(reg) {
-					//set vars
-					var isNew = !navigator.serviceWorker.controller;
-					//callback
-					var callback = function() {
-						swEvent('swUpdate', { reg: reg, isNew: isNew });
-					};
-					//state change listener
-					var stateChangeListener = function() {
-						reg.installing.postMessage('skipWaiting');
-						reg.installing.addEventListener('statechange', function(e) {
-							if(this.state === 'installed') {
-								callback();
-							}
-						});
-					};
-					//is waiting?
-					if(reg.waiting) {
-						reg.waiting.postMessage('skipWaiting');
-						return callback();
-					}
-					//is installing?
-					if(reg.installing) {
-						return stateChangeListener();
-					}
-					//ask for notification?
-					if(reg.active && location.hash.indexOf('#push=') === 0) {
-						var id = location.hash.split('=')[1];
-						reg.active.postMessage({ action: 'getNotification', id: id });
-						location.hash = '';
-					}
-					//listen for state change
-					reg.addEventListener('updatefound', stateChangeListener);
-				}).catch(function(error) {
-					//show error
-					console.error(error.message);
-					//dispatch event
-					swEvent('swFailed', error);
-				});
-				//listen for messages
-				navigator.serviceWorker.addEventListener('message', function(e) {
-					//force refresh?
-					if(e.data === 'forceRefresh') {
-						location.reload();
-						return;
-					}
-				});
-			} else {
-				//show error
-				console.error('Service worker not supported');
-			}
-
-			//load assets
-			Fstage.config.libs.forEach(function(url) {
-				//set vars
-				var el, type = url.split('?')[0].split('.').pop();
-				//css?
-				if(type === 'css') {
-					el = document.createElement('link');
-					el.rel = "stylesheet";
-					el.href = url;
-				}
-				//javascript?
-				if(type === 'js' || type === 'mjs') {
-					el = document.createElement('script');
-					el.type = (type === 'mjs') ? 'module' : '';
-					el.async = false;
-					el.src = url;
-				}
-				//load asset?
-				el && document.documentElement.firstChild.appendChild(el);
-			});
-
-			//load manifest?
-			if(!Fstage.env.isHybrid) {
-				var manifest = document.createElement('link');
-				manifest.rel = "manifest";
-				manifest.href = "manifest.json";
-				document.documentElement.firstChild.appendChild(manifest);
-			}
-			
-			//load icon?
-			if(!Fstage.env.isHybrid) {
-				var icon = document.querySelector('[rel="icon"]');
-				icon.type = "image/png";
-				icon.sizes = "any";
-				icon.href = "img/icon.png";
-			}
-
-			//loading message
+			//non-blocking
 			setTimeout(function() {
-				var loading = document.querySelector('#splash .loading');
-				loading.classList.remove('hidden');
-			}, 2000);
 
-		}, 0);
+				//browser supported?
+				if(!window.fetch) {
+					return alert('Your browser is out of date and not supported. Please use a different browser to continue.');
+				}
 
-	});
+				//can use service worker?
+				if('serviceWorker' in window.navigator) {
+					//worker event dispatcher
+					var swEvent = function(name, args = {}) {
+						var done = false;
+						var callback = function() {
+							if(!done && document.readyState === 'complete') {
+								var e = new CustomEvent(name, { detail: args });
+								window.dispatchEvent(e);
+								done = true;
+							}
+						};
+						callback();
+						document.addEventListener('readystatechange', callback);
+					};
+					//register service worker
+					navigator.serviceWorker.register('sw.js').then(function(reg) {
+						//set vars
+						var isNew = !navigator.serviceWorker.controller;
+						//callback
+						var callback = function() {
+							swEvent('swUpdate', { reg: reg, isNew: isNew });
+						};
+						//state change listener
+						var stateChangeListener = function() {
+							reg.installing.postMessage('skipWaiting');
+							reg.installing.addEventListener('statechange', function(e) {
+								if(this.state === 'installed') {
+									callback();
+								}
+							});
+						};
+						//is waiting?
+						if(reg.waiting) {
+							reg.waiting.postMessage('skipWaiting');
+							return callback();
+						}
+						//is installing?
+						if(reg.installing) {
+							return stateChangeListener();
+						}
+						//ask for notification?
+						if(reg.active && location.hash.indexOf('#push=') === 0) {
+							var id = location.hash.split('=')[1];
+							reg.active.postMessage({ action: 'getNotification', id: id });
+							location.hash = '';
+						}
+						//listen for state change
+						reg.addEventListener('updatefound', stateChangeListener);
+					}).catch(function(error) {
+						//show error
+						console.error(error.message);
+						//dispatch event
+						swEvent('swFailed', error);
+					});
+					//listen for messages
+					navigator.serviceWorker.addEventListener('message', function(e) {
+						//force refresh?
+						if(e.data === 'forceRefresh') {
+							location.reload();
+							return;
+						}
+					});
+				} else {
+					//show error
+					console.error('Service worker not supported');
+				}
+
+				//load assets
+				Fstage.config.libs.forEach(function(url) {
+					//set vars
+					var el, type = url.split('?')[0].split('.').pop();
+					//css?
+					if(type === 'css') {
+						el = document.createElement('link');
+						el.rel = "stylesheet";
+						el.href = url;
+					}
+					//javascript?
+					if(type === 'js' || type === 'mjs') {
+						el = document.createElement('script');
+						el.type = (type === 'mjs') ? 'module' : '';
+						el.async = false;
+						el.src = url;
+					}
+					//load asset?
+					el && document.documentElement.firstChild.appendChild(el);
+				});
+
+				//load manifest?
+				if(!isHybrid) {
+					var manifest = document.createElement('link');
+					manifest.rel = "manifest";
+					manifest.href = "manifest.json";
+					document.documentElement.firstChild.appendChild(manifest);
+				}
+				
+				//load icon?
+				if(!isHybrid) {
+					var icon = document.querySelector('[rel="icon"]');
+					icon.type = "image/png";
+					icon.sizes = "any";
+					icon.href = "img/icon.png";
+				}
+
+				//loading message
+				setTimeout(function() {
+					var loading = document.querySelector('#splash .loading');
+					loading.classList.remove('hidden');
+				}, 2000);
+
+			}, 0);
+
+		});
+
+	})();
 	</script>
 
 </head>
