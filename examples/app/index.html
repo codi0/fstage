@@ -91,15 +91,25 @@
 	<script>
 	(function() {
 
-		//local vars
-		var useCdn = false;
-		var version = '0.3.0';
+		//local config
+		var useCdn = true;
+		var version = '0.3.1';
 		var isHybrid = !!window._cordovaNative;
 		var isPwa = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
+		var baseUrl = location.href.split('?')[0].replace(/\/$/g, '') + '/'; //baseUrl must be the absolute URL to this file
 
 		//fstage file path
-		var filePath = function(type) {
-			return useCdn ? "https://cdn.jsdelivr.net/gh/codi0/fstage@" + version + "/src/" + type + "/fstage.min." + type : "../../src/" + type + "/fstage." + type;
+		var fstagePath = function(type) {
+			if(useCdn) {
+				return "https://cdn.jsdelivr.net/gh/codi0/fstage@" + version + "/src/" + type + "/fstage.min." + type;
+			} else {
+				return "../../src/" + type + "/fstage." + type;
+			}
+		};
+
+		//app file path
+		var appPath = function(path) {
+			return baseUrl + path;
 		};
 
 		//fstage config
@@ -109,9 +119,9 @@
 
 				libs: [
 					//use to load js or css assets immediately
-					filePath('js'),
+					fstagePath('js'),
 					"js/config.js",
-					filePath('css'),
+					fstagePath('css'),
 					"css/style.css",
 				],
 
@@ -121,11 +131,11 @@
 
 				appendModules: [
 					//use to load additional ES6 modules, without replacing core modules (E.g. application modules)
-					location.pathname + "/js/app.mjs"
+					appPath("js/app.mjs")
 				]
 
 			}
-		
+
 		};
 
 		//set title

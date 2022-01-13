@@ -1,13 +1,13 @@
 # fstage
 
-A modular javascript library for developing modern web2 and web3 applications. Being developed as part of codi.io's mission to  make web3 infrastructure accessible.
+A modular javascript library for developing modern web2 and web3 applications. Being developed as part of codi.io's mission to make web3 infrastructure accessible to all.
 
-v0.3 is completely rewritten to use ES6 modules, with the ability to dynamically load modules at run-time.
+v0.3 has been completely rewritten to use ES6 modules, with the ability to dynamically load modules at run-time and no build steps needed.
 
 # CDN links
 
-	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.0/src/css/fstage.min.css">
-	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.0/src/js/fstage.min.js"></script>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.1/src/css/fstage.min.css">
+	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.1/src/js/fstage.min.js"></script>
 
 # Dynamic module loading
 

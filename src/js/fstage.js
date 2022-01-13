@@ -121,6 +121,10 @@
 		if(tpl && /^[a-zA-Z0-9\/]+$/.test(path)) {
 			path = tpl.replace('{name}', path);
 		}
+		//add origin?
+		if(globalThis.location && path[0] === '/') {
+			path = location.origin + path;
+		}
 		//is cached?
 		if(!that.exports[path]) {
 			//import module
