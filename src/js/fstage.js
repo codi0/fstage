@@ -2,7 +2,7 @@
 
 	/* CONFIG */
 
-	var VERSION = '0.3.0';
+	var VERSION = '0.3.1';
 	var GLOBALS = [ 'Fstage', '$' ];
 	var MODULES = [ 'core', 'utils', 'pubsub', 'dom', 'dom/effects', 'dom/widgets', 'dom/diff', 'router', 'observe', 'store', 'lit', 'components', 'form', 'transport', 'webpush', 'app' ];
 	var MINIFIED = false;
@@ -120,10 +120,6 @@
 		//format path?
 		if(tpl && /^[a-zA-Z0-9\/]+$/.test(path)) {
 			path = tpl.replace('{name}', path);
-		}
-		//add origin?
-		if(globalThis.location && path[0] === '/') {
-			path = location.origin + path;
 		}
 		//is cached?
 		if(!that.exports[path]) {
