@@ -249,9 +249,8 @@
 	//can load modules?
 	if(Fstage.env.scriptPath) {
 
-		//private vars
-		var moduleTpl = Fstage.env.scriptPath.replace('/fstage.', '/{name}.').replace('.min.', '.').replace('.js', '.mjs');
-		console.log(Fstage.env.scriptPath, moduleTpl);
+		//module path template
+		var moduleTpl = Fstage.env.scriptPath.replace('/fstage.', '/{name}.').replace(/.js$/, '.mjs').replace('.min.', '.');
 
 		//replace core modules?
 		if(Fstage.config.modules && Fstage.config.modules.length) {
