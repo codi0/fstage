@@ -1,6 +1,6 @@
 //imports
-import { dom } from 'fstage/dom';
-import { debounce, parseHTML } from 'fstage/utils';
+import { dom } from '../dom.mjs';
+import { debounce, parseHTML } from '../utils.mjs';
 
 //dialog overlay
 dom.fn.overlay = function(text, opts = {}) {

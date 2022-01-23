@@ -1,6 +1,6 @@
 //imports
-import { esc } from 'fstage/utils';
-import { pubsub } from 'fstage/pubsub';
+import { esc } from './utils.mjs';
+import { pubsub } from './pubsub.mjs';
 
 //template literals
 export function lit() {

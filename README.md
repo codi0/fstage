@@ -6,8 +6,8 @@ v0.3 has been completely rewritten to use ES6 modules, with the ability to dynam
 
 # CDN links
 
-	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.1/src/css/fstage.min.css">
-	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.1/src/js/fstage.min.js"></script>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.2/src/css/fstage.min.css">
+	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.2/src/js/fstage.min.js"></script>
 
 # Dynamic module loading
 
@@ -21,9 +21,11 @@ v0.3 has been completely rewritten to use ES6 modules, with the ability to dynam
 	}
 	</script>
 
-# Browser support
+# Platform support
 
-Support for ES6 modules required. Internet Explorer is not supported.
+- Support for ES6 modules required
+- Internet Explorer browser is not supported
+- Nodejs is nominally supported (though most modules currently written for the browser)
 
 # Skeleton app
 
@@ -34,7 +36,8 @@ See the "examples/app" directory for a very simple skeleton app; incorporating s
 (1) CORE
 
 	Fstage.config = { host, basePath, scriptPath }  //pass configuration vars, by creating a globalThis.Fstage.config object before loading Fstage
-	Fstage.env = { os, deviceId, isMobile, isBrower, isServer, isWorker, isHybrid, isPwa, host, basePath, scriptPath }  //returns environment vars
+	Fstage.env = { isNode, isWorker, isBrower, isMobile, isHybrid, isPwa, clientId, clientOs, clientUa, host, basePath, scriptPath }  //returns environment vars
+	Fstage.env.parseReq(req)  //re-processes environment vars based on an IncomingMessage request object (nodejs)
 
 	Fstage.import(modulePath, tpl = null)  //returns a promise of exports for an es6 module import
 	Fstage.import.all(modulePaths, tpl = null)  //returns a promise of exports for all provided modules

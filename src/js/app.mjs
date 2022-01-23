@@ -1,7 +1,7 @@
 //imports
-import { env, importer } from 'fstage';
-import { utils } from "fstage/utils";
-import { components } from 'fstage/components';
+import { env, importer } from './core.mjs';
+import { utils } from './utils.mjs';
+import { components } from './components.mjs';
 
 //private vars
 const appCache = {};

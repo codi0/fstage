@@ -6,8 +6,8 @@ export const webpush = new (function() {
 	var _reg = null;
 	var _sub = null;
 	var _vapid = null;
+	var _topics = [];
 	var _canPush = ('PushManager' in globalThis);
-	var _topics = JSON.parse(localStorage.getItem('webpush.topics') || '[]');
 
 	//get sub helper
 	var getSub = function() {
@@ -67,6 +67,7 @@ export const webpush = new (function() {
 		init: function(url, vapid) {
 			_url = url;
 			_vapid = formatVapidKey(vapid);
+			_topics = JSON.parse(localStorage.getItem('webpush.topics') || '[]');
 		},
 
 		can: function() {

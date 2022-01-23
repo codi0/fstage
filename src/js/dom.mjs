@@ -1,5 +1,5 @@
 //imports
-import { parseHTML, esc } from 'fstage/utils';
+import { parseHTML, esc } from './utils.mjs';
 
 //export dom engine
 export const dom = function(s, ctx) {

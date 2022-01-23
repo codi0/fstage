@@ -2,10 +2,10 @@
 
 	/* CONFIG */
 
-	var VERSION = '0.3.1';
+	var VERSION = '0.3.2';
 	var GLOBALS = [ 'Fstage', '$' ];
 	var MODULES = [ 'core', 'utils', 'pubsub', 'dom', 'dom/effects', 'dom/widgets', 'dom/diff', 'router', 'observe', 'store', 'lit', 'components', 'form', 'transport', 'webpush', 'app' ];
-	var MINIFIED = false;
+
 
 	/* POLYFILLS */
 
@@ -32,6 +32,22 @@
 		});
 	}
 
+	//node global listener
+	if(typeof __filename !== 'undefined') {
+		//create global target
+		const gTarget = new EventTarget();
+		//custom event
+		globalThis.CustomEvent = Event;
+		//global dispatcher
+		globalThis.dispatchEvent = function(e) {
+			return gTarget.dispatchEvent(e);
+		};
+		//global listener
+		globalThis.addEventListener = function(name, fn) {
+			return gTarget.addEventListener(name, fn);
+		};
+	}
+
 
 	/* API */
 
@@ -46,59 +62,83 @@
 
 	//env props
 	Fstage.env = (function() {
-		//create env
+		//Helper: format path
+		var _formatPath = function(path) {
+			var parts = path.split('?')[0].replace(/\/$/g, '').split('/');
+			if(parts[parts.length-1].indexOf('.') !== -1) parts.pop();
+			return parts.join('/') + '/';
+		};
+		//Helper: calc client ID
+		var _calcId = function(ua, uid = '') {
+			var str = uid + ua.replace(/[0-9\.\s]/g, '');
+			var h = 5381, i = str.length;
+			while(i) h = (h * 33) ^ str.charCodeAt(--i);
+			return str ? (h >>> 0).toString() : '';
+		};
+		//Helper: parse user agent
+		var _parseUa = function(ua) {
+			//set vars
+			var res = { clientOs: '', isMobile: false };
+			var platforms = [ { o: 'android', m: true, r: 'Android' }, { o: 'ios', m: true, r: 'iPad|iPhone|watchOS' }, { o: 'ios', m: false, r: 'Macintosh' }, { o: 'windows', m: true, r: 'Windows Phone' }, { o: 'windows', m: false, r: 'Windows' } ];
+			//test platforms
+			platforms.some(function(el) {
+				//user-agent match?
+				if(ua.match(new RegExp(el.r, 'i'))) {
+					res.clientOs = el.o;
+					res.isMobile = !!el.m;
+					return true;
+				}
+			});
+			//return
+			return res;
+		};
+		//base env
 		var env = {
-			os: '',
-			deviceId: '',
+			//flags
 			isBrowser: false,
-			isServer: false,
+			isNode: false,
 			isMobile: false,
 			isWorker: false,
 			isHybrid: !!globalThis._cordovaNative,
-			isPwa: globalThis.matchMedia && globalThis.matchMedia('(display-mode: standalone)').matches,
+			isPwa: !!(globalThis.matchMedia && globalThis.matchMedia('(display-mode: standalone)').matches),
+			//client
+			clientId: '',
+			clientOs: '',
+			clientUa: globalThis.navigator ? navigator.userAgent : '',
+			//server
 			host: Fstage.config.host || (globalThis.location ? location.protocol + "//" + location.hostname : ''),
-			basePath: Fstage.config.basePath || (globalThis.location ? location.pathname : ''),
+			basePath: Fstage.config.basePath || (globalThis.location ? location.href : ''),
 			scriptPath: Fstage.config.scriptPath || '',
+			//nodejs
+			parseReq: function(req) {
+				env.host = Fstage.config.host || ((req.protocol || 'http') + "://" + req.headers.host);
+				env.clientUa = req.headers['user-agent'];
+				env.clientId = _calcId(env.clientUa);
+				var p = _parseUa(env.clientUa);
+				env.clientOs = p.clientOs;
+				env.isMobile = p.isMobile;
+			}
 		};
-		//is browser?
-		if(globalThis.document) {
+		//check platform
+		if(typeof __filename !== 'undefined') {
+			env.isNode = true;
+			env.scriptPath = __filename.replace(/\\/g, '/');
+			env.basePath = process.cwd().replace(/\\/g, '/');
+		} else if(typeof WorkerGlobalScope !== 'undefined') {
+			env.isWorker = true;
+		} else	if(typeof window !== 'undefined') {
 			env.isBrowser = true;
 			env.scriptPath = document.currentScript.src;
 			env.basePath = (document.querySelector('base') || {}).href || env.basePath;
 		}
-		//is node?
-		if(globalThis.__filename) {
-			env.isServer = true;
-			env.scriptPath = __filename;		
-		}
-		//is worker?
-		if(globalThis.WorkerGlobalScope) {
-			env.isWorker = true;
-		}
-		//standardise base path
-		env.basePath = env.basePath.replace(/\/$/g, '') + '/';
-		//calc device ID
-		env.deviceId = (function() {
-			var str = navigator.userAgent.replace(/[0-9\.\s]/g, '');
-			var h = 5381, i = str.length;
-			while(i) h = (h * 33) ^ str.charCodeAt(--i);
-			return (h >>> 0).toString();
-		})();
-		//detect os
-		[
-			{ o: 'android', m: true, r: 'Android' },
-			{ o: 'ios', m: true, r: 'iPad|iPhone|watchOS' },
-			{ o: 'ios', m: false, r: 'Macintosh' },
-			{ o: 'windows', m: true, r: 'Windows Phone' },
-			{ o: 'windows', m: false, r: 'Windows' }
-		].some(function(el) {
-			//user-agent match?
-			if(navigator.userAgent.match(new RegExp(el.r, 'i'))) {
-				env.os = el.o;
-				env.isMobile = !!el.m;
-				return true;
-			}
-		});
+		//format base uri
+		env.basePath = _formatPath(env.basePath);
+		//calculate client ID
+		env.clientId = _calcId(env.clientUa);
+		//detect client OS
+		var p = _parseUa(env.clientUa);
+		env.clientOs = p.clientOs;
+		env.isMobile = p.isMobile;
 		//return
 		return env;
 	})();
@@ -121,21 +161,30 @@
 		if(tpl && /^[a-zA-Z0-9\/]+$/.test(path)) {
 			path = tpl.replace('{name}', path);
 		}
+		//valid server file prefix?
+		if(Fstage.env.isNode && !(/^(file|data)/.test(path))) {
+			path = "file://" + path;
+		}
 		//is cached?
-		if(!that.exports[path]) {
+		if(!that.exports[name]) {
 			//import module
-			that.exports[path] = import(path);
-			//dispatch module.load event
-			globalThis.dispatchEvent(new CustomEvent('module.load', {
-				detail: {
-					name: name,
-					path: path,
-					exports: that.exports[path]
-				}
-			}));
+			that.exports[name] = import(path);
+			//dispatch module.load event?
+			if(globalThis.dispatchEvent) {
+				//create event
+				var e = new CustomEvent('module.load', {
+					detail: {
+						name: name,
+						path: path,
+						exports: that.exports[name]
+					}
+				});
+				//dispatch
+				globalThis.dispatchEvent(e);
+			}
 		}
 		//return
-		return that.exports[path].then(function(exports) {
+		return that.exports[name].then(function(exports) {
 			return {
 				name: name,
 				path: path,
@@ -242,10 +291,7 @@
 				}
 			});
 			//set ready flag
-			Object.defineProperty(Fstage, 'ready', {
-				value: true,
-				writable: false
-			});
+			Fstage.ready = true;
 			//dispatch event
 			globalThis.dispatchEvent(new CustomEvent('fstage.ready'));
 		});

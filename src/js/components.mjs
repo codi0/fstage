@@ -1,10 +1,10 @@
 //imports
-import { esc } from 'fstage/utils';
-import { pubsub } from 'fstage/pubsub';
-import { domDiff } from 'fstage/dom/diff';
-import { router } from 'fstage/router';
-import { store } from 'fstage/store';
-import { lit } from 'fstage/lit';
+import { esc } from './utils.mjs';
+import { pubsub } from './pubsub.mjs';
+import { domDiff } from './dom/diff.mjs';
+import { router } from './router.mjs';
+import { store } from './store.mjs';
+import { lit } from './lit.mjs';
 
 //components wrapper
 function comps(config = {}) {

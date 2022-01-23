@@ -1,6 +1,6 @@
 //imports
-import { pubsub } from 'fstage/pubsub';
-import { observe } from 'fstage/observe';
+import { pubsub } from './pubsub.mjs';
+import { observe } from './observe.mjs';
 
 //set vars
 var queue = [];

@@ -1,13 +1,10 @@
 //imports
-import { env } from 'fstage';
+import { env } from './core.mjs';
 
 //router wrapper
 function rtr(opts = {}) {
 
-	//set vars
-	var _started = false;
-	
-	//set opts
+	//config opts
 	opts = Object.assign({
 		state: {},
 		routes: {},
@@ -20,89 +17,8 @@ function rtr(opts = {}) {
 		urlScheme: 'path'
 	}, opts);
 
-	//listen for navigation
-	globalThis.addEventListener('popstate', function(e) {
-		//valid state?
-		if(!e.state || !e.state.name || !_started) {
-			opts.isBack = false;
-			return;
-		}
-		//already home?
-		if(opts.defHome === opts.state.name && e.state.name === opts.state.name) {
-			opts.isBack = false;
-			return;
-		}
-		//set vars
-		var goBack = (opts.isBack || opts.histId > e.state.id || (e.state.id - opts.histId) > 1);
-		var data = { id: e.state.id, params: e.state.params, isBack: goBack, scroll: e.state.scroll };
-		//reset cache
-		opts.isBack = false;
-		opts.histId = e.state.id;
-		//trigger route (no history)
-		api.trigger(e.state.name, data, null);
-	});
-
-	//listen for clicks
-	globalThis.addEventListener('click', function(e) {
-		//get target
-		var el = e.target.closest('[data-route]');
-		//valid route?
-		if(!el || !_started) return;
-		//get params
-		var name = el.getAttribute('data-route');
-		var mode = el.getAttribute('data-history') || 'push';
-		var params = (el.getAttribute('data-params') || '').split(';');
-		//go back?
-		if(name === 'back') {
-			return api.back();
-		}
-		//stop here?
-		if(!name) return;
-		//set data
-		var data = {
-			params: {}
-		};
-		//parse params
-		for(var i=0; i < params.length; i++) {
-			//split into key/value pair
-			var tmp = params[i].split(':', 2);
-			//valid pair?
-			if(tmp.length > 1) {
-				data.params[tmp[0].trim()] = tmp[1].trim();
-			}
-		}
-		//is form submit?
-		if(el.getAttribute('type') === 'submit') {
-			//check for form
-			var form = el.closest('form');
-			//form found?
-			if(form) {
-				//listen to form submit
-				return form.addEventListener('submit', function(e) {
-					//prevent default
-					e.preventDefault();
-					//trigger route
-					api.trigger(name, data, mode);
-				});
-			}
-		}
-		//prevent default
-		e.preventDefault();
-		//trigger route
-		api.trigger(name, data, mode);
-	});
-
-	//listen for hash changes
-	globalThis.addEventListener('hashchange', function(e) {
-		//has started?
-		if(!_started) return;
-		//get current hash
-		var hash = location.hash.replace('#', '') || opts.defHome;
-		//trigger new route?
-		if(hash && hash !== opts.state.name && opts.urlScheme === 'hash') {
-			api.trigger(hash);
-		}
-	});
+	//set flags
+	var _started = false;
 
 	//public api
 	var api = {
@@ -112,6 +28,8 @@ function rtr(opts = {}) {
 		},
 
 		start: function(merge = {}) {
+			//set vars
+			var route = '';
 			//has started?
 			if(!_started) {
 				//update flag
@@ -122,8 +40,6 @@ function rtr(opts = {}) {
 				if(!opts.basePath) {
 					opts.basePath = env.basePath;
 				}
-				//initial route
-				var route = '';
 				//hash url?
 				if(opts.urlScheme === 'hash') {
 					route = location.hash.replace('#', '');
@@ -136,6 +52,87 @@ function rtr(opts = {}) {
 				if(opts.urlScheme === 'path') {
 					route = location.href.split('?')[0].replace(opts.basePath, '').replace(/^\/|\/$/g, '');
 				}
+				//listen for nav change
+				globalThis.addEventListener('popstate', function(e) {
+					//valid state?
+					if(!e.state || !e.state.name || !_started) {
+						opts.isBack = false;
+						return;
+					}
+					//already home?
+					if(opts.defHome === opts.state.name && e.state.name === opts.state.name) {
+						opts.isBack = false;
+						return;
+					}
+					//set vars
+					var goBack = (opts.isBack || opts.histId > e.state.id || (e.state.id - opts.histId) > 1);
+					var data = { id: e.state.id, params: e.state.params, isBack: goBack, scroll: e.state.scroll };
+					//reset cache
+					opts.isBack = false;
+					opts.histId = e.state.id;
+					//trigger route (no history)
+					api.trigger(e.state.name, data, null);
+				});
+				//listen for hash changes
+				globalThis.addEventListener('hashchange', function(e) {
+					//has started?
+					if(!_started) return;
+					//get current hash
+					var hash = location.hash.replace('#', '') || opts.defHome;
+					//trigger new route?
+					if(hash && hash !== opts.state.name && opts.urlScheme === 'hash') {
+						api.trigger(hash);
+					}
+				});
+				//listen for clicks
+				globalThis.addEventListener('click', function(e) {
+					//get target
+					var el = e.target.closest('[data-route]');
+					//valid route?
+					if(!el || !_started) return;
+					//get params
+					var name = el.getAttribute('data-route');
+					var mode = el.getAttribute('data-history') || 'push';
+					var params = (el.getAttribute('data-params') || '').split(';');
+					//go back?
+					if(name === 'back') {
+						return api.back();
+					}
+					//stop here?
+					if(!name) return;
+					//set data
+					var data = {
+						params: {}
+					};
+					//parse params
+					for(var i=0; i < params.length; i++) {
+						//split into key/value pair
+						var tmp = params[i].split(':', 2);
+						//valid pair?
+						if(tmp.length > 1) {
+							data.params[tmp[0].trim()] = tmp[1].trim();
+						}
+					}
+					//is form submit?
+					if(el.getAttribute('type') === 'submit') {
+						//check for form
+						var form = el.closest('form');
+						//form found?
+						if(form) {
+							//listen to form submit
+							return form.addEventListener('submit', function(e) {
+								//prevent default
+								e.preventDefault();
+								//trigger route
+								api.trigger(name, data, mode);
+							});
+						}
+					}
+					//prevent default
+					e.preventDefault();
+					//trigger route
+					api.trigger(name, data, mode);
+				});
 				//has route?
 				if(route || opts.defHome) {
 					api.trigger(route || opts.defHome, {

@@ -1,5 +1,5 @@
 //imports
-import { objHandler } from 'fstage/utils';
+import { objHandler } from './utils.mjs';
 
 //static vars
 var events = {};

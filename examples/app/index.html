@@ -93,8 +93,8 @@
 
 		//local config
 		var useCdn = true; //whether to load fstage from cdn
-		var version = '0.3.1'; //version of fstage library to use
-		var baseUrl = location.href; //baseUrl must be the absolute URL to this file
+		var version = '0.3.2'; //version of fstage library to use
+		var baseUri = location.href; //baseUri must be the absolute URL to this file (hardcode if needed)
 
 		//path helper
 		var paths = {
@@ -108,7 +108,9 @@
 			},
 
 			app: function(path) {
-				return baseUrl.split('?')[0].replace(/\/$/g, '') + '/' + path;
+				var parts = baseUri.split('?')[0].replace(/\/$/g, '').split('/');
+				if(parts[parts.length-1].indexOf('.') !== -1) parts.pop();
+				return parts.join('/') + '/' + path;
 			}
 
 		};
@@ -117,6 +119,8 @@
 		window.Fstage = {
 		
 			config: {
+
+				basePath: baseUri,
 
 				libs: [
 					//use to load js or css assets immediately
@@ -140,7 +144,7 @@
 
 			env: {
 				isHybrid: !!window._cordovaNative,
-				isPwa: window.matchMedia && window.matchMedia('(display-mode: standalone)').matches
+				isPwa: !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
 			}
 
 		};

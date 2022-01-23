@@ -1,5 +1,7 @@
 //imports
-import { dom } from 'fstage/dom';
+import { dom } from '../dom.mjs';
+
+//add to parent
 dom.diff = domDiff;
 
 //Forked: https://github.com/patrick-steele-idem/morphdom/

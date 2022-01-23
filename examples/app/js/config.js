@@ -1,23 +1,25 @@
-(function(globalThis) {
+(function(glob) {
 
 	//set vars
-	var host, basePath;
-	
-	//use location?
-	if(globalThis.location) {
-		basePath = location.href.replace('sw.js', '');
-		host = location.protocol + '//' + location.hostname;
-	}
+	var host = '';
+	var basePath = '';
 
-	//is node?
-	if(globalThis.__filename) {
-		basePath = __filename.replace('js/config.js', '');
-	} else if(globalThis.document) {
-		basePath = document.currentScript.src.replace('js/config.js', '');
+	//check platform
+	if(typeof __filename !== 'undefined') {
+		glob = global;
+		basePath = __filename.replace(/js\/config\.js(.*)/, '');
+	} else if(typeof WorkerGlobalScope !== 'undefined') {
+		glob = self;
+		host = location.protocol + '//' + location.hostname;
+		basePath = location.href.replace(/sw\.js(.*)/, '');
+	} else if(typeof window !== 'undefined') {
+		glob = window;
+		host = location.protocol + '//' + location.hostname;
+		basePath = document.currentScript.src.replace(/js\/config\.js(.*)/, '');
 	}
 
 	//export config
-	this.__APPCONFIG = {
+	glob.__APPCONFIG = {
 
 		//general
 		debug: true,
