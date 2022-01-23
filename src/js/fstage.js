@@ -133,6 +133,8 @@
 		}
 		//format base uri
 		env.basePath = _formatPath(env.basePath);
+		//format script path
+		env.scriptPath = env.scriptPath.split('?')[0];
 		//calculate client ID
 		env.clientId = _calcId(env.clientUa);
 		//detect client OS
@@ -248,7 +250,7 @@
 	if(Fstage.env.scriptPath) {
 
 		//private vars
-		var moduleTpl = Fstage.env.scriptPath.replace('/fstage.', '/{name}.').replace(/\.js$/, '.mjs');
+		var moduleTpl = Fstage.env.scriptPath.replace('/fstage.', '/{name}.').replace('.min.', '.').replace('.js', '.mjs');
 
 		//replace core modules?
 		if(Fstage.config.modules && Fstage.config.modules.length) {
