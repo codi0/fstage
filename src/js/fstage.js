@@ -54,10 +54,10 @@
 
 	/* BOOSTRAP */
 
-	//config props
+	//config params
 	var config = (globalThis[NAME] || {}).config || {};
 
-	//env props
+	//env params
 	var env = (function() {
 		//Helper: format path
 		var _formatPath = function(path) {
@@ -160,9 +160,16 @@
 
 	//import handler
 	var importr = function(path) {
-		//use bulk import?
+		//bulk import?
 		if(typeof path !== 'string') {
-			return importr.bulk(path);
+			//set vars
+			var proms = [];
+			//loop through modules
+			path.forEach(function(m) {
+				proms.push(importr(m));
+			});
+			//return
+			return Promise.all(proms);
 		}
 		//set vars
 		var name = path;
@@ -213,36 +220,6 @@
 		});
 	};
 
-	//bulk import modules
-	importr.bulk = function(modules) {
-		//set vars
-		var proms = [];
-		//loop through modules
-		modules.forEach(function(m) {
-			proms.push(importr(m));
-		});
-		//return
-		return Promise.all(proms);
-	};
-
-	//create import map
-	importr.map = function(mapping, opts = {}) {
-		//set vars
-		var mapArr = [];
-		//loop through mapping
-		mapping.forEach(function(path, prefix) {
-			mapArr.push('"' + prefix + '": "' + path + '"');
-		});
-		//create script?
-		if(env.isBrowser) {
-			var s = document.createElement('script');
-			var t = document.querySelectorAll('script');
-			s.type = 'importmap';
-			s.textContent = '{ "imports": { ' + mapArr.join(", ") + ' } }';
-			t[0].parentNode.insertBefore(s, t[0]);
-		}
-	};
-
 	//export handler
 	var exportr = function(name, exported, event = false) {
 		//create cache
@@ -263,47 +240,45 @@
 		}
 	};
 
-	//can load modules?
-	if(env.scriptPath) {
-
-		//replace core modules?
-		if(config.modules && config.modules.length) {
-			MODULES = config.modules;
-		}
-
-		//append to core modules?
-		if(config.appendModules && config.appendModules.length) {
-			MODULES.push(...config.appendModules);
-		}
-
-		//create import map
-		importr.map((function() {
-			//set vars
-			var importMap = {};
-			var name = NAME.toLowerCase();
-			//map core module
-			importMap[name] = env.importTpl.replace('{name}', 'core');
-			//map additional modules
-			MODULES.forEach(function(m) {
-				if(/^[a-zA-Z0-9\/]+$/.test(m) && m !== 'core') {
-					importMap[name + '/' + m] = env.importTpl.replace('{name}', m);
-				}
-			});
-			//return
-			return importMap;
-		})());
-	
-		//do initial import
-		importr(MODULES).then(function() {
-			//set ready flag
-			env.ready = true;
-			//create custom event
-			var e = new CustomEvent(NAME.toLowerCase());
-			//dispatch event
-			globalThis.dispatchEvent(e);
-		});
-
+	//replace modules?
+	if(config.modules) {
+		MODULES = config.modules;
 	}
+
+	//append to modules?
+	if(config.appendModules) {
+		MODULES.push(...config.appendModules);
+	}
+
+	//create import map?
+	if(globalThis.document) {
+		//set vars
+		var map = [];
+		var name = NAME.toLowerCase();
+		//add core module
+		map.push('"' + name + '": "' + env.importTpl.replace('{name}', 'core') + '"');
+		//loop through mapping
+		MODULES.forEach(function(m) {
+			if(/^[a-zA-Z0-9\/]+$/.test(m) && m !== 'core') {
+				map.push('"' + name + '/' + m + '": "' + env.importTpl.replace('{name}', m) + '"');
+			}
+		});
+		var s = document.createElement('script');
+		var t = document.querySelectorAll('script');
+		s.type = 'importmap';
+		s.textContent = '{ "imports": { ' + map.join(", ") + ' } }';
+		t[0].parentNode.insertBefore(s, t[0]);
+	}
+	
+	//import core modules
+	importr(MODULES).then(function() {
+		//set ready flag
+		env.ready = true;
+		//create custom event
+		var e = new CustomEvent(NAME.toLowerCase());
+		//dispatch event
+		globalThis.dispatchEvent(e);
+	});
 
 
 	/* EXPORTS */
@@ -334,7 +309,7 @@
 	});
 
 	//additional globals
-	globalThis['importr'] = globalThis['importr'] || importr;
-	globalThis['exportr'] = globalThis['exportr'] || exportr;
+	globalThis.importr = globalThis.importr || importr;
+	globalThis.exportr = globalThis.exportr || exportr;
 
 })();
