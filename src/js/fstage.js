@@ -2,8 +2,9 @@
 
 	/* CONFIG */
 
+	var NAME = 'Fstage';
 	var VERSION = '0.3.3';
-	var GLOBALS = [ 'Fstage', '$' ];
+	var GLOBALS = [ NAME, '$' ];
 	var MODULES = [ 'core', 'utils', 'pubsub', 'dom', 'dom/effects', 'dom/widgets', 'dom/diff', 'router', 'observe', 'store', 'lit', 'components', 'form', 'transport', 'webpush', 'app' ];
 
 
@@ -22,10 +23,12 @@
 	//Object.forEach
 	if(!Object.prototype.forEach) {
 		Object.defineProperty(Object.prototype, 'forEach', {
+			writable: true,
+			configurable: true,
 			value: function(fn, thisArg) {
 				for(var k in (this || {})) {
 					if(this.hasOwnProperty(k)) {
-						fn.call(thisArg || globalThis, this[k], k, this);
+						fn.call(thisArg, this[k], k, this);
 					}
 				}
 			}
@@ -35,7 +38,7 @@
 	//node global listener
 	if(typeof __filename !== 'undefined') {
 		//create global target
-		const gTarget = new EventTarget();
+		var gTarget = new EventTarget();
 		//custom event
 		globalThis.CustomEvent = Event;
 		//global dispatcher
@@ -49,19 +52,13 @@
 	}
 
 
-	/* API */
-
-	//fstage wrapper
-	const Fstage = globalThis.Fstage || {};
-
-	//version number
-	Fstage.version = VERSION;
+	/* BOOSTRAP */
 
 	//config props
-	Fstage.config = Fstage.config || {};
+	var config = (globalThis[NAME] || {}).config || {};
 
 	//env props
-	Fstage.env = (function() {
+	var env = (function() {
 		//Helper: format path
 		var _formatPath = function(path) {
 			var parts = path.split('?')[0].replace(/\/$/g, '').split('/');
@@ -95,6 +92,7 @@
 		//base env
 		var env = {
 			//flags
+			ready: false,
 			isBrowser: false,
 			isNode: false,
 			isMobile: false,
@@ -106,12 +104,12 @@
 			clientOs: '',
 			clientUa: globalThis.navigator ? navigator.userAgent : '',
 			//server
-			host: Fstage.config.host || (globalThis.location ? location.protocol + "//" + location.hostname : ''),
-			basePath: Fstage.config.basePath || (globalThis.location ? location.href : ''),
-			scriptPath: Fstage.config.scriptPath || '',
+			host: config.host || (globalThis.location ? location.protocol + "//" + location.hostname : ''),
+			basePath: config.basePath || (globalThis.location ? location.href : ''),
+			scriptPath: config.scriptPath || '',
 			//nodejs
 			parseReq: function(req) {
-				env.host = Fstage.config.host || ((req.protocol || 'http') + "://" + req.headers.host);
+				env.host = config.host || ((req.protocol || 'http') + "://" + req.headers.host);
 				env.clientUa = req.headers['user-agent'];
 				env.clientId = _calcId(env.clientUa);
 				var p = _parseUa(env.clientUa);
@@ -131,10 +129,17 @@
 			env.scriptPath = document.currentScript.src;
 			env.basePath = (document.querySelector('base') || {}).href || env.basePath;
 		}
-		//format base uri
-		env.basePath = _formatPath(env.basePath);
+		//get modules from script?
+		if(env.scriptPath.indexOf('#') > 0) {
+			MODULES = env.scriptPath.split('#')[1].split(',');
+			env.scriptPath = env.scriptPath.split('#')[0];
+		}
 		//format script path
 		env.scriptPath = env.scriptPath.split('?')[0];
+		//format base uri
+		env.basePath = _formatPath(env.basePath);
+		//import template path
+		env.importTpl = env.scriptPath.replace('/' + NAME.toLowerCase() + '.', '/{name}.').replace(/.js$/, '.mjs').replace('.min.', '.')
 		//calculate client ID
 		env.clientId = _calcId(env.clientUa);
 		//detect client OS
@@ -146,69 +151,82 @@
 	})();
 
 	//ready handler
-	Fstage.ready = function(fn) {
-		return Fstage.ready ? fn() : globalThis.addEventListener('fstage.ready', fn);
+	var ready = function(fn) {
+		//wrap callback
+		var wrap = function() { fn(exportr.exports); };
+		//return
+		return env.ready ? wrap() : globalThis.addEventListener(NAME.toLowerCase(), wrap);
 	};
 
 	//import handler
-	Fstage.import = function(path, tpl = null) {
+	var importr = function(path) {
+		//use bulk import?
+		if(typeof path !== 'string') {
+			return importr.bulk(path);
+		}
 		//set vars
 		var name = path;
-		var that = Fstage.import;
-		//create cache?
-		if(!that.exports) {
-			that.exports = {};
-		}
+		var prom = Promise.resolve(null);
+		//create cache
+		importr.modules = importr.modules || {};
 		//format path?
-		if(tpl && /^[a-zA-Z0-9\/]+$/.test(path)) {
-			path = tpl.replace('{name}', path);
+		if(env.importTpl && /^[a-zA-Z0-9\/]+$/.test(path)) {
+			path = env.importTpl.replace('{name}', path);
 		}
 		//valid server file prefix?
-		if(Fstage.env.isNode && !(/^(file|data)/.test(path))) {
+		if(env.isNode && !(/^(file|data)/.test(path))) {
 			path = "file://" + path;
 		}
-		//is cached?
-		if(!that.exports[name]) {
-			//import module
-			that.exports[name] = import(path);
-			//dispatch module.load event?
-			if(globalThis.dispatchEvent) {
-				//create event
-				var e = new CustomEvent('module.load', {
-					detail: {
-						name: name,
-						path: path,
-						exports: that.exports[name]
-					}
-				});
-				//dispatch
-				globalThis.dispatchEvent(e);
-			}
+		//import now?
+		if(!importr.modules[name]) {
+			prom = import(path);
 		}
-		//return
-		return that.exports[name].then(function(exports) {
-			return {
-				name: name,
-				path: path,
-				exports: exports
+		//wait for promise
+		return prom.then(function(exports) {
+			//process exports?
+			if(exports) {
+				//cache exports
+				for(k in exports) {
+					//get export name
+					var n = (k == 'default') ? name.replace(/\/./g, function(m) { m[1].toUpperCase() }) : k;
+					//call exportr
+					exportr(n, exports[k], false);
+				}
+				//cache module
+				importr.modules[name] = {
+					name: name,
+					path: path,
+					exports: exports
+				};
+				//dispatch event?
+				if(globalThis.dispatchEvent) {
+					//create event
+					var e = new CustomEvent('importr', {
+						detail: importr.modules[name]
+					});
+					//dispatch
+					globalThis.dispatchEvent(e);
+				}
 			}
+			//return
+			return importr.modules[name].exports;
 		});
 	};
 
-	//import multiple modules
-	Fstage.import.all = function(modules, tpl = null) {
+	//bulk import modules
+	importr.bulk = function(modules) {
 		//set vars
 		var proms = [];
 		//loop through modules
 		modules.forEach(function(m) {
-			proms.push(Fstage.import(m, tpl));
+			proms.push(importr(m));
 		});
 		//return
 		return Promise.all(proms);
 	};
 
 	//create import map
-	Fstage.import.map = function(mapping, opts = {}) {
+	importr.map = function(mapping, opts = {}) {
 		//set vars
 		var mapArr = [];
 		//loop through mapping
@@ -216,7 +234,7 @@
 			mapArr.push('"' + prefix + '": "' + path + '"');
 		});
 		//create script?
-		if(Fstage.env.isBrowser) {
+		if(env.isBrowser) {
 			var s = document.createElement('script');
 			var t = document.querySelectorAll('script');
 			s.type = 'importmap';
@@ -225,79 +243,98 @@
 		}
 	};
 
+	//export handler
+	var exportr = function(name, exported, event = false) {
+		//create cache
+		exportr.exports = exportr.exports || {};
+		//cache export
+		CONTAINER[name] = exportr.exports[name] = exported;
+		//dispatch event?
+		if(event && globalThis.dispatchEvent) {
+			//create event
+			var e = new CustomEvent('exportr', {
+				detail: {
+					name : name,
+					exported: exported
+				}
+			});
+			//dispatch
+			globalThis.dispatchEvent(e);
+		}
+	};
 
-	/* EXPORTS */
-
-	//cjs export?
-	if(typeof module === 'object' && module.exports) {
-		module.exports = Fstage;
-	}
-
-	//amd export?
-	if(typeof define === 'function' && define.amd) {
-		define('Fstage', [], function() { return Fstage; });
-	}
-
-	//globals export
-	GLOBALS.forEach(function(g) {
-		globalThis[g] = globalThis[g] || Fstage;
-	});
-
-
-	/* BOOTSTRAP */
-	
 	//can load modules?
-	if(Fstage.env.scriptPath) {
-
-		//module path template
-		var moduleTpl = Fstage.env.scriptPath.replace('/fstage.', '/{name}.').replace(/.js$/, '.mjs').replace('.min.', '.');
+	if(env.scriptPath) {
 
 		//replace core modules?
-		if(Fstage.config.modules && Fstage.config.modules.length) {
-			MODULES = Fstage.config.modules;
+		if(config.modules && config.modules.length) {
+			MODULES = config.modules;
 		}
 
 		//append to core modules?
-		if(Fstage.config.appendModules && Fstage.config.appendModules.length) {
-			MODULES.push(...Fstage.config.appendModules);
+		if(config.appendModules && config.appendModules.length) {
+			MODULES.push(...config.appendModules);
 		}
 
 		//create import map
-		Fstage.import.map((function() {
+		importr.map((function() {
 			//set vars
 			var importMap = {};
+			var name = NAME.toLowerCase();
 			//map core module
-			importMap["fstage"] = moduleTpl.replace('{name}', 'core');
+			importMap[name] = env.importTpl.replace('{name}', 'core');
 			//map additional modules
 			MODULES.forEach(function(m) {
 				if(/^[a-zA-Z0-9\/]+$/.test(m) && m !== 'core') {
-					importMap["fstage/" + m] = moduleTpl.replace('{name}', m);
+					importMap[name + '/' + m] = env.importTpl.replace('{name}', m);
 				}
 			});
 			//return
 			return importMap;
 		})());
 	
-		//import modules
-		Fstage.import.all(MODULES, moduleTpl).then(function(results) {
-			//loop through results
-			results.forEach(function(module) {
-				//loop through exports
-				for(var k in module.exports) {
-					//is default?
-					if(k === 'default') {
-						Fstage[module.name.replace(/\/./g, function(m) { m[1].toUpperCase() })] = module.exports[k];
-					} else {
-						Fstage[k] = module.exports[k];
-					}
-				}
-			});
+		//do initial import
+		importr(MODULES).then(function() {
 			//set ready flag
-			Fstage.ready = true;
+			env.ready = true;
+			//create custom event
+			var e = new CustomEvent(NAME.toLowerCase());
 			//dispatch event
-			globalThis.dispatchEvent(new CustomEvent('fstage.ready'));
+			globalThis.dispatchEvent(e);
 		});
 
 	}
+
+
+	/* EXPORTS */
+
+	//container
+	var CONTAINER = {
+		version: VERSION,
+		config: config,
+		env: env,
+		ready: ready,
+		importr: importr,
+		exportr: exportr,
+	};
+
+	//cjs export?
+	if(typeof module === 'object' && module.exports) {
+		module.exports = CONTAINER;
+	}
+
+	//amd export?
+	if(typeof define === 'function' && define.amd) {
+		define(NAME, [], function() { return CONTAINER; });
+	}
+
+	//globals export
+	GLOBALS.forEach(function(g) {
+		globalThis[g] = globalThis[g] || CONTAINER;
+	});
+
+	//additional globals
+	globalThis['importr'] = globalThis['importr'] || importr;
+	globalThis['exportr'] = globalThis['exportr'] || exportr;
 
 })();
