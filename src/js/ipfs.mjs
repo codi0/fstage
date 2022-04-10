@@ -30,32 +30,7 @@ export function ipfs(config = {}) {
 
 			node: node,
 				
-			ipfs: ipfs,
-				
-			genIterate: function(generator, callback, chunks=[]) {
-				//run loop
-				return generator.next().then(function(result) {
-					//add chunk?
-					if(result && typeof result.value !== 'undefined') {
-						chunks.push(result.value);
-					}
-					//has callback?
-					if(callback) {
-						//exec callback
-						var res = callback.call(api, result, chunks, generator);
-						//stop here?
-						if(res !== null && typeof res !== 'undefined') {
-							return res;
-						}
-					}
-					//next loop?
-					if(result && !result.done) {
-						return api.genIterate(generator, callback, chunks);
-					}
-					//return
-					return chunks;
-				});
-			},
+			ipfs: globalThis.Ipfs,
 
 			on: function(event, callback) {
 				return node.on(event, callback);
@@ -77,22 +52,18 @@ export function ipfs(config = {}) {
 
 			read: function(path, opts = {}) {
 				//read dir?
-				if(path.indexOf('.') == -1) {
+				if(path.indexOf('.') === -1) {
 					return api.readDir(path, opts);
 				}
-				//set vars
+				//create generator
 				var generator = node.files.read(path, opts);
-				//return stream?
-				if(opts.stream) {
-					return generator;
-				}
-				//run loop
-				return api.genIterate(generator, opts.callback);
+				//return
+				return api.utils.iterator(generator, opts);
 			},
 
 			write: function(path, content, opts = {}) {
 				//create dir?
-				if(path.indexOf('.') == -1) {
+				if(path.indexOf('.') === -1) {
 					return api.makeDir(path, opts);
 				}
 				//write file
@@ -143,14 +114,10 @@ export function ipfs(config = {}) {
 			},
 
 			listDir: function(path, opts = {}) {
-				//set vars
+				//create generator
 				var generator = node.files.ls(path, opts);
-				//return stream?
-				if(opts.stream) {
-					return generator;
-				}
-				//run loop
-				return api.genIterate(generator, opts.callback);
+				//return
+				return api.utils.iterator(generator, opts);
 			},
 
 			makeDir: function(path, opts = {}) {
@@ -167,46 +134,27 @@ export function ipfs(config = {}) {
 				get: function(cid, opts = {}) {
 					//cid to string?
 					if(cid && typeof cid !== 'string') {
-						cid = cid.toString();
+						cid = api.utils.toString(cid);
 					}
-					//default opts
-					opts = Object.assign({
-						string: !opts.tree,
-					}, opts);
-					//set vars
-					var method = opts.tree ? 'get' : 'cat';
-					var generator = node[method](cid, opts);
-					//return stream?
-					if(opts.stream) {
-						return generator;
+					//default method?
+					if(opts.method !== 'get') {
+						opts.method = 'cat';
 					}
-					//run loop
-					return api.genIterate(generator, opts.callback).then(function(chunks) {
-						//to string?
-						if(opts.string) {
-							chunks = chunks.toString();
-						}
-						//return
-						return chunks;
-					});
-				},
-
-				getTree: function(cid, opts = {}) {
-					//use tree
-					opts.tree = true;
+					//create generator
+					var generator = node[opts.method](cid, opts);
 					//return
-					return api.get(cid, opts);
+					return api.utils.iterator(generator, opts);
 				},
 
-				listTree: function(cid, opts = {}) {
-					//set vars
-					var generator = node.ls(cid, opts);
-					//return stream?
-					if(opts.stream) {
-						return generator;
+				list: function(cid, opts = {}) {
+					//cid to string?
+					if(cid && typeof cid !== 'string') {
+						cid = api.utils.toString(cid);
 					}
-					//run loop
-					return api.genIterate(generator, opts.callback);
+					//create generator
+					var generator = node.ls(cid, opts);
+					//return
+					return api.utils.iterator(generator, opts);
 				},
 
 				set: function(data, opts = {}) {
@@ -221,17 +169,83 @@ export function ipfs(config = {}) {
 				},
 
 				setAll: function(source, opts = {}) {
-					//set vars
+					//create generator
 					var generator = node.addAll(source, opts);
+					//return
+					return api.utils.iterator(generator, opts);
+				}
+
+			},
+
+			utils: {
+
+				toString: function(data) {
+					if(data.buffer instanceof ArrayBuffer) {
+						return new TextDecoder().decode(data);
+					} else {
+						return data.toString();
+					}
+				},
+
+				iterator: function(generator, opts = {}) {
+					//format opts?
+					if(typeof opts === 'function') {
+						opts = { callback: opts };
+					}
+					//set defaaults
+					opts = Object.assign({
+						chunks: [],
+						buffer: 0,
+						toString: true
+					}, opts);
 					//return stream?
 					if(opts.stream) {
 						return generator;
 					}
 					//run loop
-					return api.genIterate(generator, opts.callback);
+					return generator.next().then(function(result) {
+						//process value?
+						if(result.value) {
+							//cache chunk
+							opts.chunks.push(result.value);
+							//is object?
+							if(result.value.length) {
+								opts.buffer += result.value.length;
+							} else {
+								opts.toString = false;
+							}
+							//execute callback?
+							if(opts.callback && opts.callback.call(api, opts.chunks, opts.buffer, result.done ? null : generator) === false) {
+								result.done = true;
+							}
+						}
+						//another loop?
+						if(!result.done) {
+							return api.utils.iterator(generator, opts);
+						}
+						//format data
+						var offset = 0;
+						var data = opts.chunks;
+						//create array buffer?
+						if(opts.buffer > 0) {
+							//set buffer length
+							data = new Uint8Array(opts.buffer);
+							//populate buffer
+							for(var i=0; i < opts.chunks.length; i++) {
+								data.set(opts.chunks[i], offset);
+								offset += opts.chunks[i].length;
+							}
+						}
+						//to string?
+						if(opts.toString) {
+							data = api.utils.toString(data);
+						}
+						//return
+						return data;
+					});
 				}
 
-			}
+			},
 
 		};
 			
