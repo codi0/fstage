@@ -1,4 +1,4 @@
-# fstage
+# fstage [v0.3.4]
 
 A modular javascript library for developing modern web2 and web3 applications. Being developed as part of codi.io's mission to make web3 infrastructure accessible to all.
 
