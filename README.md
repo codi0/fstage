@@ -6,8 +6,8 @@ v0.3 has been completely rewritten to use ES6 modules, with the ability to dynam
 
 # CDN links
 
-	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.3/src/css/fstage.min.css">
-	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.3/src/js/fstage.min.js"></script>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.4/src/css/fstage.min.css">
+	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.4/src/js/fstage.min.js"></script>
 
 # Dynamic module loading
 
@@ -27,9 +27,10 @@ v0.3 has been completely rewritten to use ES6 modules, with the ability to dynam
 - Internet Explorer browser is not supported
 - Nodejs is nominally supported (though most modules currently written for the browser)
 
-# Skeleton app
+# Example usage
 
-See the "examples/app" directory for a very simple skeleton app; incorporating services, components and middleware.
+- Go to "examples/app" directory - a simple frontend app; incorporating services, components and middleware
+- Go to "examples/ipfs" directory - a demo of how to stream video over the decentralised IPFS network
 
 # Modules API
 
@@ -39,9 +40,8 @@ See the "examples/app" directory for a very simple skeleton app; incorporating s
 	Fstage.env = { isNode, isWorker, isBrower, isMobile, isHybrid, isPwa, clientId, clientOs, clientUa, host, basePath, scriptPath }  //returns environment vars
 	Fstage.env.parseReq(req)  //re-processes environment vars based on an IncomingMessage request object (nodejs)
 
-	Fstage.import(modulePath, tpl = null)  //returns a promise of exports for an es6 module import
-	Fstage.import.all(modulePaths, tpl = null)  //returns a promise of exports for all provided modules
-	Fstage.import.map(modulePaths, opts = {})  //creates an importMap script with the provided modules
+	Fstage.importr(modulePath)  //returns a promise of exports for an es6 module import
+	Fstage.exportr(name, exported)  //simulates dynamic export for an es6 module
 	Fstage.ready(callback)  //returns true or false to a callback, depending on whether Fstage modules have finished loading
 
 (2) UTILS

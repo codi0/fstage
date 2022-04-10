@@ -254,28 +254,6 @@
 	if(config.appendModules) {
 		MODULES.push(...config.appendModules);
 	}
-
-	/*
-	//create import map?
-	if(globalThis.document) {
-		//set vars
-		var map = [];
-		var name = NAME.toLowerCase();
-		//add core module
-		map.push('"' + name + '": "' + env.importTpl.replace('{name}', 'core') + '"');
-		//loop through mapping
-		MODULES.forEach(function(m) {
-			if(/^[a-zA-Z0-9\/]+$/.test(m) && m !== 'core') {
-				map.push('"' + name + '/' + m + '": "' + env.importTpl.replace('{name}', m) + '"');
-			}
-		});
-		var s = document.createElement('script');
-		var t = document.querySelectorAll('script');
-		s.type = 'importmap';
-		s.textContent = '{ "imports": { ' + map.join(", ") + ' } }';
-		t[0].parentNode.insertBefore(s, t[0]);
-	}
-	*/
 	
 	//import core modules
 	importr(MODULES).then(function() {
