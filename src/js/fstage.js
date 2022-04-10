@@ -153,7 +153,7 @@
 	//ready handler
 	var ready = function(fn) {
 		//wrap callback
-		var wrap = function() { fn(exportr.exports); };
+		var wrap = function() { fn(exportr.cache); };
 		//return
 		return env.ready ? wrap() : globalThis.addEventListener(NAME.toLowerCase(), wrap);
 	};
@@ -175,7 +175,7 @@
 		var name = path;
 		var prom = Promise.resolve(null);
 		//create cache
-		importr.modules = importr.modules || {};
+		importr.cache = importr.cache || {};
 		//format path?
 		if(env.importTpl && /^[a-zA-Z0-9\/]+$/.test(path)) {
 			path = env.importTpl.replace('{name}', path);
@@ -185,7 +185,7 @@
 			path = "file://" + path;
 		}
 		//import now?
-		if(!importr.modules[name]) {
+		if(!importr.cache[name]) {
 			prom = import(path);
 		}
 		//wait for promise
@@ -200,7 +200,7 @@
 					exportr(n, exports[k], false);
 				}
 				//cache module
-				importr.modules[name] = {
+				importr.cache[name] = {
 					name: name,
 					path: path,
 					exports: exports
@@ -209,23 +209,23 @@
 				if(globalThis.dispatchEvent) {
 					//create event
 					var e = new CustomEvent('importr', {
-						detail: importr.modules[name]
+						detail: importr.cache[name]
 					});
 					//dispatch
 					globalThis.dispatchEvent(e);
 				}
 			}
 			//return
-			return importr.modules[name].exports;
+			return importr.cache[name].exports;
 		});
 	};
 
 	//export handler
 	var exportr = function(name, exported, event = false) {
 		//create cache
-		exportr.exports = exportr.exports || {};
+		exportr.cache = exportr.cache || {};
 		//cache export
-		CONTAINER[name] = exportr.exports[name] = exported;
+		CONTAINER[name] = exportr.cache[name] = exported;
 		//dispatch event?
 		if(event && globalThis.dispatchEvent) {
 			//create event
