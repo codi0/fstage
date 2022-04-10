@@ -23,20 +23,25 @@ export var hls = {
 			//custom loader
 			hls.config.loader = opts.loader;
 		} else if(path.indexOf('ipfs://') === 0) {
-			//ipfs exists?
-			if(!opts.ipfsNode && !globalThis.Ipfs) {
-				//import ipfs module
-				prom = import('./ipfs.mjs').then(function(module) {
+			//chain promise
+			prom = prom.then(function() {
+				//use opts?
+				if(opts.ipfsNode) {
+					return opts.ipfsNode;
+				}
+				//use global?
+				if(globalThis.Ipfs) {
+					return Ipfs.create();
+				}
+				//import ipfs
+				return import('./ipfs.mjs').then(function(module) {
 					return module.ipfs();
 				}).catch(function(error) {
 					console.error(error);
 				});
-			} else {
-				//use existing node
-				prom = opts.ipfsNode || Ipfs.create();
-			}
-			//set ipfs loader
-			prom = prom.then(function(ipfsNode) {
+			}).then(function(ipfsNode) {
+				//has node?
+				if(!ipfsNode) return;
 				//import loader module
 				return import('./ipfs/hlsLoader.mjs').then(function(module) {
 					hls.config.loader = module.ipfsHlsLoader(ipfsNode, opts.debug);

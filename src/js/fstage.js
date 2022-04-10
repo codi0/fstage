@@ -238,6 +238,8 @@
 			//dispatch
 			globalThis.dispatchEvent(e);
 		}
+		//return
+		return exported;
 	};
 
 	//replace modules?
