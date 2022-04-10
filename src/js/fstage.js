@@ -3,7 +3,7 @@
 	/* CONFIG */
 
 	var NAME = 'Fstage';
-	var VERSION = '0.3.3';
+	var VERSION = '0.3.4';
 	var GLOBALS = [ NAME, '$' ];
 	var MODULES = [ 'core', 'utils', 'pubsub', 'dom', 'dom/effects', 'dom/widgets', 'dom/diff', 'router', 'observe', 'store', 'lit', 'components', 'form', 'transport', 'webpush', 'app' ];
 

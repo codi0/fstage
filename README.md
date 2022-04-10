@@ -33,8 +33,8 @@ v0.3 has been completely rewritten to use ES6 modules, with the ability to dynam
 
 # Example usage
 
-- Go to "examples/app" directory - a simple frontend app; incorporating services, components and middleware
-- Go to "examples/ipfs" directory - a demo of how to stream video over the decentralised IPFS network
+- "examples/app" folder - a simple skeleton app; incorporating services, components and middleware
+- "examples/ipfs" folder - a demo of how to stream video over the decentralised IPFS network
 
 # Modules API
 
