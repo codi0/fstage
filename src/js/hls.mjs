@@ -29,10 +29,6 @@ export var hls = {
 				if(opts.ipfsNode) {
 					return opts.ipfsNode;
 				}
-				//use global?
-				if(globalThis.Ipfs) {
-					return Ipfs.create();
-				}
 				//import ipfs
 				return import('./ipfs.mjs').then(function(module) {
 					return module.ipfs();

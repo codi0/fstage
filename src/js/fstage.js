@@ -152,14 +152,17 @@
 
 	//ready handler
 	var ready = function(fn) {
-		//wrap callback
-		var wrap = function() { fn(exportr.cache); };
-		//return
-		return env.ready ? wrap() : globalThis.addEventListener(NAME.toLowerCase(), wrap);
+		//async call
+		setTimeout(function() {
+			var wrap = function() { fn(exportr.cache); };
+			env.ready ? wrap() : globalThis.addEventListener(NAME.toLowerCase(), wrap);
+		}, 1);
 	};
 
 	//import handler
-	var importr = function(path) {
+	var importr = function(name, path = null) {
+		//format input
+		path = path || name;
 		//bulk import?
 		if(typeof path !== 'string') {
 			//set vars
@@ -171,11 +174,6 @@
 			//return
 			return Promise.all(proms);
 		}
-		//set vars
-		var name = path;
-		var prom = Promise.resolve(null);
-		//create cache
-		importr.cache = importr.cache || {};
 		//format path?
 		if(env.importTpl && /^[a-zA-Z0-9\/]+$/.test(path)) {
 			path = env.importTpl.replace('{name}', path);
@@ -184,16 +182,21 @@
 		if(env.isNode && !(/^(file|data)/.test(path))) {
 			path = "file://" + path;
 		}
-		//import now?
-		if(!importr.cache[name]) {
-			prom = import(path);
+		//cache vars
+		importr.path = path;
+		importr.cache = importr.cache || {};
+		//import cached?
+		if(importr.cache[name]) {
+			var prom = Promise.resolve(null);
+		} else {
+			var prom = import(path);
 		}
 		//wait for promise
 		return prom.then(function(exports) {
 			//process exports?
 			if(exports) {
 				//cache exports
-				for(k in exports) {
+				for(var k in exports) {
 					//get export name
 					var n = (k == 'default') ? name.replace(/\/./g, function(m) { m[1].toUpperCase() }) : k;
 					//call exportr
@@ -221,7 +224,7 @@
 	};
 
 	//export handler
-	var exportr = function(name, exported, event = false) {
+	var exportr = function(name, exported, event = true) {
 		//create cache
 		exportr.cache = exportr.cache || {};
 		//cache export
@@ -252,6 +255,7 @@
 		MODULES.push(...config.appendModules);
 	}
 
+	/*
 	//create import map?
 	if(globalThis.document) {
 		//set vars
@@ -271,6 +275,7 @@
 		s.textContent = '{ "imports": { ' + map.join(", ") + ' } }';
 		t[0].parentNode.insertBefore(s, t[0]);
 	}
+	*/
 	
 	//import core modules
 	importr(MODULES).then(function() {
