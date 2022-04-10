@@ -6,8 +6,8 @@ v0.3 has been completely rewritten to use ES6 modules, with the ability to dynam
 
 # CDN links
 
-	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.4/src/css/fstage.min.css">
-	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.4/src/js/fstage.min.js"></script>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@latest/src/css/fstage.min.css">
+	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@latest/src/js/fstage.min.js"></script>
 
 # Dynamic module loading
 
@@ -20,6 +20,10 @@ v0.3 has been completely rewritten to use ES6 modules, with the ability to dynam
 		]
 	}
 	</script>
+	
+	-- or include modules directly in the fstage.js url --
+	
+	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@latest/src/js/fstage.min.js#core,utils,pubsub,ipfs"></script>
 
 # Platform support
 
@@ -42,7 +46,7 @@ v0.3 has been completely rewritten to use ES6 modules, with the ability to dynam
 
 	Fstage.importr(modulePath)  //returns a promise of exports for an es6 module import
 	Fstage.exportr(name, exported)  //simulates dynamic export for an es6 module
-	Fstage.ready(callback)  //returns true or false to a callback, depending on whether Fstage modules have finished loading
+	Fstage.ready(callback)  //executes callback once fstage core modules have finished loading
 
 (2) UTILS
 
