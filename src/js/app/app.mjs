@@ -1,13 +1,13 @@
 //imports
-import { env, importer } from './core.mjs';
-import { utils } from './utils.mjs';
-import { components } from './components.mjs';
+import { env, importr } from '../fstage/fstage.mjs';
+import utils from '../utils/utils.mjs';
+import components from './components.mjs';
 
 //private vars
 const appCache = {};
 
-//export app create
-export function app(config = {}) {
+//exports
+export default function app(config = {}) {
 
 	//get app name
 	if(typeof config === 'string') {
@@ -208,14 +208,15 @@ export function app(config = {}) {
 		//run init event
 		app.pubsub.emit(evPrefix + 'init', app);
 		//import modules
-		importer.all(app.config.modules, app.env.basePath + "js/{name}.mjs").then(function(results) {
+		importr(app.config.modules, { tpl: app.env.basePath + "js/{name}.mjs", meta: true }).then(function(results) {
 			//set vars
 			var services = [];
 			var middleware = [];
 			//loop through results
 			results.forEach(function(module) {
 				//parse name
-				var split = module.name.split("/", 2);
+				var name = module.path.replace(app.env.basePath + 'js/', '').replace('.min', '').replace('.mjs', '');
+				var split = name.split("/", 2);
 				//has default?
 				if(module.exports.default) {
 					var n = split[1].replace(/\/./g, function(m) { m[1].toUpperCase() });

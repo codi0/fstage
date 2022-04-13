@@ -1,11 +1,11 @@
-//import ipfs
+//imports
 import 'https://cdn.jsdelivr.net/npm/ipfs/dist/index.min.js';
 
 //private vars
 var nodeCache = {};
 
-//export ipfs wrapper
-export function ipfs(config = {}) {
+//exports
+export default function ipfs(config = {}) {
 		
 	//format config?
 	if(typeof config === 'string') {
@@ -29,8 +29,6 @@ export function ipfs(config = {}) {
 		var api = {
 
 			node: node,
-				
-			ipfs: globalThis.Ipfs,
 
 			on: function(event, callback) {
 				return node.on(event, callback);
@@ -48,6 +46,58 @@ export function ipfs(config = {}) {
 
 			isOnline: function() {
 				return Promise.resolve(node.isOnline());
+			},
+
+			getCid: function(cid, opts = {}) {
+				//cid to string?
+				if(cid && typeof cid !== 'string') {
+					cid = api.utils.toString(cid);
+				}
+				//default method?
+				if(opts.method !== 'get') {
+					opts.method = 'cat';
+				}
+				//create generator
+				var generator = node[opts.method](cid, opts);
+				//return
+				return api.utils.iterator(generator, opts);
+			},
+
+			setCid: function(data, opts = {}) {
+				//default opts
+				opts = Object.assign({
+					cidOnly: true
+				}, opts);
+				//return
+				return node.add(data, opts).then(function(result) {
+					return opts.cidOnly ? result.cid.toString() : result;
+				});
+			},
+
+			setCids: function(source, opts = {}) {
+				//create generator
+				var generator = node.addAll(source, opts);
+				//return
+				return api.utils.iterator(generator, opts);
+			},
+
+			listCids: function(cid, opts = {}) {
+				//cid to string?
+				if(cid && typeof cid !== 'string') {
+					cid = api.utils.toString(cid);
+				}
+				//create generator
+				var generator = node.ls(cid, opts);
+				//return
+				return api.utils.iterator(generator, opts);
+			},
+
+			publishName: function(cid) {
+				return node.name.publish(cid);
+			},
+
+			resolveName: function() {
+				return node.name.resolve();
 			},
 
 			read: function(path, opts = {}) {
@@ -129,54 +179,6 @@ export function ipfs(config = {}) {
 				return node.files.mkdir(path, opts);
 			},
 
-			cid: {
-
-				get: function(cid, opts = {}) {
-					//cid to string?
-					if(cid && typeof cid !== 'string') {
-						cid = api.utils.toString(cid);
-					}
-					//default method?
-					if(opts.method !== 'get') {
-						opts.method = 'cat';
-					}
-					//create generator
-					var generator = node[opts.method](cid, opts);
-					//return
-					return api.utils.iterator(generator, opts);
-				},
-
-				list: function(cid, opts = {}) {
-					//cid to string?
-					if(cid && typeof cid !== 'string') {
-						cid = api.utils.toString(cid);
-					}
-					//create generator
-					var generator = node.ls(cid, opts);
-					//return
-					return api.utils.iterator(generator, opts);
-				},
-
-				set: function(data, opts = {}) {
-					//default opts
-					opts = Object.assign({
-						cidOnly: true
-					}, opts);
-					//return
-					return node.add(data, opts).then(function(result) {
-						return opts.cidOnly ? result.cid.toString() : result;
-					});
-				},
-
-				setAll: function(source, opts = {}) {
-					//create generator
-					var generator = node.addAll(source, opts);
-					//return
-					return api.utils.iterator(generator, opts);
-				}
-
-			},
-
 			utils: {
 
 				toString: function(data) {
@@ -230,7 +232,7 @@ export function ipfs(config = {}) {
 						if(opts.buffer > 0) {
 							//set buffer length
 							data = new Uint8Array(opts.buffer);
-							//populate buffer
+							//populate buffer view
 							for(var i=0; i < opts.chunks.length; i++) {
 								data.set(opts.chunks[i], offset);
 								offset += opts.chunks[i].length;

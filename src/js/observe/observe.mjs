@@ -1,19 +1,14 @@
 //imports
-import { objHandler } from './utils.mjs';
+import { objHandler } from '../utils/utils.mjs';
 
-//static vars
+//private vars
 var events = {};
 var ignore = {};
 var counter = 0;
 var reserved = [ 'proxyId', 'onProxy', 'proxyLocked', 'proxyTarget', 'merge', 'filter' ];
 
-//path helper
-function fullPath(base, key) {
-	return base + (base && key ? '.' : '') + (key || '');
-};
-
-//export observer
-export function observe(obj, opts = {}) {
+//exports
+export default function observe(obj, opts = {}) {
 	//set object
 	obj = obj || {};
 	//is proxy?
@@ -25,6 +20,10 @@ export function observe(obj, opts = {}) {
 	var path = opts.path || '';
 	var base = opts.base || obj;
 	var id = base.proxyId || (++counter);
+	//path helper
+	var fullPath = function(base, key) {
+		return base + (base && key ? '.' : '') + (key || '');
+	};
 	//setup IDs
 	events[id] = events[id] || {};
 	ignore[id] = ignore[id] || [];

@@ -1,5 +1,8 @@
-//global vars
+//private vars
 var _instances = 0;
+
+//exports
+export default new ps();
 
 //pubsub wrapper
 function ps() {
@@ -154,6 +157,3 @@ function ps() {
 	return api;
 
 }
-
-//export pubsub
-export const pubsub = new ps();

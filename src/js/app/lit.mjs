@@ -1,9 +1,9 @@
 //imports
-import { esc } from './utils.mjs';
-import { pubsub } from './pubsub.mjs';
+import { esc } from '../utils/utils.mjs';
+import pubsub from '../pubsub/pubsub.mjs';
 
-//template literals
-export function lit() {
+//exports
+export default function lit() {
 
 	//set vars
 	var ctx = this;

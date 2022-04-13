@@ -1,8 +1,8 @@
 //imports
-import { parseHTML, esc } from './utils.mjs';
+import { parseHTML, esc } from '../utils/utils.mjs';
 
-//export dom engine
-export const dom = function(s, ctx) {
+//exports
+export default function dom(s, ctx) {
 	//set vars
 	var cache = null;
 	if(s && s === globalThis) cache = 'win';

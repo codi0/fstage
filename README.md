@@ -1,13 +1,13 @@
-# fstage [v0.3.4]
+# fstage [ALPHA v0.3.5]
 
 A modular javascript library for developing modern web2 and web3 applications. Being developed as part of codi.io's mission to make web3 infrastructure accessible to all.
 
-v0.3 has been completely rewritten to use ES6 modules, with the ability to dynamically load modules at run-time and no build steps needed.
+Uses ES6 modules, with configurable dynamic loading at run-time. No build steps required. Alpha library, in development, and breaking changes may occur.
 
 # CDN links
 
-	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@latest/src/css/fstage.min.css">
-	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@latest/src/js/fstage.min.js"></script>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.5/src/css/fstage.min.css">
+	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.5/src/js/fstage.min.js"></script>
 
 # Dynamic module loading
 
@@ -16,14 +16,14 @@ v0.3 has been completely rewritten to use ES6 modules, with the ability to dynam
 	globalThis.Fstage.config = {
 		modules: [
 			//default modules loaded
-			'core', 'utils', 'pubsub', 'dom', 'dom/effects', 'dom/widgets', 'dom/diff', 'router', 'observe', 'store', 'lit', 'components', 'form', 'transport', 'webpush', 'app'
+			'fstage', 'utils', 'pubsub', 'observe', 'form', 'dom/@all', 'transport/@all', 'app/@all'
 		]
 	}
 	</script>
 	
 	-- or include modules directly in the fstage.js url --
 	
-	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@latest/src/js/fstage.min.js#core,utils,pubsub,ipfs"></script>
+	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@latest/src/js/fstage.min.js#fstage,utils,pubsub,ipfs"></script>
 
 # Platform support
 
@@ -50,25 +50,25 @@ v0.3 has been completely rewritten to use ES6 modules, with the ability to dynam
 
 (2) UTILS
 
-	Fstage.type(input)  //returns input type as a string (E.g. object, array, string, boolean)
-	Fstage.copy(array|object)  //returns a shallow copy of an array or object
-	Fstage.extend(obj1, obj2...)  //shallow merge of two or more objects
-	Fstage.debounce(callback, waitMs = 100)  //limits the rate at which the callback is executed
-	Fstage.memoize(callback)  //caches output of function using hash of input parameters
-	Fstage.isEmpty(input)  //checks whether javascript variable of any type is empty
-	Fstage.isUrl(input)  //checks whether javascript variable is a valid http(s) URL
-	Fstage.capitalize(string)  //capitalizes the first letter of a string
-	Fstage.hash(string|array|object)  //converts input into a numeric hash
-	Fstage.scroll(number|node)  //scroll to an element or pixel position on the screen
-	Fstage.parseHTML(string, first = false)  //converts HTML string to array of nodes
-	Fstage.stripHTML(string)  //strips HTML from a string
-	Fstage.esc(string, type = 'html')  //escapes a string, with optional type (html, js, attr)
+	Fstage.utils.type(input)  //returns input type as a string (E.g. object, array, string, boolean)
+	Fstage.utils.copy(array|object)  //returns a shallow copy of an array or object
+	Fstage.utils.extend(obj1, obj2...)  //shallow merge of two or more objects
+	Fstage.utils.debounce(callback, waitMs = 100)  //limits the rate at which the callback is executed
+	Fstage.utils.memoize(callback)  //caches output of function using hash of input parameters
+	Fstage.utils.isEmpty(input)  //checks whether javascript variable of any type is empty
+	Fstage.utils.isUrl(input)  //checks whether javascript variable is a valid http(s) URL
+	Fstage.utils.capitalize(string)  //capitalizes the first letter of a string
+	Fstage.utils.hash(string|array|object)  //converts input into a numeric hash
+	Fstage.utils.scroll(number|node)  //scroll to an element or pixel position on the screen
+	Fstage.utils.parseHTML(string, first = false)  //converts HTML string to array of nodes
+	Fstage.utils.stripHTML(string)  //strips HTML from a string
+	Fstage.utils.esc(string, type = 'html')  //escapes a string, with optional type (html, js, attr)
 
-	Fstage.objHandler.get(object, key)  //returns nested value from object by property key (E.g. user.address.city)
-	Fstage.objHandler.set(object, key, val, opts = {})  //sets nested object property value using key
-	Fstage.objHandler.merge(object, patch, opts = {})  //merges patch into object
-	Fstage.objHandler.filter(object, filters = {})  //filters object properties by one or more key=>val pairs
-	Fstage.objHandler.sort(object, order = {})  //sorts object properties by key, with optional limit/offset/desc
+	Fstage.utils.objHandler.get(object, key)  //returns nested value from object by property key (E.g. user.address.city)
+	Fstage.utils.objHandler.set(object, key, val, opts = {})  //sets nested object property value using key
+	Fstage.utils.objHandler.merge(object, patch, opts = {})  //merges patch into object
+	Fstage.utils.objHandler.filter(object, filters = {})  //filters object properties by one or more key=>val pairs
+	Fstage.utils.objHandler.sort(object, order = {})  //sorts object properties by key, with optional limit/offset/desc
 
 (3) PUBSUB
 
@@ -116,7 +116,7 @@ v0.3 has been completely rewritten to use ES6 modules, with the ability to dynam
 
 	Fstage.dom(selector).animate(effect, opts = {})  //manages animation on each selected DOM node using classes (requires fstage.css)
 	Fstage.dom(selector).sliding({ x: true, y: false, onStart: null, onMove: null, onEnd: null })  //controls sliding via options provided
-	Fstage.transition(toEl, toEffect, fromEl, fromEffect, opts = {})  //executes page transition from one element to another
+	Fstage.dom.transition(toEl, toEffect, fromEl, fromEffect, opts = {})  //executes page transition from one element to another
 
 (4.3) DOM WIDGETS
 
@@ -127,7 +127,7 @@ v0.3 has been completely rewritten to use ES6 modules, with the ability to dynam
 
 (4.4) DOM DIFFING
 
-	Fstage.domDiff(fromNode, toNode|toHtml, opts = {})  //updates specified DOM node to new state with the minimum necessary changes
+	Fstage.dom.diff(fromNode, toNode|toHtml, opts = {})  //updates specified DOM node to new state with the minimum necessary changes
 
 (5) VIEW ROUTING
 

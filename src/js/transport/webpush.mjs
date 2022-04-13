@@ -1,5 +1,8 @@
-//webpush handler
-export const webpush = new (function() {
+//exports
+export default new webpush();
+
+//webpush wrapper
+function webpush() {
 
 	//internal vars
 	var _url = null;
@@ -171,4 +174,4 @@ export const webpush = new (function() {
 
 	};
 
-})();
+};

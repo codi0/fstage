@@ -1,13 +1,11 @@
-//import hls (hack required)
+//imports
 import 'data:text/javascript, globalThis._exports=globalThis.exports; globalThis.exports={};';
 import 'https://cdn.jsdelivr.net/npm/hls.js@0.14.17';
 globalThis.Hls = globalThis.Hls || exports.Hls;
 globalThis.exports = globalThis._exports;
 
-//export hls wrapper
-export var hls = {
-
-	hls: globalThis.Hls,
+//exports
+export default {
 
 	stream: function(path, opts = {}) {
 		//format opts?
@@ -30,8 +28,9 @@ export var hls = {
 					return opts.ipfsNode;
 				}
 				//import ipfs
-				return import('./ipfs.mjs').then(function(module) {
-					return module.ipfs();
+				return import('../ipfs/ipfs.mjs').then(function(module) {
+					var fn = module.ipfs || module.default;
+					return fn();
 				}).catch(function(error) {
 					console.error(error);
 				});
@@ -39,8 +38,9 @@ export var hls = {
 				//has node?
 				if(!ipfsNode) return;
 				//import loader module
-				return import('./ipfs/hlsLoader.mjs').then(function(module) {
-					hls.config.loader = module.ipfsHlsLoader(ipfsNode, opts.debug);
+				return import('./ipfsLoader.mjs').then(function(module) {
+					var fn = module.hlsIpfsLoadeer || module.default;
+					hls.config.loader = fn(ipfsNode, opts.debug);
 				}).catch(function(error) {
 					console.error(error);
 				});

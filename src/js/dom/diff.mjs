@@ -1,11 +1,11 @@
 //imports
-import { dom } from '../dom.mjs';
+import dom from './dom.mjs';
 
-//add to parent
+//add to dom
 dom.diff = domDiff;
 
 //Forked: https://github.com/patrick-steele-idem/morphdom/
-export function domDiff(from, to, opts = {}) {
+export default function domDiff(from, to, opts = {}) {
 
 	//get node key helper
 	var getNodeKey = function(node) {

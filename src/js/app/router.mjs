@@ -1,8 +1,11 @@
 //imports
-import { env } from './core.mjs';
+import { env } from '../fstage/fstage.mjs';
+
+//exports
+export default new router();
 
 //router wrapper
-function rtr(opts = {}) {
+function router(opts = {}) {
 
 	//config opts
 	opts = Object.assign({
@@ -13,8 +16,8 @@ function rtr(opts = {}) {
 		isBack: false,
 		def404: null,
 		defHome: null,
-		basePath: null,
-		urlScheme: 'path'
+		urlScheme: 'path',
+		basePath: env.basePath
 	}, opts);
 
 	//set flags
@@ -24,7 +27,7 @@ function rtr(opts = {}) {
 	var api = {
 
 		instance: function(opts = {}) {
-			return new rtr(opts);
+			return new router(opts);
 		},
 
 		start: function(merge = {}) {
@@ -36,10 +39,6 @@ function rtr(opts = {}) {
 				_started = true;
 				//merge opts
 				opts = Object.assign(opts, merge);
-				//guess base path?
-				if(!opts.basePath) {
-					opts.basePath = env.basePath;
-				}
 				//hash url?
 				if(opts.urlScheme === 'hash') {
 					route = location.hash.replace('#', '');
@@ -311,6 +310,3 @@ function rtr(opts = {}) {
 	return api;
 
 };
-
-//export instance
-export const router = new rtr();

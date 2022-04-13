@@ -1,13 +1,16 @@
 //imports
-import { esc } from './utils.mjs';
-import { pubsub } from './pubsub.mjs';
-import { domDiff } from './dom/diff.mjs';
-import { router } from './router.mjs';
-import { store } from './store.mjs';
-import { lit } from './lit.mjs';
+import { esc } from '../utils/utils.mjs';
+import pubsub from '../pubsub/pubsub.mjs';
+import domDiff from '../dom/diff.mjs';
+import router from './router.mjs';
+import store from './store.mjs';
+import lit from './lit.mjs';
+
+//exports
+export default new components();
 
 //components wrapper
-function comps(config = {}) {
+function components(config = {}) {
 
 	//default config
 	config = Object.assign({
@@ -312,7 +315,7 @@ function comps(config = {}) {
 	var api = {
 
 		instance: function(opts = {}) {
-			return new comps(opts);
+			return new components(opts);
 		},
 
 		pubsub: function() {
@@ -486,6 +489,3 @@ function comps(config = {}) {
 	return api;
 
 }
-
-//export components
-export const components = new comps();

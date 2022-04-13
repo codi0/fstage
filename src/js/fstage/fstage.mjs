@@ -1,4 +1,4 @@
-//export global as module
+//exports
 export const Fstage = globalThis.Fstage;
 export const config = Fstage.config;
 export const env = Fstage.env;

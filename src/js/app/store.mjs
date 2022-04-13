@@ -1,13 +1,13 @@
 //imports
-import { pubsub } from './pubsub.mjs';
-import { observe } from './observe.mjs';
+import pubsub from '../pubsub/pubsub.mjs';
+import observe from '../observe/observe.mjs';
 
-//set vars
+//private vars
 var queue = [];
 var storeId = 0;
 
-//state manager
-export function store(state = {}, opts = {}) {
+//exports
+export default function store(state = {}, opts = {}) {
 
 	//local vars
 	var fnId = 0;

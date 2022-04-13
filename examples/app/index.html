@@ -93,7 +93,7 @@
 
 		//local config
 		var useCdn = true; //whether to load fstage from cdn
-		var version = '0.3.3'; //version of fstage library to use
+		var version = '0.3.5'; //version of fstage library to use
 		var baseUri = location.href; //baseUri must be the absolute URL to this file (hardcode if needed)
 
 		//path helper
@@ -108,7 +108,7 @@
 			},
 
 			app: function(path) {
-				var parts = baseUri.split('?')[0].replace(/\/$/g, '').split('/');
+				var parts = baseUri.split('#')[0].split('?')[0].replace(/\/$/g, '').split('/');
 				if(parts[parts.length-1].indexOf('.') !== -1) parts.pop();
 				return parts.join('/') + '/' + path;
 			}

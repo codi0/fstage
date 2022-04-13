@@ -1,3 +1,21 @@
+//exports
+export default {
+	type: type,
+	copy: copy,
+	extend: extend,
+	debounce: debounce,
+	memoize: memoize,
+	isEmpty: isEmpty,
+	isUrl: isUrl,
+	capitalize: capitalize,
+	hash: hash,
+	scroll: scroll,
+	parseHTML: parseHTML,
+	stripHTML: stripHTML,
+	esc: esc,
+	objHandler: objHandler
+};
+
 //get input type
 export function type(input) {
 	//is proxy?
@@ -181,7 +199,7 @@ esc.css = function(input) {
 };
 
 //object utils
-export const objHandler = {
+export var objHandler = {
 
 	get: function(obj, key) {
 		//split key?
@@ -352,22 +370,4 @@ export const objHandler = {
 		return obj;
 	}
 
-};
-
-//utils wrapper
-export const utils = {
-	type: type,
-	copy: copy,
-	extend: extend,
-	debounce: debounce,
-	memoize: memoize,
-	isEmpty: isEmpty,
-	isUrl: isUrl,
-	capitalize: capitalize,
-	hash: hash,
-	scroll: scroll,
-	parseHTML: parseHTML,
-	stripHTML: stripHTML,
-	esc: esc,
-	objHandler: objHandler
 };

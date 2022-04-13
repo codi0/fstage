@@ -1,6 +1,6 @@
 //imports
-import { dom } from '../dom.mjs';
-import { debounce, parseHTML } from '../utils.mjs';
+import dom from './dom.mjs';
+import { debounce, parseHTML } from '../utils/utils.mjs';
 
 //dialog overlay
 dom.fn.overlay = function(text, opts = {}) {

@@ -5,7 +5,7 @@
 	var NAME = 'Fstage';
 	var VERSION = '0.3.4';
 	var GLOBALS = [ NAME, '$' ];
-	var MODULES = [ 'core', 'utils', 'pubsub', 'dom', 'dom/effects', 'dom/widgets', 'dom/diff', 'router', 'observe', 'store', 'lit', 'components', 'form', 'transport', 'webpush', 'app' ];
+	var MODULES = [ 'fstage', 'utils', 'pubsub', 'observe', 'form', 'dom/@all', 'transport/@all', 'app/@all' ];
 
 
 	/* POLYFILLS */
@@ -160,23 +160,36 @@
 	};
 
 	//import handler
-	var importr = function(name, path = null) {
-		//format input
-		path = path || name;
+	var importr = function(path, opts = {}) {
 		//bulk import?
 		if(typeof path !== 'string') {
 			//set vars
 			var proms = [];
 			//loop through modules
 			path.forEach(function(m) {
-				proms.push(importr(m));
+				proms.push(importr(m, opts));
 			});
 			//return
 			return Promise.all(proms);
 		}
+		//set vars
+		var parts = path.split('/');
+		var name = path.replace('/@all', '').replace('/index', '');
 		//format path?
-		if(env.importTpl && /^[a-zA-Z0-9\/]+$/.test(path)) {
-			path = env.importTpl.replace('{name}', path);
+		if(path.indexOf('@all') > 0) {
+			path = path.replace('@all', 'index');
+		} else if(path.indexOf('.') === -1 && !opts.tpl) {
+			path += '/' + parts[parts.length-1];
+		}
+		//default opts
+		opts = Object.assign({
+			meta: false,
+			cache: !opts.tpl,
+			tpl: env.importTpl
+		}, opts);
+		//use path template?
+		if(opts.tpl && /^[a-zA-Z0-9\/]+$/.test(path)) {
+			path = opts.tpl.replace('{name}', path);
 		}
 		//valid server file prefix?
 		if(env.isNode && !(/^(file|data)/.test(path))) {
@@ -186,7 +199,7 @@
 		importr.path = path;
 		importr.cache = importr.cache || {};
 		//import cached?
-		if(importr.cache[name]) {
+		if(importr.cache[path]) {
 			var prom = Promise.resolve(null);
 		} else {
 			var prom = import(path);
@@ -195,31 +208,38 @@
 		return prom.then(function(exports) {
 			//process exports?
 			if(exports) {
-				//cache exports
-				for(var k in exports) {
-					//get export name
-					var n = (k == 'default') ? name.replace(/\/./g, function(m) { m[1].toUpperCase() }) : k;
-					//call exportr
-					exportr(n, exports[k], false);
+				//cache exports?
+				if(opts.cache) {
+					//has default?
+					if(exports.default) {
+						//get name
+						var n = name.replace(/\/./g, function(m) { m[1].toUpperCase() });
+						//call exportr
+						exportr(n, exports.default, false);
+					} else {
+						//loop through exports
+						for(var k in exports) {
+							exportr(k, exports[k], false);
+						}
+					}
 				}
 				//cache module
-				importr.cache[name] = {
-					name: name,
-					path: path,
-					exports: exports
-				};
+				importr.cache[path] = exports;
 				//dispatch event?
 				if(globalThis.dispatchEvent) {
 					//create event
 					var e = new CustomEvent('importr', {
-						detail: importr.cache[name]
+						detail: {
+							path: path,
+							exports: exports
+						}
 					});
 					//dispatch
 					globalThis.dispatchEvent(e);
 				}
 			}
 			//return
-			return importr.cache[name].exports;
+			return opts.meta ? { path: path, exports: importr.cache[path] } : importr.cache[path];
 		});
 	};
 
@@ -246,15 +266,43 @@
 	};
 
 	//replace modules?
-	if(config.modules) {
+	if(config.modules && config.modules.length) {
 		MODULES = config.modules;
 	}
 
 	//append to modules?
-	if(config.appendModules) {
+	if(config.appendModules && config.appendModules.length) {
 		MODULES.push(...config.appendModules);
 	}
-	
+
+	//create import map?
+	if(globalThis.document) {
+		//set vars
+		var mapArr = [];
+		var mapPrefix = NAME.toLowerCase();
+		//loop through modules
+		MODULES.forEach(function(m) {
+			//set vars
+			var p = mapPrefix;
+			var m = m.replace('@all', 'index');
+			var n = m.split('/')[0];
+			//add to prefix?
+			if(p !== n) {
+				p += '/' + n;
+			}
+			//add to array?
+			if(/^[a-zA-Z0-9\/\@]+$/.test(m)) {
+				mapArr.push('"' + p + '": "' + env.importTpl.replace('{name}', m) + '"');
+			}
+		});
+		//create script
+		var s = document.createElement('script');
+		var t = document.querySelectorAll('script');
+		s.type = 'importmap';
+		s.textContent = '{ "imports": { ' + mapArr.join(", ") + ' } }';
+		t[0].parentNode.insertBefore(s, t[0]);
+	}
+
 	//import core modules
 	importr(MODULES).then(function() {
 		//set ready flag
@@ -290,7 +338,9 @@
 
 	//globals export
 	GLOBALS.forEach(function(g) {
-		globalThis[g] = globalThis[g] || CONTAINER;
+		if(!globalThis[g] || g === NAME) {
+			globalThis[g] = CONTAINER;
+		}
 	});
 
 	//additional globals

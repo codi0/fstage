@@ -1,5 +1,5 @@
 //hls custom loader
-export function ipfsHlsLoader(ipfsNode, debug) {
+export default function hlsIpfsLoadeer(ipfsNode, debug) {
 
 	//get raw node?
 	if(ipfsNode.node) {

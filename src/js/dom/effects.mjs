@@ -1,5 +1,5 @@
 //imports
-import { dom } from '../dom.mjs';
+import dom from './dom.mjs';
 
 //animate element
 dom.fn.animate = function(effect, opts = {}) {

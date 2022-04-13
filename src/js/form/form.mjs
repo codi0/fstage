@@ -1,5 +1,5 @@
 //form wrapper
-export function form(name, opts = {}) {
+export default function form(name, opts = {}) {
 	//set vars
 	var step = '';
 	var values = {};
