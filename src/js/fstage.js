@@ -3,9 +3,10 @@
 	/* CONFIG */
 
 	var NAME = 'Fstage';
-	var VERSION = '0.3.4';
+	var VERSION = '0.3.6';
 	var GLOBALS = [ NAME, '$' ];
-	var MODULES = [ 'fstage', 'utils', 'pubsub', 'observe', 'form', 'dom/@all', 'transport/@all', 'app/@all' ];
+	var MODULES = [ 'fstage', 'utils', 'pubsub', 'observe', 'transport', 'form', 'dom/@all', 'app/@all', 'webpush', 'hls', 'ipfs' ];
+	var LOADED = [ 'fstage', 'app/@all' ];
 
 
 	/* POLYFILLS */
@@ -131,7 +132,7 @@
 		}
 		//get modules from script?
 		if(env.scriptPath.indexOf('#') > 0) {
-			MODULES = env.scriptPath.split('#')[1].split(',');
+			LOADED = env.scriptPath.split('#')[1].split(',');
 			env.scriptPath = env.scriptPath.split('#')[0];
 		}
 		//format script path
@@ -173,22 +174,26 @@
 			return Promise.all(proms);
 		}
 		//set vars
+		var name = '';
 		var parts = path.split('/');
-		var name = path.replace('/@all', '').replace('/index', '');
-		//format path?
-		if(path.indexOf('@all') > 0) {
-			path = path.replace('@all', 'index');
-		} else if(path.indexOf('.') === -1 && !opts.tpl) {
-			path += '/' + parts[parts.length-1];
+		//is cachable?
+		if(/^[a-zA-Z0-9\/\@]+$/.test(path)) {
+			//set name
+			name = path.replace(/(\/\@all|\/index)$/g, '');
+			//update path
+			path = path.replace(/\@all$/g, 'index');
+			//add section?
+			if(!(/\.|\//.test(path))) {
+				path += '/' + parts[parts.length-1];
+			}
 		}
 		//default opts
 		opts = Object.assign({
-			meta: false,
-			cache: !opts.tpl,
+			name: name,
 			tpl: env.importTpl
 		}, opts);
 		//use path template?
-		if(opts.tpl && /^[a-zA-Z0-9\/]+$/.test(path)) {
+		if(opts.tpl && name) {
 			path = opts.tpl.replace('{name}', path);
 		}
 		//valid server file prefix?
@@ -209,17 +214,19 @@
 			//process exports?
 			if(exports) {
 				//cache exports?
-				if(opts.cache) {
+				if(opts.name) {
 					//has default?
 					if(exports.default) {
-						//get name
-						var n = name.replace(/\/./g, function(m) { m[1].toUpperCase() });
-						//call exportr
+						var n = opts.name.replace(/\/./g, function(m) { m[1].toUpperCase() });
 						exportr(n, exports.default, false);
-					} else {
+					}
+					//add named exports?
+					if(!exports.default || path.indexOf('index.') > 0) {
 						//loop through exports
 						for(var k in exports) {
-							exportr(k, exports[k], false);
+							if(k !== 'default') {
+								exportr(k, exports[k], false);
+							}
 						}
 					}
 				}
@@ -239,7 +246,7 @@
 				}
 			}
 			//return
-			return opts.meta ? { path: path, exports: importr.cache[path] } : importr.cache[path];
+			return importr.cache[path];
 		});
 	};
 
@@ -267,12 +274,17 @@
 
 	//replace modules?
 	if(config.modules && config.modules.length) {
-		MODULES = config.modules;
+		LOADED = config.modules;
+	}
+
+	//load all modules?
+	if(LOADED.length && LOADED[0] === '@all') {
+		LOADED = MODULES;
 	}
 
 	//append to modules?
 	if(config.appendModules && config.appendModules.length) {
-		MODULES.push(...config.appendModules);
+		LOADED.push(...config.appendModules);
 	}
 
 	//create import map?
@@ -282,17 +294,22 @@
 		var mapPrefix = NAME.toLowerCase();
 		//loop through modules
 		MODULES.forEach(function(m) {
-			//set vars
-			var p = mapPrefix;
-			var m = m.replace('@all', 'index');
-			var n = m.split('/')[0];
-			//add to prefix?
-			if(p !== n) {
-				p += '/' + n;
-			}
-			//add to array?
+			//can add to map?
 			if(/^[a-zA-Z0-9\/\@]+$/.test(m)) {
-				mapArr.push('"' + p + '": "' + env.importTpl.replace('{name}', m) + '"');
+				//set vars
+				var name = mapPrefix;
+				var path = m.replace('@all', 'index');
+				var parts = path.split('/');
+				//add to name?
+				if(name !== parts[0]) {
+					name += '/' + parts[0];
+				}
+				//add to path?
+				if(path.indexOf('/') === -1) {
+					path += '/' + path;
+				}
+				//add to array
+				mapArr.push('"' + name + '": "' + env.importTpl.replace('{name}', path) + '"');
 			}
 		});
 		//create script
@@ -304,7 +321,7 @@
 	}
 
 	//import core modules
-	importr(MODULES).then(function() {
+	importr(LOADED).then(function() {
 		//set ready flag
 		env.ready = true;
 		//create custom event
@@ -325,6 +342,21 @@
 		importr: importr,
 		exportr: exportr,
 	};
+
+	/*
+	CONTAINER = new Proxy(CONTAINER, {
+		get: function(obj, key) {
+			//has key?
+			if(obj[key]) {
+				return obj[key];
+			}
+			//import
+			return importr(key).then(function() {
+				return obj[key];
+			});
+		}
+	});
+	*/
 
 	//cjs export?
 	if(typeof module === 'object' && module.exports) {

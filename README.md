@@ -1,4 +1,4 @@
-# fstage [ALPHA v0.3.5]
+# fstage [ALPHA v0.3.6]
 
 A modular javascript library for developing modern web2 and web3 applications. Being developed as part of codi.io's mission to make web3 infrastructure accessible to all.
 
@@ -6,8 +6,8 @@ Uses ES6 modules, with configurable dynamic loading at run-time. No build steps 
 
 # CDN links
 
-	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.5/src/css/fstage.min.css">
-	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.5/src/js/fstage.min.js"></script>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.6/src/css/fstage.min.css">
+	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.6/src/js/fstage.min.js"></script>
 
 # Dynamic module loading
 
@@ -15,15 +15,19 @@ Uses ES6 modules, with configurable dynamic loading at run-time. No build steps 
 	//add before loading fstage.js
 	globalThis.Fstage.config = {
 		modules: [
-			//default modules loaded
-			'fstage', 'utils', 'pubsub', 'observe', 'form', 'dom/@all', 'transport/@all', 'app/@all'
+			//Example 1: shortcut for preloading all modules
+			'@all'
+			//Example 3: preload individual modules (default)
+			'fstage', 'app/@all'
+			//Example 3: full list of all modules
+			'fstage', 'utils', 'pubsub', 'observe', 'transport', 'form', 'dom/@all', 'app/@all', 'webpush', 'hls', 'ipfs'
 		]
 	}
 	</script>
 	
 	-- or include modules directly in the fstage.js url --
 	
-	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@latest/src/js/fstage.min.js#fstage,utils,pubsub,ipfs"></script>
+	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@latest/src/js/fstage.min.js#hls,ipfs"></script>
 
 # Platform support
 

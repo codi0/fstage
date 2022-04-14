@@ -2,10 +2,10 @@
 var _instances = 0;
 
 //exports
-export default new ps();
+export default new pubsub();
 
 //pubsub wrapper
-function ps() {
+function pubsub() {
 
 	//local vars
 	var _cbs = {};
@@ -63,7 +63,7 @@ function ps() {
 	var api = {
 
 		instance: function() {
-			return new ps();
+			return new pubsub();
 		},
 
 		has: function(id) {

@@ -1,6 +1,6 @@
 //imports
-import { app } from 'fstage/app';
-import { dom } from 'fstage/dom';
+import app from 'fstage/app';
+import dom from 'fstage/dom';
 
 //create app
 app().mount('#root', function(app) {

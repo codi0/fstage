@@ -5,4 +5,4 @@ import './effects.mjs';
 import './widgets.mjs';
 
 //exports
-export { dom }
+export default dom;

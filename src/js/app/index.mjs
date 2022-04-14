@@ -1,9 +1,10 @@
 //imports
-import app from './app.mjs';
-import components from './components.mjs';
 import lit from './lit.mjs';
 import router from './router.mjs';
 import store from './store.mjs';
+import components from './components.mjs';
+import app from './app.mjs';
 
 //exports
-export { app, components, lit, router, store };
+export default app;
+export { lit, router, store, components };

@@ -1,5 +1,5 @@
 //imports
-import { env, importr } from '../fstage/fstage.mjs';
+import { env } from '../fstage/fstage.mjs';
 import utils from '../utils/utils.mjs';
 import components from './components.mjs';
 
@@ -207,69 +207,62 @@ export default function app(config = {}) {
 		status.init = true;
 		//run init event
 		app.pubsub.emit(evPrefix + 'init', app);
-		//import modules
-		importr(app.config.modules, { tpl: app.env.basePath + "js/{name}.mjs", meta: true }).then(function(results) {
+		//set vars
+		var proms = [];
+		//loop through modules
+		app.config.modules.forEach(function(path) {
+			//use template?
+			if(path.indexOf('.') === -1) {
+				path = app.env.basePath + 'js/' + path + '.mjs';
+			}
+			//import module
+			proms.push(import(path));
+		});
+		//wait for imports
+		Promise.all(proms).then(function(results) {
 			//set vars
 			var services = [];
 			var middleware = [];
 			//loop through results
-			results.forEach(function(module) {
-				//parse name
-				var name = module.path.replace(app.env.basePath + 'js/', '').replace('.min', '').replace('.mjs', '');
+			results.forEach(function(exports, index) {
+				//get module name
+				var name = app.config.modules[index];
 				var split = name.split("/", 2);
 				//has default?
-				if(module.exports.default) {
+				if(exports.default) {
 					var n = split[1].replace(/\/./g, function(m) { m[1].toUpperCase() });
-					module.exports[n] = module.exports.default;
-					delete module.exports.default;
+					exports[n] = exports.default;
+					delete exports.default;
 				}
-				//is util?
-				if(split[0] === 'utils') {
-					for(var i in module.exports) {
-						app.utils[i] = module.exports[i];
-					}
-				}
-				//is service?
-				if(split[0] === 'services') {
-					for(var i in module.exports) {
-						app[i] = module.exports[i];
+				//loop through exports
+				for(var i in exports) {
+					//is util?
+					if(split[0] === 'utils') {
+						app.utils[i] = exports[i];
+					} else if(split[0] === 'services') {
+						app[i] = exports[i];
 						services.push(i);
-					}
-				}
-				//is middleware?
-				if(split[0] === 'middleware') {
-					for(var i in module.exports) {
-						middleware.push(module.exports[i]);
-					}				
-				}
-				//is component?
-				if(split[0] === 'components') {
-					for(var i in module.exports) {
-						app.components.register(i, module.exports[i]);
+					} else if(split[0] === 'middleware') {
+						middleware.push(exports[i]);
+					} else if(split[0] === 'components') {
+						app.components.register(i, exports[i]);
 					}
 				}
 			});
-			//return
-			return {
-				services: services,
-				middleware: middleware
-			}
-		}).then(function(data) {
 			//start services
-			data.services.forEach(function(name) {
+			services.forEach(function(name) {
 				if(app[name].start) {
 					app[name].start(app);
 				}
 			});
 			//execute middleware
-			data.middleware.forEach(function(fn) {
+			middleware.forEach(function(fn) {
 				fn(app.components.store(), app);
 			});
 			//register routes
 			app.routes.forEach(function(route) {
 				app.router.on(route, null);
 			});
-		}).then(function() {
 			//execute callback?
 			if(callback) {
 				callback(app);
