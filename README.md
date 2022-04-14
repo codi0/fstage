@@ -193,4 +193,12 @@ Uses ES6 modules, with configurable dynamic loading at run-time. No build steps 
 
 (13) APP SHELL
 
-	Fstage.app(config = {})  //creates a framework for a reactive app that utilises Fstage modules 
+	Fstage.app(config = {})  //creates a framework for a reactive app that utilises Fstage modules
+
+(14) HTTP LIVE STREAMING
+
+	Fstage.hls.stream(url, callback|opts)  //creates a video or audio html element that will play over http or ipfs
+	
+(15) IPFS (https://ipfs.io)
+
+	//In development. No stable API yet.
