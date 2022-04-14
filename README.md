@@ -1,4 +1,4 @@
-# fstage [ALPHA v0.3.6]
+# fstage [ALPHA v0.3.7]
 
 A modular javascript library for developing modern web2 and web3 applications. Being developed as part of codi.io's mission to make web3 infrastructure accessible to all.
 
@@ -6,28 +6,27 @@ Uses ES6 modules, with configurable dynamic loading at run-time. No build steps 
 
 # CDN links
 
-	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.6/src/css/fstage.min.css">
-	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.6/src/js/fstage.min.js"></script>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.7/src/css/fstage.min.css">
+	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.7/src/js/fstage.min.js"></script>
 
 # Dynamic module loading
 
 	<script>
-	//add before loading fstage.js
-	globalThis.Fstage.config = {
-		modules: [
-			//Example 1: shortcut for preloading all modules
-			'@all'
-			//Example 3: preload individual modules (default)
-			'fstage', 'app/@all'
-			//Example 3: full list of all modules
-			'fstage', 'utils', 'pubsub', 'observe', 'transport', 'form', 'dom/@all', 'app/@all', 'webpush', 'hls', 'ipfs'
-		]
-	}
+	//list modules
+	var modules = [
+		//Example 1: preload individual modules (default)
+		'fstage', 'app/@all'
+		//Example 2: full list of all modules
+		//'fstage', 'utils', 'pubsub', 'observe', 'transport', 'form', 'dom/@all', 'app/@all', 'webpush', 'hls', 'ipfs'
+		//Example 3: shortcut for preloading all modules
+		//'@all'
+	];
+	
+	//load modules
+	Fstage.ready(modules, function(exports) {
+		//once modules are loaded, do what you want here
+	});
 	</script>
-	
-	-- or include modules directly in the fstage.js url --
-	
-	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@latest/src/js/fstage.min.js#hls,ipfs"></script>
 
 # Platform support
 
@@ -44,13 +43,12 @@ Uses ES6 modules, with configurable dynamic loading at run-time. No build steps 
 
 (1) CORE
 
-	Fstage.config = { host, basePath, scriptPath }  //pass configuration vars, by creating a globalThis.Fstage.config object before loading Fstage
 	Fstage.env = { isNode, isWorker, isBrower, isMobile, isHybrid, isPwa, clientId, clientOs, clientUa, host, basePath, scriptPath }  //returns environment vars
 	Fstage.env.parseReq(req)  //re-processes environment vars based on an IncomingMessage request object (nodejs)
 
 	Fstage.importr(modulePath)  //returns a promise of exports for an es6 module import
 	Fstage.exportr(name, exported)  //simulates dynamic export for an es6 module
-	Fstage.ready(callback)  //executes callback once fstage core modules have finished loading
+	Fstage.ready(modules, callback)  //load modules and execute callback when loading complete
 
 (2) UTILS
 

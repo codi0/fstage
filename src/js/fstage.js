@@ -3,10 +3,10 @@
 	/* CONFIG */
 
 	var NAME = 'Fstage';
-	var VERSION = '0.3.6';
+	var VERSION = '0.3.7';
 	var GLOBALS = [ NAME, '$' ];
 	var MODULES = [ 'fstage', 'utils', 'pubsub', 'observe', 'transport', 'form', 'dom/@all', 'app/@all', 'webpush', 'hls', 'ipfs' ];
-	var LOADED = [ 'fstage', 'app/@all' ];
+	var DEFAULTS = [ 'fstage', 'app/@all' ];
 
 
 	/* POLYFILLS */
@@ -37,7 +37,7 @@
 	}
 
 	//node global listener
-	if(typeof __filename !== 'undefined') {
+	if(!globalThis.addEventListener && typeof __filename !== 'undefined') {
 		//create global target
 		var gTarget = new EventTarget();
 		//custom event
@@ -54,9 +54,6 @@
 
 
 	/* BOOSTRAP */
-
-	//config params
-	var config = (globalThis[NAME] || {}).config || {};
 
 	//env params
 	var env = (function() {
@@ -105,12 +102,12 @@
 			clientOs: '',
 			clientUa: globalThis.navigator ? navigator.userAgent : '',
 			//server
-			host: config.host || (globalThis.location ? location.protocol + "//" + location.hostname : ''),
-			basePath: config.basePath || (globalThis.location ? location.href : ''),
-			scriptPath: config.scriptPath || '',
+			host: globalThis.location ? location.protocol + "//" + location.hostname : '',
+			basePath: globalThis.location ? location.href : '',
+			scriptPath: '',
 			//nodejs
 			parseReq: function(req) {
-				env.host = config.host || ((req.protocol || 'http') + "://" + req.headers.host);
+				env.host = (req.protocol || 'http') + "://" + req.headers.host;
 				env.clientUa = req.headers['user-agent'];
 				env.clientId = _calcId(env.clientUa);
 				var p = _parseUa(env.clientUa);
@@ -130,13 +127,6 @@
 			env.scriptPath = document.currentScript.src;
 			env.basePath = (document.querySelector('base') || {}).href || env.basePath;
 		}
-		//get modules from script?
-		if(env.scriptPath.indexOf('#') > 0) {
-			LOADED = env.scriptPath.split('#')[1].split(',');
-			env.scriptPath = env.scriptPath.split('#')[0];
-		}
-		//format script path
-		env.scriptPath = env.scriptPath.split('?')[0];
 		//format base uri
 		env.basePath = _formatPath(env.basePath);
 		//import template path
@@ -150,15 +140,6 @@
 		//return
 		return env;
 	})();
-
-	//ready handler
-	var ready = function(fn) {
-		//async call
-		setTimeout(function() {
-			var wrap = function() { fn(exportr.cache); };
-			env.ready ? wrap() : globalThis.addEventListener(NAME.toLowerCase(), wrap);
-		}, 1);
-	};
 
 	//import handler
 	var importr = function(path, opts = {}) {
@@ -221,7 +202,7 @@
 						exportr(n, exports.default, false);
 					}
 					//add named exports?
-					if(!exports.default || path.indexOf('index.') > 0) {
+					if(!exports.default || path.indexOf('/index.') > 0) {
 						//loop through exports
 						for(var k in exports) {
 							if(k !== 'default') {
@@ -272,20 +253,43 @@
 		return exported;
 	};
 
-	//replace modules?
-	if(config.modules && config.modules.length) {
-		LOADED = config.modules;
-	}
-
-	//load all modules?
-	if(LOADED.length && LOADED[0] === '@all') {
-		LOADED = MODULES;
-	}
-
-	//append to modules?
-	if(config.appendModules && config.appendModules.length) {
-		LOADED.push(...config.appendModules);
-	}
+	//ready handler
+	var ready = function(modules, fn) {
+		//loaded array
+		ready.loaded = ready.loaded || [];
+		//is callback?
+		if(typeof modules === 'function') {
+			fn = modules;
+			modules = [];
+		}
+		//is string?
+		if(typeof modules === 'string') {
+			modules = modules.replace(' ', '').split(',');
+		}
+		//use defaults?
+		if(!modules.length) {
+			modules = DEFAULTS;
+		}
+		//async call
+		setTimeout(function() {
+			//load all modules?
+			if(modules.length && modules[0] === '@all') {
+				modules = MODULES;
+			}
+			//filter out loaded
+			modules = modules.filter(function(m) {
+				return !ready.loaded.includes(m);
+			});
+			//mark as loaded?
+			if(modules.length) {
+				ready.loaded.push(...modules);
+			}
+			//import modules
+			importr(modules).then(function() {
+				fn && fn(exportr.cache);
+			});
+		}, 0);
+	};
 
 	//create import map?
 	if(globalThis.document) {
@@ -320,27 +324,16 @@
 		t[0].parentNode.insertBefore(s, t[0]);
 	}
 
-	//import core modules
-	importr(LOADED).then(function() {
-		//set ready flag
-		env.ready = true;
-		//create custom event
-		var e = new CustomEvent(NAME.toLowerCase());
-		//dispatch event
-		globalThis.dispatchEvent(e);
-	});
-
 
 	/* EXPORTS */
 
 	//container
 	var CONTAINER = {
 		version: VERSION,
-		config: config,
 		env: env,
-		ready: ready,
 		importr: importr,
 		exportr: exportr,
+		ready: ready
 	};
 
 	/*

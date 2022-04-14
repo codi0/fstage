@@ -13,11 +13,11 @@
 	video { width: 100%; }
 	#wrap { max-width: 720px; padding: 10px; margin: 0 auto; background: #fff; }
 	</style>
-	<script defer src="../../src/js/fstage.js#ipfs,hls"></script>
+	<script defer src="../../src/js/fstage.js"></script>
 	<script>
 	window.addEventListener('load', function() {
 		//listen for fstage ready
-		Fstage.ready(async function(exports) {
+		Fstage.ready([ 'ipfs', 'hls' ], async function(exports) {
 			//Config: video type
 			var type = 'ipfs';
 			//stream urls

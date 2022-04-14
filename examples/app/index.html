@@ -91,60 +91,47 @@
 	<script>
 	(function() {
 
-		//local config
-		var useCdn = true; //whether to load fstage from cdn
-		var version = '0.3.6'; //version of fstage library to use
-		var baseUri = location.href; //baseUri must be the absolute URL to this file (hardcode if needed)
+		//config vars
+		var config = {
+		
+			useCdn: true, //whether to load fstage from cdn
+			version: '0.3.7', //version of fstage library to use
+			basePath: location.href, //basePath must be the absolute URL to this file (hardcode if needed)
 
-		//path helper
-		var paths = {
+			isHybrid: !!window._cordovaNative,
+			isPwa: !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches),
 
-			fstage: function(type) {
-				if(useCdn) {
-					return "https://cdn.jsdelivr.net/gh/codi0/fstage@" + version + "/src/" + type + "/fstage.min." + type;
+			libs: function() {
+				//use to load js or css assets immediately
+				return [
+					config.fstagePath('js'),
+					config.appPath("js/config.js"),
+					config.fstagePath('css'),
+					config.appPath("css/style.css")
+				];
+			},
+			
+			modules:function() {
+				//use to load app bootstrap module(s)
+				return [
+					'fstage',
+					'app/@all',
+					config.appPath("js/app.mjs")
+				];
+			},
+
+			fstagePath: function(type) {
+				if(config.useCdn) {
+					return "https://cdn.jsdelivr.net/gh/codi0/fstage@" + config.version + "/src/" + type + "/fstage.min." + type;
 				} else {
 					return "../../src/" + type + "/fstage." + type;
 				}
 			},
 
-			app: function(path) {
-				var parts = baseUri.split('#')[0].split('?')[0].replace(/\/$/g, '').split('/');
+			appPath: function(path) {
+				var parts = config.basePath.split('#')[0].split('?')[0].replace(/\/$/g, '').split('/');
 				if(parts[parts.length-1].indexOf('.') !== -1) parts.pop();
 				return parts.join('/') + '/' + path;
-			}
-
-		};
-
-		//fstage config
-		window.Fstage = {
-		
-			config: {
-
-				basePath: baseUri,
-
-				libs: [
-					//use to load js or css assets immediately
-					paths.fstage('js'),
-					paths.app("js/config.js"),
-					paths.fstage('css'),
-					paths.app("css/style.css")
-				],
-
-				modules: [
-					//use to customise which of the core Fstage ES6 modules are loaded
-					//see https://github.com/codi0/fstage/blob/master/src/js/fstage.js for a full list of core modules
-				],
-
-				appendModules: [
-					//use to load additional ES6 modules, after core modules are loaded
-					paths.app("js/app.mjs")
-				]
-
-			},
-
-			env: {
-				isHybrid: !!window._cordovaNative,
-				isPwa: !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
 			}
 
 		};
@@ -153,12 +140,12 @@
 		document.title = 'Loading...'
 
 		//is hybrid?
-		if(Fstage.env.isHybrid) {
+		if(config.isHybrid) {
 			document.documentElement.classList.add('hybrid');
 		}
 		
 		//is pwa?
-		if(Fstage.env.isPwa) {
+		if(config.isPwa) {
 			document.documentElement.classList.add('pwa');
 		}
 
@@ -242,7 +229,7 @@
 				}
 
 				//load assets
-				Fstage.config.libs.forEach(function(url) {
+				config.libs().forEach(function(url) {
 					//set vars
 					var el, type = url.split('?')[0].split('.').pop();
 					//css?
@@ -257,13 +244,18 @@
 						el.type = (type === 'mjs') ? 'module' : '';
 						el.async = false;
 						el.src = url;
+						el.addEventListener('load', function() {
+							if(url.indexOf('fstage') > 0) {
+								Fstage.ready(config.modules());
+							}
+						});
 					}
 					//load asset?
 					el && document.documentElement.firstChild.appendChild(el);
 				});
 
 				//load manifest?
-				if(!Fstage.env.isHybrid) {
+				if(!config.isHybrid) {
 					var manifest = document.createElement('link');
 					manifest.rel = "manifest";
 					manifest.href = "manifest.json";
@@ -271,7 +263,7 @@
 				}
 				
 				//load icon?
-				if(!Fstage.env.isHybrid) {
+				if(!config.isHybrid) {
 					var icon = document.querySelector('[rel="icon"]');
 					icon.type = "image/png";
 					icon.sizes = "any";
