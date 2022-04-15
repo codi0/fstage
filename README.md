@@ -1,28 +1,32 @@
 # fstage [ALPHA v0.3.7]
 
-A modular javascript library for developing modern web2 and web3 applications. Being developed as part of codi.io's mission to make web3 infrastructure accessible to all.
-
-Uses ES6 modules, with configurable dynamic loading at run-time. No build steps required. Alpha library, in development, and breaking changes may occur.
+A modular javascript library for developing modern web2 and web3 applications. Being developed as part of codi.io's mission to make open web3 infrastructure accessible to all. Alpha library, in heavy development, and breaking changes may occur.
 
 # CDN links
 
 	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.7/src/css/fstage.min.css">
 	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.7/src/js/fstage.min.js"></script>
 
-# Dynamic module loading
+# Module loading
 
 	<script>
-	//list modules
+	//loads defaults
+	Fstage.ready(function(exports) {
+		//once modules are loaded, do what you want here
+	});
+	</script>
+
+	<script>
 	var modules = [
-		//Example 1: preload individual modules (default)
+		//Example 1: load specific modules (default)
 		'fstage', 'app/@all'
-		//Example 2: full list of all modules
+		//Example 2: load all modules
 		//'fstage', 'utils', 'pubsub', 'observe', 'transport', 'form', 'dom/@all', 'app/@all', 'webpush', 'hls', 'ipfs'
-		//Example 3: shortcut for preloading all modules
+		//Example 3: shortcut for loading all modules
 		//'@all'
 	];
 	
-	//load modules
+	//loads specified modules
 	Fstage.ready(modules, function(exports) {
 		//once modules are loaded, do what you want here
 	});
@@ -38,8 +42,10 @@ Uses ES6 modules, with configurable dynamic loading at run-time. No build steps 
 
 - "examples/app" folder - a simple skeleton app; incorporating services, components and middleware
 - "examples/ipfs" folder - a demo of how to stream video over the decentralised IPFS network
+- "examples/nodejs" folder - a demo of how to include the Fstage library in a node application
 
 # Modules API
+Modules can be imported into a script using standard ES6 syntax, or accessed via the Fstage global var.
 
 (1) CORE
 
