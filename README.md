@@ -1,11 +1,11 @@
-# fstage [ALPHA v0.3.7]
+# fstage [ALPHA v0.3.8]
 
 A modular javascript library for developing modern web2 and web3 applications. Being developed as part of codi.io's mission to make open web3 infrastructure accessible to all. Alpha library, in heavy development, and breaking changes may occur.
 
 # CDN links
 
-	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.7/src/css/fstage.min.css">
-	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.7/src/js/fstage.min.js"></script>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.8/src/css/fstage.min.css">
+	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.8/src/js/fstage.min.js"></script>
 
 # Module loading
 
@@ -52,8 +52,7 @@ Modules can be imported into a script using standard ES6 syntax, or accessed via
 	Fstage.env = { isNode, isWorker, isBrower, isMobile, isHybrid, isPwa, clientId, clientOs, clientUa, host, basePath, scriptPath }  //returns environment vars
 	Fstage.env.parseReq(req)  //re-processes environment vars based on an IncomingMessage request object (nodejs)
 
-	Fstage.importr(modulePath)  //returns a promise of exports for an es6 module import
-	Fstage.exportr(name, exported)  //simulates dynamic export for an es6 module
+	Fstage.importr(modulePath, opts = {})  //returns a promise of exports for an es6 module import
 	Fstage.ready(modules, callback)  //load modules and execute callback when loading complete
 
 (2) UTILS

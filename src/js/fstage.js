@@ -3,7 +3,7 @@
 	/* CONFIG */
 
 	var NAME = 'Fstage';
-	var VERSION = '0.3.7';
+	var VERSION = '0.3.8';
 	var GLOBALS = [ NAME, '$' ];
 	var MODULES = [ 'fstage', 'utils', 'pubsub', 'observe', 'transport', 'form', 'dom/@all', 'app/@all', 'webpush', 'hls', 'ipfs' ];
 	var DEFAULTS = [ 'fstage', 'app/@all' ];
@@ -146,17 +146,30 @@
 		//bulk import?
 		if(typeof path !== 'string') {
 			//set vars
+			var res = {};
+			var names = [];
 			var proms = [];
 			//loop through modules
 			path.forEach(function(m) {
+				names.push(m.replace(/(\/\@all|\/index)$/g, ''));
 				proms.push(importr(m, opts));
 			});
-			//return
-			return Promise.all(proms);
+			//wait for promises
+			return Promise.all(proms).then(function(exports) {
+				//loop through exports
+				exports.forEach(function(e, i) {
+					res[names[i]] = e;
+				});
+				//return
+				return res;
+			});
 		}
 		//set vars
 		var name = '';
 		var parts = path.split('/');
+		var processExports = false;
+		//create cache
+		importr.cache = importr.cache || {};
 		//is cachable?
 		if(/^[a-zA-Z0-9\/\@]+$/.test(path)) {
 			//set name
@@ -181,38 +194,35 @@
 		if(env.isNode && !(/^(file|data)/.test(path))) {
 			path = "file://" + path;
 		}
-		//cache vars
-		importr.path = path;
-		importr.cache = importr.cache || {};
-		//import cached?
-		if(importr.cache[path]) {
-			var prom = Promise.resolve(null);
-		} else {
-			var prom = import(path);
+		//import now?
+		if(!importr.cache[path]) {
+			//mark for processing
+			importr.path = path;
+			processExports = true;
+			//dynamic import
+			importr.cache[path] = import(path);
 		}
 		//wait for promise
-		return prom.then(function(exports) {
+		return importr.cache[path].then(function(exports) {
 			//process exports?
-			if(exports) {
+			if(processExports) {
 				//cache exports?
 				if(opts.name) {
 					//has default?
 					if(exports.default) {
-						var n = opts.name.replace(/\/./g, function(m) { m[1].toUpperCase() });
-						exportr(n, exports.default, false);
+						var defName = opts.name.replace(/\/./g, function(m) { m[1].toUpperCase() });
+						CONTAINER[defName] = exports.default;
 					}
 					//add named exports?
 					if(!exports.default || path.indexOf('/index.') > 0) {
 						//loop through exports
 						for(var k in exports) {
 							if(k !== 'default') {
-								exportr(k, exports[k], false);
+								CONTAINER[k] = exports[k];
 							}
 						}
 					}
 				}
-				//cache module
-				importr.cache[path] = exports;
 				//dispatch event?
 				if(globalThis.dispatchEvent) {
 					//create event
@@ -227,36 +237,12 @@
 				}
 			}
 			//return
-			return importr.cache[path];
+			return exports;
 		});
-	};
-
-	//export handler
-	var exportr = function(name, exported, event = true) {
-		//create cache
-		exportr.cache = exportr.cache || {};
-		//cache export
-		CONTAINER[name] = exportr.cache[name] = exported;
-		//dispatch event?
-		if(event && globalThis.dispatchEvent) {
-			//create event
-			var e = new CustomEvent('exportr', {
-				detail: {
-					name : name,
-					exported: exported
-				}
-			});
-			//dispatch
-			globalThis.dispatchEvent(e);
-		}
-		//return
-		return exported;
 	};
 
 	//ready handler
 	var ready = function(modules, fn) {
-		//loaded array
-		ready.loaded = ready.loaded || [];
 		//is callback?
 		if(typeof modules === 'function') {
 			fn = modules;
@@ -270,23 +256,15 @@
 		if(!modules.length) {
 			modules = DEFAULTS;
 		}
+		//load all modules?
+		if(modules[0] === '@all') {
+			modules = MODULES;
+		}
 		//async call
 		setTimeout(function() {
-			//load all modules?
-			if(modules.length && modules[0] === '@all') {
-				modules = MODULES;
-			}
-			//filter out loaded
-			modules = modules.filter(function(m) {
-				return !ready.loaded.includes(m);
-			});
-			//mark as loaded?
-			if(modules.length) {
-				ready.loaded.push(...modules);
-			}
 			//import modules
-			importr(modules).then(function() {
-				fn && fn(exportr.cache);
+			importr(modules).then(function(exports) {
+				fn && fn(exports);
 			});
 		}, 0);
 	};
@@ -332,24 +310,8 @@
 		version: VERSION,
 		env: env,
 		importr: importr,
-		exportr: exportr,
 		ready: ready
 	};
-
-	/*
-	CONTAINER = new Proxy(CONTAINER, {
-		get: function(obj, key) {
-			//has key?
-			if(obj[key]) {
-				return obj[key];
-			}
-			//import
-			return importr(key).then(function() {
-				return obj[key];
-			});
-		}
-	});
-	*/
 
 	//cjs export?
 	if(typeof module === 'object' && module.exports) {
@@ -363,13 +325,12 @@
 
 	//globals export
 	GLOBALS.forEach(function(g) {
-		if(!globalThis[g] || g === NAME) {
+		if(g === NAME || !globalThis[g]) {
 			globalThis[g] = CONTAINER;
 		}
 	});
 
 	//additional globals
-	globalThis.importr = globalThis.importr || importr;
-	globalThis.exportr = globalThis.exportr || exportr;
+	globalThis.importr = importr;
 
 })();
