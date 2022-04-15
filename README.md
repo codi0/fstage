@@ -1,6 +1,8 @@
 # fstage [ALPHA v0.3.8]
 
-A modular javascript library for developing modern web2 and web3 applications. Being developed as part of codi.io's mission to make open web3 infrastructure accessible to all. Alpha library, in heavy development, and breaking changes may occur.
+A modular javascript library for developing modern web2 and web3 applications. Being developed as part of codi.io's mission to make open web3 infrastructure accessible to all.
+
+Alpha library, in heavy development, and breaking changes may occur.
 
 # CDN links
 
