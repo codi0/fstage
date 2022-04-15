@@ -1,5 +1,11 @@
 //imports
-import 'https://cdn.jsdelivr.net/npm/ipfs/dist/index.min.js';
+var isNode = (typeof global !== 'undefined');
+var Ipfs = await import(isNode ? 'ipfs-core' : 'https://cdn.jsdelivr.net/npm/ipfs/dist/index.min.js');
+
+//use global?
+if(!Ipfs || !Ipfs.create) {
+	Ipfs = globalThis.Ipfs;
+}
 
 //private vars
 var nodeCache = {};
@@ -23,7 +29,7 @@ export default function ipfs(config = {}) {
 	}
 
 	//create instance
-	nodeCache[config.repo] = globalThis.Ipfs.create(config).then(function(node) {
+	nodeCache[config.repo] = Ipfs.create(config).then(function(node) {
 
 		//public API
 		var api = {

@@ -3,10 +3,10 @@
 	/* CONFIG */
 
 	var NAME = 'Fstage';
-	var VERSION = '0.3.8';
+	var VERSION = '0.3.9';
 	var GLOBALS = [ NAME, '$' ];
-	var MODULES = [ 'fstage', 'utils', 'pubsub', 'observe', 'transport', 'form', 'dom/@all', 'app/@all', 'webpush', 'hls', 'ipfs' ];
-	var DEFAULTS = [ 'fstage', 'app/@all' ];
+	var MODULES = [ 'core', 'utils', 'pubsub', 'observe', 'transport', 'form', 'dom', 'app', 'webpush', 'hls', 'ipfs' ];
+	var DEFAULTS = [ 'core', 'app' ];
 
 
 	/* POLYFILLS */
@@ -53,7 +53,7 @@
 	}
 
 
-	/* BOOSTRAP */
+	/* FUNCTIONS */
 
 	//env params
 	var env = (function() {
@@ -143,6 +143,10 @@
 
 	//import handler
 	var importr = function(path, opts = {}) {
+		//format name
+		var formatName = function(n) {
+			return n.replace(new RegExp('^' + NAME.toLowerCase() + '/'), '').replace(/\/index$/, '');
+		};
 		//bulk import?
 		if(typeof path !== 'string') {
 			//set vars
@@ -151,7 +155,7 @@
 			var proms = [];
 			//loop through modules
 			path.forEach(function(m) {
-				names.push(m.replace(/(\/\@all|\/index)$/g, ''));
+				names.push(formatName(m));
 				proms.push(importr(m, opts));
 			});
 			//wait for promises
@@ -171,14 +175,12 @@
 		//create cache
 		importr.cache = importr.cache || {};
 		//is cachable?
-		if(/^[a-zA-Z0-9\/\@]+$/.test(path)) {
+		if(/^[a-zA-Z0-9\/]+$/.test(path)) {
 			//set name
-			name = path.replace(/(\/\@all|\/index)$/g, '');
-			//update path
-			path = path.replace(/\@all$/g, 'index');
-			//add section?
-			if(!(/\.|\//.test(path))) {
-				path += '/' + parts[parts.length-1];
+			name = path = formatName(path);
+			//add index?
+			if(path.indexOf('/') === -1) {
+				path += '/index';
 			}
 		}
 		//default opts
@@ -241,6 +243,52 @@
 		});
 	};
 
+	//create import map
+	var importMap = function(deps = {}) {
+		//can create?
+		if(!globalThis.document || importMap.loaded) {
+			return Promise.resolve(false);
+		}
+		//set vars
+		var mapArr = [];
+		var mapPrefix = NAME.toLowerCase();
+		//loop through modules
+		MODULES.forEach(function(m) {
+			//can add to map?
+			if(/^[a-zA-Z0-9\/]+$/.test(m)) {
+				//set vars
+				var path = m;
+				var parts = path.split('/');
+				var name = mapPrefix + '/' + parts[0];
+				//add to path?
+				if(path.indexOf('/') === -1) {
+					path += '/index';
+				}
+				//add to array
+				mapArr.push('"' + name + '": "' + env.importTpl.replace('{name}', path) + '"');
+			}
+		});
+		//loop through dependencies
+		deps.forEach(function(url, name) {
+			mapArr.push('"' + name + '": "' + url + '"');
+		});
+		//update flag
+		importMap.loaded = true;
+		//wait for promise
+		return new Promise(function(resolve) {
+			//create script
+			var s = document.createElement('script');
+			var t = document.querySelectorAll('script');
+			s.type = 'importmap';
+			s.textContent = '{ "imports": { ' + mapArr.join(", ") + ' } }';
+			t[0].parentNode.insertBefore(s, t[0]);
+			//listen for onload
+			s.addEventListener('load', function() {
+				resolve(true);
+			});
+		});
+	};
+
 	//ready handler
 	var ready = function(modules, fn) {
 		//is callback?
@@ -260,6 +308,10 @@
 		if(modules[0] === '@all') {
 			modules = MODULES;
 		}
+		//create import map?
+		if(!importMap.loaded) {
+			importMap();
+		}
 		//async call
 		setTimeout(function() {
 			//import modules
@@ -269,47 +321,15 @@
 		}, 0);
 	};
 
-	//create import map?
-	if(globalThis.document) {
-		//set vars
-		var mapArr = [];
-		var mapPrefix = NAME.toLowerCase();
-		//loop through modules
-		MODULES.forEach(function(m) {
-			//can add to map?
-			if(/^[a-zA-Z0-9\/\@]+$/.test(m)) {
-				//set vars
-				var name = mapPrefix;
-				var path = m.replace('@all', 'index');
-				var parts = path.split('/');
-				//add to name?
-				if(name !== parts[0]) {
-					name += '/' + parts[0];
-				}
-				//add to path?
-				if(path.indexOf('/') === -1) {
-					path += '/' + path;
-				}
-				//add to array
-				mapArr.push('"' + name + '": "' + env.importTpl.replace('{name}', path) + '"');
-			}
-		});
-		//create script
-		var s = document.createElement('script');
-		var t = document.querySelectorAll('script');
-		s.type = 'importmap';
-		s.textContent = '{ "imports": { ' + mapArr.join(", ") + ' } }';
-		t[0].parentNode.insertBefore(s, t[0]);
-	}
 
-
-	/* EXPORTS */
+	/* BOOTSTRAP */
 
 	//container
 	var CONTAINER = {
 		version: VERSION,
 		env: env,
 		importr: importr,
+		importMap: importMap,
 		ready: ready
 	};
 

@@ -1,4 +1,4 @@
-# fstage [ALPHA v0.3.8]
+# fstage [ALPHA v0.3.9]
 
 A modular javascript library for developing modern web2 and web3 applications. Being developed as part of codi.io's mission to make open web3 infrastructure accessible to all.
 
@@ -6,8 +6,8 @@ Alpha library, in heavy development, and breaking changes may occur.
 
 # CDN links
 
-	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.8/src/css/fstage.min.css">
-	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.8/src/js/fstage.min.js"></script>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.9/src/css/fstage.min.css">
+	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.9/src/js/fstage.min.js"></script>
 
 # Module loading
 
@@ -21,9 +21,9 @@ Alpha library, in heavy development, and breaking changes may occur.
 	<script>
 	var modules = [
 		//Example 1: load specific modules (default)
-		'fstage', 'app/@all'
+		'core', 'app'
 		//Example 2: load all modules
-		//'fstage', 'utils', 'pubsub', 'observe', 'transport', 'form', 'dom/@all', 'app/@all', 'webpush', 'hls', 'ipfs'
+		//'core', 'utils', 'pubsub', 'observe', 'transport', 'form', 'dom', 'app', 'webpush', 'hls', 'ipfs'
 		//Example 3: shortcut for loading all modules
 		//'@all'
 	];
@@ -55,6 +55,7 @@ Modules can be imported into a script using standard ES6 syntax, or accessed via
 	Fstage.env.parseReq(req)  //re-processes environment vars based on an IncomingMessage request object (nodejs)
 
 	Fstage.importr(modulePath, opts = {})  //returns a promise of exports for an es6 module import
+	Fstage.importMap(dependencies = {})  //creates an import map of core modules and user-defined dependencies
 	Fstage.ready(modules, callback)  //load modules and execute callback when loading complete
 
 (2) UTILS

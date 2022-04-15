@@ -1,8 +1,21 @@
-//imports
-import 'data:text/javascript, globalThis._exports=globalThis.exports; globalThis.exports={};';
-import 'https://cdn.jsdelivr.net/npm/hls.js@0.14.17';
-globalThis.Hls = globalThis.Hls || exports.Hls;
-globalThis.exports = globalThis._exports;
+//is node?
+var isNode = (typeof global !== 'undefined');
+
+//override exports?
+if(!isNode) {
+	globalThis._exports = globalThis.exports;
+	globalThis.exports = {};
+}
+
+//import Hls
+var Hls = await import(isNode ? 'hls.js' : 'https://cdn.jsdelivr.net/npm/hls.js@0.14.17');
+
+//reset exports?
+if(!isNode) {
+	globalThis.Hls = globalThis.Hls || exports.Hls;
+	globalThis.exports = globalThis._exports;
+	Hls = globalThis.Hls;
+}
 
 //exports
 export default {
@@ -28,7 +41,7 @@ export default {
 					return opts.ipfsNode;
 				}
 				//import ipfs
-				return import('../ipfs/ipfs.mjs').then(function(module) {
+				return import('../ipfs/index.mjs').then(function(module) {
 					var fn = module.ipfs || module.default;
 					return fn();
 				}).catch(function(error) {

@@ -95,7 +95,7 @@
 		var config = {
 		
 			useCdn: true, //whether to load fstage from cdn
-			version: '0.3.8', //version of fstage library to use
+			version: '0.3.9', //version of fstage library to use
 			basePath: location.href, //basePath must be the absolute URL to this file (hardcode if needed)
 
 			isHybrid: !!window._cordovaNative,
@@ -111,11 +111,11 @@
 				];
 			},
 			
-			modules:function() {
+			modules: function() {
 				//use to load app bootstrap module(s)
 				return [
-					'fstage',
-					'app/@all',
+					'core',
+					'app',
 					config.appPath("js/app.mjs")
 				];
 			},

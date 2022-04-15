@@ -1,6 +1,6 @@
 //imports
-import pubsub from '../pubsub/pubsub.mjs';
-import observe from '../observe/observe.mjs';
+import pubsub from '../pubsub/index.mjs';
+import observe from '../observe/index.mjs';
 
 //private vars
 var queue = [];

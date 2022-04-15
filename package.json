@@ -1,0 +1,46 @@
+{
+	"name": "fstage",
+	"version": "0.3.9",
+	"exports": {
+		".": {
+			"require": "./src/js/fstage.js"
+		},
+		"./app": {
+			"import": "./src/js/app/index.mjs"
+		},
+		"./core": {
+			"import": "./src/js/core/index.mjs"
+		},
+		"./dom": {
+			"import": "./src/js/dom/index.mjs"
+		},
+		"./form": {
+			"import": "./src/js/form/index.mjs"
+		},
+		"./hls": {
+			"import": "./src/js/hls/index.mjs"
+		},
+		"./ipfs": {
+			"import": "./src/js/ipfs/index.mjs"
+		},
+		"./observe": {
+			"import": "./src/js/observe/index.mjs"
+		},
+		"./pubsub": {
+			"import": "./src/js/pubsub/index.mjs"
+		},
+		"./transport": {
+			"import": "./src/js/transport/index.mjs"
+		},
+		"./utils": {
+			"import": "./src/js/utils/index.mjs"
+		},
+		"./webpush": {
+			"import": "./src/js/webpush/index.mjs"
+		}
+	},
+	"dependencies": {
+		"hls.js": "latest",
+		"ipfs-core": "latest"
+	}
+}

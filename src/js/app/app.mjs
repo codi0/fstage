@@ -1,6 +1,6 @@
 //imports
-import { env } from '../fstage/fstage.mjs';
-import utils from '../utils/utils.mjs';
+import { env } from '../core/index.mjs';
+import utils from '../utils/index.mjs';
 import components from './components.mjs';
 
 //private vars

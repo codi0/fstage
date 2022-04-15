@@ -1,5 +1,5 @@
 //imports
-import { objHandler } from '../utils/utils.mjs';
+import { objHandler } from '../utils/index.mjs';
 
 //private vars
 var events = {};

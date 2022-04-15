@@ -1,6 +1,6 @@
 //imports
-import { esc } from '../utils/utils.mjs';
-import pubsub from '../pubsub/pubsub.mjs';
+import { esc } from '../utils/index.mjs';
+import pubsub from '../pubsub/index.mjs';
 
 //exports
 export default function lit() {

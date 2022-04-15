@@ -1,3 +1,3 @@
 @echo off
-node --experimental-network-imports server.js
+node server.js
 cmd /k

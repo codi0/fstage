@@ -1,5 +1,5 @@
 //imports
-import { parseHTML, esc } from '../utils/utils.mjs';
+import { parseHTML, esc } from '../utils/index.mjs';
 
 //exports
 export default function dom(s, ctx) {

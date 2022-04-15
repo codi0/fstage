@@ -1,6 +1,6 @@
 //imports
-import { esc } from '../utils/utils.mjs';
-import pubsub from '../pubsub/pubsub.mjs';
+import { esc } from '../utils/index.mjs';
+import pubsub from '../pubsub/index.mjs';
 import domDiff from '../dom/diff.mjs';
 import router from './router.mjs';
 import store from './store.mjs';
