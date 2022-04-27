@@ -38,7 +38,7 @@ Alpha library, in heavy development, and breaking changes may occur.
 
 - Support for ES6 modules required
 - Internet Explorer browser is not supported
-- Nodejs is nominally supported (though most modules currently written for the browser)
+- Both browser and node.js environments are supported, though modules are typically developed "browser-first"
 
 # Example usage
 
