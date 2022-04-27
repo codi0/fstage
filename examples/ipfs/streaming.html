@@ -29,12 +29,12 @@
 			var hls = exports.hls.default;
 			var ipfs = exports.ipfs.default;
 			//create ipfs node
-			var ipfsNode = await ipfs();
-			var nodeId = await ipfsNode.id();
-			var nodeOnline = await ipfsNode.isOnline();
+			var node = await ipfs.create();
+			var meta = await node.id();
+			var isOnline = await node.isOnline();
 			//set status html
 			var status = document.querySelector('#status');
-			status.innerHTML  = '<p><b>Ipfs</b><br>Node: ' + nodeId + '<br>Status: ' + (nodeOnline ? 'online' : 'offline') + '</p>';
+			status.innerHTML  = '<p><b>Ipfs</b><br>Node: ' + meta.id + '<br>Status: ' + (isOnline ? 'online' : 'offline') + '</p>';
 			status.innerHTML += '<p><b>Video</b><br>Path: ' + urls[type] + '<br>Status: <span id="video-status">Loading...</span></p>';
 			//start streaming
 			hls.stream(urls[type], function(mediaEl) {

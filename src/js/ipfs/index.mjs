@@ -7,11 +7,222 @@ if(!Ipfs || !Ipfs.create) {
 	Ipfs = globalThis.Ipfs;
 }
 
-//private vars
-var nodeCache = {};
+//create proxy
+var createProxy = function(obj, opts = {}) {
+
+	//format opts
+	opts = Object.assign({
+		path: '',
+		blacklist: [],
+		beforeMethod: {},
+		afterMethod: {}
+	}, opts);
+
+	//get listeners
+	var getListeners = function(type, path) {
+		return (opts[type]['*'] || []).concat(opts[type][path] || []);
+	};
+
+	//proxy handler
+	var proxyHandler = {
+
+		get: function(target, prop) {
+			//get full path
+			var propPath = opts.path + prop;
+			//is proxy?
+			if(prop === '__isProxy') {
+				return true;
+			}
+			//extension method?
+			if([ 'beforeMethod', 'afterMethod' ].includes(propPath)) {
+				//create function
+				return function(event, fn) {
+					//to array?
+					if(typeof event === 'string') {
+						event = event.split(',');
+					}
+					//loop through event names
+					event.forEach(function(e) {
+						e = e.trim();
+						opts[propPath][e] = opts[propPath][e] || [];
+						opts[propPath][e].push(fn);
+					});
+				};
+			}
+			//stop here?
+			if(opts.blacklist.includes(propPath)) {
+				//reset path
+				opts.path = '';
+				//return
+				return target[prop];
+			}
+			//object?
+			if(typeof target[prop] === 'object') {
+				//add to parent path
+				opts.path += prop + '.';
+				//wrap in proxy?
+				if(target[prop] && target === obj) {
+					//is already proxy?
+					if(!target[prop].__isProxy) {
+						target[prop] = new Proxy(target[prop], proxyHandler);
+					}
+				}
+				//return
+				return target[prop];
+			}
+			//reset path
+			opts.path = '';
+			//function?
+			if(typeof target[prop] === 'function') {
+				//create function
+				return function(...args) {
+					//set vars
+					var running = true;
+					//call before method
+					getListeners('beforeMethod', propPath).forEach(function(fn) {
+						//run callback?
+						if(running) {
+							args = fn(args);
+						}
+						//stop here?
+						if(args === false) {
+							running = false;
+						}
+					});
+					//continue?
+					if(running) {
+						//call method
+						var result = target[prop](...args);
+						//after callbacks
+						var after = function(result) {
+							//call after method
+							getListeners('afterMethod', propPath).forEach(function(fn) {
+								result = fn(result, args);
+							});
+							//return
+							return result;
+						};
+						//is promise?
+						if(result.then) {
+							return result.then(after);
+						} else {
+							return after(result);
+						}
+					}
+				}
+			}
+			//property
+			return target[prop];
+		}
+
+	};
+
+	//return
+	return new Proxy(obj, proxyHandler);
+
+};
+
+//convert to string
+var toString = function(data) {
+	//has buffer?
+	if(data && data.buffer) {
+		//use text decoder?
+		if(data.buffer instanceof ArrayBuffer) {
+			return new TextDecoder().decode(data);
+		}
+	}
+	//has toString?
+	if(data && data.toString) {
+		return data.toString();
+	}
+	//return
+	return data || '';
+};
+
+//is async iterator
+var isAsyncIterator = function(fn) {
+	return fn && fn[Symbol.asyncIterator];
+};
+
+//is async generator
+var isAsyncGenerator = function(fn) {
+	return fn && fn.constructor && fn.constructor.constructor && fn.constructor.constructor.name == 'AsyncGeneratorFunction';
+};
+
+//get opts
+var getOpts = function(args) {
+	//set vars
+	var opts = args[args.length-1];
+	//format opts?
+	if(!opts || typeof opts !== 'object') {
+		opts = {};
+	}
+	//return
+	return opts;		
+};
+
+//run iterator
+var runIterator = function(iterator, opts = {}) {
+	//set defaaults
+	opts = Object.assign({
+		chunks: [],
+		buffer: 0,
+		output: 'iterator'
+	}, opts);
+	//return iterator?
+	if(opts.output === 'iterator') {
+		return iterator;
+	}
+	//is generator?
+	if(!isAsyncGenerator(iterator)) {
+		iterator = iterator[Symbol.asyncIterator]();
+	}
+	//run next loop
+	return iterator.next().then(function(result) {
+		//process value?
+		if(result.value) {
+			//cache chunk
+			opts.chunks.push(result.value);
+			//is object?
+			if(result.value.length) {
+				opts.buffer += result.value.length;
+			} else {
+				opts.output = 'buffer';
+			}
+		}
+		//another loop?
+		if(!result.done) {
+			return runIterator(iterator, opts);
+		}
+		//format data
+		var offset = 0;
+		var data = opts.chunks;
+		//create array buffer?
+		if(opts.buffer > 0) {
+			//set buffer length
+			data = new Uint8Array(opts.buffer);
+			//populate buffer view
+			for(var i=0; i < opts.chunks.length; i++) {
+				data.set(opts.chunks[i], offset);
+				offset += opts.chunks[i].length;
+			}
+		}
+		//to string?
+		if(opts.output === 'string') {
+			data = toString(data);
+		}
+		//return
+		return data;
+	});
+};
 
 //exports
 export default function ipfs(config = {}) {
+
+	//create cache?
+	if(!ipfs.instances) {
+		ipfs.instances = {};
+	}
 		
 	//format config?
 	if(typeof config === 'string') {
@@ -24,245 +235,82 @@ export default function ipfs(config = {}) {
 	}, config);
 		
 	//return from cache?
-	if(nodeCache[config.repo]) {
-		return nodeCache[config.repo];
+	if(ipfs.instances[config.repo]) {
+		return ipfs.instances[config.repo];
 	}
 
 	//create instance
-	nodeCache[config.repo] = Ipfs.create(config).then(function(node) {
+	ipfs.instances[config.repo] = Ipfs.create(config).then(function(node) {
 
-		//public API
-		var api = {
-
-			node: node,
-
-			on: function(event, callback) {
-				return node.on(event, callback);
-			},
-
-			meta: function(key = null) {
-				return node.id().then(function(result) {
-					return key ? result[key] : result;
-				});
-			},
-
-			id: function() {
-				return api.meta('id');
-			},
-
-			isOnline: function() {
-				return Promise.resolve(node.isOnline());
-			},
-
-			getCid: function(cid, opts = {}) {
-				//cid to string?
-				if(cid && typeof cid !== 'string') {
-					cid = api.utils.toString(cid);
-				}
-				//default method?
-				if(opts.method !== 'get') {
-					opts.method = 'cat';
-				}
-				//create generator
-				var generator = node[opts.method](cid, opts);
-				//return
-				return api.utils.iterator(generator, opts);
-			},
-
-			setCid: function(data, opts = {}) {
-				//default opts
-				opts = Object.assign({
-					cidOnly: true
-				}, opts);
-				//return
-				return node.add(data, opts).then(function(result) {
-					return opts.cidOnly ? result.cid.toString() : result;
-				});
-			},
-
-			setCids: function(source, opts = {}) {
-				//create generator
-				var generator = node.addAll(source, opts);
-				//return
-				return api.utils.iterator(generator, opts);
-			},
-
-			listCids: function(cid, opts = {}) {
-				//cid to string?
-				if(cid && typeof cid !== 'string') {
-					cid = api.utils.toString(cid);
-				}
-				//create generator
-				var generator = node.ls(cid, opts);
-				//return
-				return api.utils.iterator(generator, opts);
-			},
-
-			publishName: function(cid) {
-				return node.name.publish(cid);
-			},
-
-			resolveName: function() {
-				return node.name.resolve();
-			},
-
-			read: function(path, opts = {}) {
-				//read dir?
-				if(path.indexOf('.') === -1) {
-					return api.readDir(path, opts);
-				}
-				//create generator
-				var generator = node.files.read(path, opts);
-				//return
-				return api.utils.iterator(generator, opts);
-			},
-
-			write: function(path, content, opts = {}) {
-				//create dir?
-				if(path.indexOf('.') === -1) {
-					return api.makeDir(path, opts);
-				}
-				//write file
-				return node.files.write(path, content, opts);
-			},
-
-			delete: function(path, opts = {}) {
-				//format opts?
-				if(typeof opts === 'boolean') {
-					opts = { recursive: opts };
-				}
-				//remove file or dir
-				return node.files.rm(path, opts);
-			},
-
-			copy: function(from, to, opts = {}) {
-				return node.files.cp(from, to, opts);
-			},
-
-			move: function(from, to, opts = {}) {
-				return node.files.mv(from, to, opts);
-			},
-
-			touch: function(path, opts = {}) {
-				return node.files.touch(path, opts);
-			},
-
-			chmod: function(path, mode, opts = {}) {
-				return node.files.chmod(path, mode, opts);
-			},
-
-			flush: function(path, opts = {}) {
-				return node.files.flush(path, opts);
-			},
-
-			stat: function(path) {
-				return node.files.stat(path);
-			},
-
-			isFile: function(path, type='file') {
-				return node.files.stat(path).then(function(result) {
-					return (result.type == type);
-				});
-			},
-
-			isDir: function(path) {
-				return api.isFile(path, 'directory');
-			},
-
-			listDir: function(path, opts = {}) {
-				//create generator
-				var generator = node.files.ls(path, opts);
-				//return
-				return api.utils.iterator(generator, opts);
-			},
-
-			makeDir: function(path, opts = {}) {
-				//format opts?
-				if(typeof opts === 'boolean') {
-					opts = { parents: opts };
-				}
-				//make dir
-				return node.files.mkdir(path, opts);
-			},
-
-			utils: {
-
-				toString: function(data) {
-					if(data.buffer instanceof ArrayBuffer) {
-						return new TextDecoder().decode(data);
-					} else {
-						return data.toString();
-					}
-				},
-
-				iterator: function(generator, opts = {}) {
-					//format opts?
-					if(typeof opts === 'function') {
-						opts = { callback: opts };
-					}
-					//set defaaults
-					opts = Object.assign({
-						chunks: [],
-						buffer: 0,
-						toString: true
-					}, opts);
-					//return stream?
-					if(opts.stream) {
-						return generator;
-					}
-					//run loop
-					return generator.next().then(function(result) {
-						//process value?
-						if(result.value) {
-							//cache chunk
-							opts.chunks.push(result.value);
-							//is object?
-							if(result.value.length) {
-								opts.buffer += result.value.length;
-							} else {
-								opts.toString = false;
-							}
-							//execute callback?
-							if(opts.callback && opts.callback.call(api, opts.chunks, opts.buffer, result.done ? null : generator) === false) {
-								result.done = true;
-							}
-						}
-						//another loop?
-						if(!result.done) {
-							return api.utils.iterator(generator, opts);
-						}
-						//format data
-						var offset = 0;
-						var data = opts.chunks;
-						//create array buffer?
-						if(opts.buffer > 0) {
-							//set buffer length
-							data = new Uint8Array(opts.buffer);
-							//populate buffer view
-							for(var i=0; i < opts.chunks.length; i++) {
-								data.set(opts.chunks[i], offset);
-								offset += opts.chunks[i].length;
-							}
-						}
-						//to string?
-						if(opts.toString) {
-							data = api.utils.toString(data);
-						}
-						//return
-						return data;
-					});
-				}
-
-			},
-
+		//is file method
+		node.files.isFile = function(path, type='file') {
+			return node.files.stat(path).then(function(result) {
+				return (result.type == type);
+			});
 		};
-			
+
+		//is dir method
+		node.files.isDir = function(path) {
+			return node.files.isFile(path, 'directory');
+		};
+
+		//skip proxy?
+		if(config.skipProxy) {
+			return node;
+		}
+
+		//create root proxy
+		var api = createProxy(node);
+
+		//global: before method
+		api.beforeMethod('*', function(args) {
+			//cid to string
+			args[0] = toString(args[0]);
+			//return
+			return args;
+		});
+
+		//global: after method
+		api.afterMethod('*', function(result, args) {
+			//is async iterator?
+			if(isAsyncIterator(result)) {
+				result = runIterator(result, getOpts(args));
+			}
+			//return
+			return result;
+		});	
+
+		//files.write: before method
+		api.beforeMethod('files.write', function(args) {
+			//set defaults
+			args[2] = Object.assign({
+				create: true
+			}, args[2] || {});
+			//return
+			return args;
+		});
+
+		//files.write: after method
+		api.afterMethod('files.write', function(result, args) {
+			//use stat?
+			if(getOpts(args).stat) {
+				result = api.files.stat(args[0]);
+			}
+			//return
+			return result;
+		});
+
 		//return
 		return api;
 
 	});
 
 	//return
-	return nodeCache[config.repo];
+	return ipfs.instances[config.repo];
 
-}
+};
+
+//compatibility method
+ipfs.create = function(config = {}) {
+	return ipfs(config);
+};

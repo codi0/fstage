@@ -1,11 +1,6 @@
 //hls custom loader
 export default function hlsIpfsLoadeer(ipfsNode, debug) {
 
-	//get raw node?
-	if(ipfsNode.node) {
-		ipfsNode = ipfsNode.node;
-	}
-	
 	//loader function
 	return function() {
 
@@ -19,6 +14,7 @@ export default function hlsIpfsLoadeer(ipfsNode, debug) {
 		//Helper: find ipfs path
 		var findPath = async function(path) {
 			//set vars
+			var opts = {};
 			var count = 0;
 			//remove location?
 			if(globalThis.location) {
@@ -31,7 +27,7 @@ export default function hlsIpfsLoadeer(ipfsNode, debug) {
 			//already has ext?
 			if(path.indexOf('.') === -1) {
 				//check cid
-				for await (var info of ipfsNode.ls(path)) {
+				for await (var info of ipfsNode.ls(path, opts)) {
 					//valid file?
 					if(info && info.type === 'file') {
 						//add count
