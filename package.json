@@ -41,6 +41,6 @@
 	},
 	"dependencies": {
 		"hls.js": "latest",
-		"ipfs-core": "latest"
+		"ipfs": "latest"
 	}
 }

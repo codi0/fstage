@@ -29,7 +29,7 @@
 			var hls = exports.hls.default;
 			var ipfs = exports.ipfs.default;
 			//create ipfs node
-			var node = await ipfs.create();
+			var node = await ipfs.node();
 			var meta = await node.id();
 			var isOnline = await node.isOnline();
 			//set status html

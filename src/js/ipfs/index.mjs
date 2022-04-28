@@ -1,12 +1,3 @@
-//imports
-var isNode = (typeof global !== 'undefined');
-var Ipfs = await import(isNode ? 'ipfs-core' : 'https://cdn.jsdelivr.net/npm/ipfs/dist/index.min.js');
-
-//use global?
-if(!Ipfs || !Ipfs.create) {
-	Ipfs = globalThis.Ipfs;
-}
-
 //create proxy
 var createProxy = function(obj, opts = {}) {
 
@@ -217,7 +208,7 @@ var runIterator = function(iterator, opts = {}) {
 };
 
 //exports
-export default function ipfs(config = {}) {
+export default function ipfs(config = {}, ctx = 'node') {
 
 	//create cache?
 	if(!ipfs.instances) {
@@ -229,88 +220,137 @@ export default function ipfs(config = {}) {
 		config = { repo: config };
 	}
 
+	//contexts
+	var contexts = {
+		isNode: (typeof global !== 'undefined'),
+		node: {
+			prefix: '',
+			node: 'ipfs',
+			browser: 'https://cdn.jsdelivr.net/npm/ipfs/dist/index.min.js',
+			global: 'Ipfs'
+		},
+		http: {
+			prefix: 'http.',
+			node: 'ipfs-http-client',
+			browser: 'https://cdn.jsdelivr.net/npm/ipfs-http-client/dist/index.min.js',
+			global: 'IpfsHttpClient'
+		}
+	};
+
 	//config defaults
 	config = Object.assign({
 		repo: 'ipfs'
 	}, config);
-		
+
+	//add repo prefix?
+	if(contexts[ctx].prefix) {
+		config.repo = contexts[ctx].prefix + config.repo;
+	}
+
 	//return from cache?
 	if(ipfs.instances[config.repo]) {
 		return ipfs.instances[config.repo];
 	}
 
-	//create instance
-	ipfs.instances[config.repo] = Ipfs.create(config).then(function(node) {
+	//import lib?
+	if(globalThis[contexts[ctx].global]) {
+		var prom = Promise.resolve(globalThis[contexts[ctx].global]);
+	} else {
+		var prom = import(contexts[ctx][contexts.isNode ? 'node' : 'browser']);
+	}
+	
+	//wait for promise
+	return prom.then(function(Ipfs) {
 
-		//is file method
-		node.files.isFile = function(path, type='file') {
-			return node.files.stat(path).then(function(result) {
-				return (result.type == type);
-			});
-		};
-
-		//is dir method
-		node.files.isDir = function(path) {
-			return node.files.isFile(path, 'directory');
-		};
-
-		//skip proxy?
-		if(config.skipProxy) {
-			return node;
+		//use global?
+		if(!Ipfs || !Ipfs.create) {
+			Ipfs = globalThis[contexts[ctx].global];
 		}
 
-		//create root proxy
-		var api = createProxy(node);
+		//attach ipfs?
+		if(!ipfs.orig || ctx === 'node') {
+			ipfs.orig = Ipfs;
+		}
 
-		//global: before method
-		api.beforeMethod('*', function(args) {
-			//cid to string
-			args[0] = toString(args[0]);
-			//return
-			return args;
-		});
+		//create instance
+		ipfs.instances[config.repo] = Promise.resolve(Ipfs.create(config)).then(function(node) {
 
-		//global: after method
-		api.afterMethod('*', function(result, args) {
-			//is async iterator?
-			if(isAsyncIterator(result)) {
-				result = runIterator(result, getOpts(args));
+			//is file method
+			node.files.isFile = function(path, type='file') {
+				return node.files.stat(path).then(function(result) {
+					return (result.type == type);
+				});
+			};
+
+			//is dir method
+			node.files.isDir = function(path) {
+				return node.files.isFile(path, 'directory');
+			};
+
+			//skip proxy?
+			if(config.skipProxy) {
+				return node;
 			}
-			//return
-			return result;
-		});	
 
-		//files.write: before method
-		api.beforeMethod('files.write', function(args) {
-			//set defaults
-			args[2] = Object.assign({
-				create: true
-			}, args[2] || {});
-			//return
-			return args;
-		});
+			//create root proxy
+			var api = createProxy(node);
 
-		//files.write: after method
-		api.afterMethod('files.write', function(result, args) {
-			//use stat?
-			if(getOpts(args).stat) {
-				result = api.files.stat(args[0]);
-			}
+			//global: before method
+			api.beforeMethod('*', function(args) {
+				//cid to string
+				args[0] = toString(args[0]);
+				//return
+				return args;
+			});
+
+			//global: after method
+			api.afterMethod('*', function(result, args) {
+				//is async iterator?
+				if(isAsyncIterator(result)) {
+					result = runIterator(result, getOpts(args));
+				}
+				//return
+				return result;
+			});	
+
+			//files.write: before method
+			api.beforeMethod('files.write', function(args) {
+				//set defaults
+				args[2] = Object.assign({
+					create: true
+				}, args[2] || {});
+				//return
+				return args;
+			});
+
+			//files.write: after method
+			api.afterMethod('files.write', function(result, args) {
+				//use stat?
+				if(getOpts(args).stat) {
+					result = api.files.stat(args[0]);
+				}
+				//return
+				return result;
+			});
+
 			//return
-			return result;
+			return api;
+
 		});
 
 		//return
-		return api;
+		return ipfs.instances[config.repo];
 
 	});
 
-	//return
-	return ipfs.instances[config.repo];
-
 };
 
-//compatibility method
-ipfs.create = function(config = {}) {
-	return ipfs(config);
+//create node
+ipfs.node = function(config = {}) {
+	return ipfs(config, 'node');
+};
+
+//create http client
+ipfs.httpClient = function(config = {}) {
+	return ipfs(config, 'http');
 };

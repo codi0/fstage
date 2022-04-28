@@ -352,6 +352,5 @@
 
 	//additional globals
 	globalThis.importr = importr;
-	globalThis.require = globalThis.require || importr;
 
 })();
