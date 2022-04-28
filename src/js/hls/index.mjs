@@ -1,9 +1,9 @@
 //exports
 export default {
 
-	hls: function() {
+	create: function(cache = true) {
 		//is cached?
-		if(this.__hls) {
+		if(cache && this.__hls) {
 			return Promise.resolve(this.__hls);
 		}
 		//set vars
@@ -16,16 +16,22 @@ export default {
 		}
 		//import hls
 		return import(isNode ? 'hls.js' : 'https://cdn.jsdelivr.net/npm/hls.js@0.14.17').then(function(module) {
+			//set vars
+			var hls = null;
 			//reset exports?
 			if(!isNode) {
 				globalThis.Hls = globalThis.Hls || exports.Hls;
 				globalThis.exports = globalThis._exports;
-				that.__hls = globalThis.Hls;
+				hls = globalThis.Hls;
 			} else {
-				that.__hls = module.default;
+				hls = module.default;
+			}
+			//cache hls?
+			if(hls && cache) {
+				that.__hls = hls;
 			}
 			//return
-			return that.__hls;
+			return hls;
 		});
 	},
 
@@ -38,7 +44,7 @@ export default {
 			opts = { callback: opts };
 		}
 		//load hls
-		proms.push(this.hls());
+		proms.push(this.create());
 		//load ipfs?
 		if(!opts.loader && path.indexOf('ipfs://') === 0) {
 			//ipfs loader
