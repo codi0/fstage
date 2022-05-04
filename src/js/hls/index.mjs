@@ -1,3 +1,7 @@
+//hls version
+//var hlsVersion = '0.14.17';
+var hlsVersion = '1.1.5';
+
 //exports
 export default {
 
@@ -15,7 +19,7 @@ export default {
 			globalThis.exports = {};
 		}
 		//import hls
-		return import(isNode ? 'hls.js' : 'https://cdn.jsdelivr.net/npm/hls.js@0.14.17').then(function(module) {
+		return import(isNode ? 'hls.js' : 'https://cdn.jsdelivr.net/npm/hls.js@' + hlsVersion).then(function(module) {
 			//set vars
 			var hls = null;
 			//reset exports?

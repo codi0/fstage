@@ -130,8 +130,14 @@ export default function hlsIpfsLoadeer(ipfsNode, debug) {
 							url: path,
 							data: data
 						};
-						//success callback
-						callbacks.onSuccess(response, api.stats, context);
+						//progress callback?
+						if(callbacks.onProgress) {
+							callbacks.onProgress(api.stats, context, response.data);
+						}
+						//success callback?
+						if(callbacks.onSuccess) {
+							callbacks.onSuccess(response, api.stats, context);
+						}
 					});
 				});
 			},
