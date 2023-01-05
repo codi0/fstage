@@ -94,7 +94,7 @@ dom.fn.closest = dom.closest = function(s, target = null, parent = null) {
 		//traverse dom tree
 		while(t && t !== document) {
 			//match found?
-			if(t.matches(s)) {
+			if(t.matches(s) && !res.includes(t)) {
 				res.push(t);
 				break;
 			}
@@ -120,7 +120,9 @@ dom.fn.find = function(s) {
 		var tmp = select(s, this[i]);
 		//add elements
 		for(var j=0; j < tmp.length; j++) {
-			res.push(tmp[j]);
+			if(!res.includes(tmp[j])) {
+				res.push(tmp[j]);
+			}
 		}
 	}
 	//return
@@ -129,6 +131,8 @@ dom.fn.find = function(s) {
 
 //find parent element
 dom.fn.parent = function(s = null) {
+	//set vars
+	var res = [];
 	//loop through elements
 	for(var i=0; i < this.length; i++) {
 		//get parent
@@ -137,18 +141,42 @@ dom.fn.parent = function(s = null) {
 		if(!parent || (s && !parent.matches(s))) {
 			continue;
 		}
-		//set parent
-		this[i] = parent;
+		//add parent?
+		if(!res.includes(parent)) {
+			res.push(parent);
+		}
 	}
 	//chain it
-	return this;
+	return dom(res);
+}
+
+//find child elements
+dom.fn.children = function() {
+	//set vars
+	var res = [];
+	//loop through elements
+	for(var i=0; i < this.length; i++) {
+		//has children?
+		if(!this[i].children) {
+			continue;
+		}
+		//loop through child nodes
+		for(var j=0; j < this[i].children.length; j++) {
+			//add child?
+			if(!res.includes(this[i].children[j])) {
+				res.push(this[i].children[j]);
+			}
+		}
+	}
+	//chain it
+	return dom(res);
 }
 
 
 /* EVENTS */
 
 //set vars
-const _guid = 0;
+var _guid = 0;
 
 //subscribe to event
 dom.fn.on = function(types, delegate, handler, once = false) {

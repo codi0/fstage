@@ -241,6 +241,12 @@ form .help {
 	margin-top: 5px;
 }
 
+form .checkbox-wrap {
+	display: inline-block;
+	margin-top: 8px;
+	margin-bottom: 8px;
+}
+
 form .show-password::before {
 	position: absolute;
 	top: 32px;
@@ -610,13 +616,18 @@ nav .d {
 	--nav-color: #333;
 	--nav-active-color: var(--link-hover-color);
 	position: relative;
+	overflow: hidden;
+}
+
+.carousel img {
+	user-select: none;
+	pointer-events: none;
 }
 
 .carousel .grid {
 	--gap: 20px;
 	grid-auto-flow:column; 
 	flex-flow: nowrap;
-	overflow-x: hidden;
 	scroll-behavior: smooth;
 }
 
@@ -735,6 +746,8 @@ nav .d {
 /* OVERLAY */
 
 .overlay {
+	--head-height: 45px;
+	--head-background: #fff;
 	display: flex;
 	align-items: center;
 	position: fixed;
@@ -749,8 +762,8 @@ nav .d {
 
 .overlay .inner {
 	position: relative;
-	width: 90%;
-	max-width: 500px;
+	max-width: 95vw;
+	max-height: 95vh;
 	margin: auto;
 	color: #3c434a;
 	background: var(--body-background);
@@ -763,15 +776,17 @@ nav .d {
 	align-items: center;
 	font-size: 1.2em;
 	font-weight: bold;
-	padding: 5px 15px;
+	padding: 15px;
+	height: var(--head-height);
 	margin: 0;
+	background: var(--head-background);
 }
 
 .overlay .body {
 	margin: 0;
 	padding: 15px;
-    max-height: calc(100vh - 20px);
-    overflow-y: auto;
+    overflow: auto;
+    max-height: calc(95vh - var(--head-height));
 }
 
 .overlay .close {

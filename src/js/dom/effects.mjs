@@ -72,96 +72,6 @@ dom.fn.animate = function(effect, opts = {}) {
 	return this;
 }
 
-//slide element
-dom.fn.sliding = function(opts = {}) {
-
-	//set vars
-	var el, startX, startY, pageX, pageY;
-
-	//format opts
-	opts = Object.assign({
-		x: true,
-		y: false,
-		delegate: null
-	}, opts);
-
-	//standardise event
-	var ev = function(e, prop) {
-		if(!e.targetTouches) {
-			return e[prop] || null;
-		}
-		return e.targetTouches.length ? e.targetTouches[0][prop] : null;
-	};
-
-	//onStart listener
-	var onStart = function(e) {
-		//stop here?
-		if(el) return;
-		//set vars
-		el = this;
-		startX = pageX = ev(e, 'pageX');
-		startY = pageY = ev(e, 'pageY');
-		//make non-selectable
-		el.style.userSelect = 'none';
-		//add listeners
-		dom(document).on('mousemove touchmove', onMove).on('mouseup touchend', onEnd);
-		//execute callback?
-		opts.onStart && opts.onStart(el, { startX: startX, startY: startY });
-	};
-
-	//onMove listener
-	var onMove = function(e) {
-		//stop here?
-		if(!el) return;
-		//update position
-		pageX = ev(e, 'pageX');
-		pageY = ev(e, 'pageY');
-		//new coordinates
-		var X = opts.x ? pageX - startX : startX;
-		var Y = opts.y ? pageY - startY : startY;
-		//transform target
-		el.style.transform = 'translate3d(' + X + 'px, ' + Y + 'px, 0);';
-		//execute callback?
-		opts.onMove && opts.onMove(el, { startX: startX, startY: startY, pageX: pageX, pageY: pageY });
-	};
-
-	//onEnd listener
-	var onEnd = function(e) {
-		//stop here?
-		if(!el) return;
-		//remove mouse/touch listeners
-		dom(document).off('mousemove touchmove', onMove).off('mouseup touchend', onEnd);
-		//add transition
-		el.style.transition = 'transform 300ms ease-in-out';
-		//wait for next frame
-		requestAnimationFrame(function() {
-			//end now?
-			var endNow = !el.style.transform;
-			//transitionend listener
-			var listen = function(e) {
-				//reset styles
-				el.style.removeProperty('transform');
-				el.style.removeProperty('transition');
-				el.style.removeProperty('user-select');
-				//remove listener?
-				!endNow && el.removeEventListener('transitionend', listen);
-				//reset vars
-				el = startX = startY = pageX = pageY = null;
-			};
-			//add listener?
-			!endNow && el.addEventListener('transitionend', listen);
-			//execute callback?
-			opts.onEnd && opts.onEnd(el, { startX: startX, startY: startY, pageX: pageX, pageY: pageY });
-			//end now?
-			endNow && listen();
-		});
-	};
-
-	//start slide
-	this.on('mousedown touchstart', opts.delegate, onStart);
-
-}
-
 //transition element
 dom.transition = function(toEl, toEffect, fromEl, fromEffect, opts = {}) {
 
@@ -200,4 +110,125 @@ dom.transition = function(toEl, toEffect, fromEl, fromEffect, opts = {}) {
 		onEnd: onEnd
 	});
 
+}
+
+//draggable element
+dom.fn.draggable = function(opts = {}) {
+
+	//set vars
+	var el, pos;
+
+	//format opts
+	opts = Object.assign({
+		x: true,
+		y: false,
+		delegate: null,
+		persist: true
+	}, opts);
+
+	//standardise event
+	var ev = function(e, prop) {
+		if(!e.targetTouches) {
+			return e[prop] || null;
+		}
+		return e.targetTouches.length ? e.targetTouches[0][prop] : null;
+	};
+
+	//onStart listener
+	var onStart = function(e) {
+		//stop here?
+		if(el) return;
+		//set vars
+		el = this;
+		var coords = {};
+		//get translation?
+		if(el.style.transform) {
+			var coords = {};
+			var m = el.style.transform.match(/translate3d\((.*)\)/);
+			if(m && m[1]) {
+				var parts = m[1].split(',');
+				coords.left = parts[0].replace('px', '').trim();
+				coords.top = parts[1].replace('px', '').trim();
+			}
+		}
+		//cache position
+		pos = {
+			translateX: parseInt(coords.left) || 0,
+			translateY: parseInt(coords.top) || 0,
+			startX: ev(e, 'clientX'),
+			startY: ev(e, 'clientY'),
+			moveX: 0,
+			moveY: 0
+		};
+		//make non-selectable
+		el.style.userSelect = 'none';
+		el.style.cursor = 'grabbing';
+		//add listeners
+		dom(el).on('mousemove touchmove', onMove).on('mouseup touchend', onEnd);
+		//execute callback?
+		opts.onStart && opts.onStart(el, pos);
+	};
+
+	//onMove listener
+	var onMove = function(e) {
+		//stop here?
+		if(!el) return;
+		//set move values
+		pos.moveX = ev(e, 'clientX') - pos.startX;
+		pos.moveY = ev(e, 'clientY') - pos.startY;
+		//new coordinates
+		var X = opts.x ? pos.translateX + pos.moveX : 0;
+		var Y = opts.y ? pos.translateY + pos.moveY : 0;
+		//transform target
+		el.style.transform = 'translate3d(' + X + 'px, ' + Y + 'px, 0px)';
+		//execute callback?
+		opts.onMove && opts.onMove(el, pos);
+	};
+
+	//onEnd listener
+	var onEnd = function(e) {
+		//stop here?
+		if(!el) return;
+		//remove mouse/touch listeners
+		dom(el).off('mousemove touchmove', onMove).off('mouseup touchend', onEnd);
+		//transitionend listener
+		var listen = function() {
+			//stop here?
+			if(!el) return;
+			//remove listener?
+			if(!opts.persist) {
+				el.removeEventListener('transitionend', listen);
+				el.removeEventListener('transitioncancel', listen);
+			}
+			//execute callback?
+			opts.onEnd && opts.onEnd(el, pos);
+			//reset styles
+			el.style.removeProperty('cursor');
+			el.style.removeProperty('transition');
+			el.style.removeProperty('user-select');
+			//reset vars
+			el = pos = null;
+		};
+		//persist translate?
+		if(opts.persist) {
+			requestAnimationFrame(listen);
+		} else {
+			el.addEventListener('transitionend', listen);
+			el.addEventListener('transitioncancel', listen);
+			el.style.transition = 'transform 300ms ease-in-out';
+			requestAnimationFrame(function() {
+				el.style.removeProperty('transform');
+			});
+		}
+	};
+
+	//start slide
+	this.on('mousedown touchstart', opts.delegate, onStart);
+
+}
+
+//sliding element
+dom.fn.sliding = function(opts = {}) {
+	opts.persist = false;
+	return this.draggable(opts);
 }
