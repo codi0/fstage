@@ -3,7 +3,6 @@
 	/* CONFIG */
 
 	var NAME = 'Fstage';
-	var VERSION = '0.3.9';
 	var GLOBALS = [ NAME, '$' ];
 	var MODULES = [ 'core', 'utils', 'pubsub', 'observe', 'transport', 'form', 'dom', 'app', 'webpush', 'hls', 'ipfs' ];
 	var DEFAULTS = [ 'core', 'app' ];
@@ -326,7 +325,6 @@
 
 	//container
 	var CONTAINER = {
-		version: VERSION,
 		env: env,
 		importr: importr,
 		importMap: importMap,

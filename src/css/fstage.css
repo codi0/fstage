@@ -1,11 +1,3 @@
-/**
- * FSTAGE.css
- *
- * About: A skeleton css library for developing modern web apps
- * Version: 0.3.4
- * License: MIT
- * Source: https://github.com/codi0/fstage
-**/
 :root {
 
 	--body-min-width: 300;
@@ -762,6 +754,7 @@ nav .d {
 
 .overlay .inner {
 	position: relative;
+	min-width: 50vw;
 	max-width: 95vw;
 	max-height: 95vh;
 	margin: auto;
@@ -794,6 +787,7 @@ nav .d {
 	font-size: 1.2em;
 	font-weight: normal;
 	margin: 0 0 0 auto;
+	padding-left: 20px;
 }
 
 
