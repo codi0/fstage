@@ -1,4 +1,4 @@
-# fstage [ALPHA v0.3.9]
+# fstage [ALPHA v0.4.0]
 
 A modular javascript library for developing modern web2 and web3 applications. Being developed as part of codi.io's mission to make open web3 infrastructure accessible to all.
 
@@ -6,8 +6,8 @@ Alpha library, in heavy development, and breaking changes may occur.
 
 # CDN links
 
-	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.9/src/css/fstage.min.css">
-	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.3.9/src/js/fstage.min.js"></script>
+	<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/codi0/fstage@0.4.0/src/css/fstage.min.css">
+	<script defer src="https://cdn.jsdelivr.net/gh/codi0/fstage@0.4.0/src/js/fstage.min.js"></script>
 
 # Module loading
 

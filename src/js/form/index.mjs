@@ -1,17 +1,20 @@
+//imports
+import { capitalize } from '../utils/index.mjs';
+
 //form wrapper
 export default function form(name, opts = {}) {
 	//set vars
 	var step = '';
 	var values = {};
 	var errors = {};
-	var form = document[name];
-	//valid form?
-	if(!form) {
-		throw new Error('Form not found:' + name);
+	var formEl = (typeof name == 'string') ? document[name] : name;
+	//create form?
+	if(!formEl) {
+		return form.create(name, opts);
 	}
 	//already created?
-	if(form.step) {
-		return form;
+	if(formEl.step) {
+		return formEl;
 	}
 	//set fields?
 	if(!opts.fields) {
@@ -28,9 +31,9 @@ export default function form(name, opts = {}) {
 				return;
 			}
 			//field found?
-			if(form[k]) {
+			if(formEl[k]) {
 				//get field value
-				var value = form[k].value.trim();
+				var value = formEl[k].value.trim();
 				//remove error
 				removeError(k);
 				//filter value?
@@ -57,7 +60,7 @@ export default function form(name, opts = {}) {
 	//add error helper
 	var addError = function(field, message) {
 		//valid field?
-		if(!form[field]) return;
+		if(!formEl[field]) return;
 		//create error node
 		var err = document.createElement('div');
 		err.classList.add('error');
@@ -65,38 +68,38 @@ export default function form(name, opts = {}) {
 		//add to cache
 		errors[field] = message;
 		//is multi?
-		if(form[field].parentNode) {
+		if(formEl[field].parentNode) {
 			//add error meta
-			form[field].classList.add('has-error');
+			formEl[field].classList.add('has-error');
 			//add error node
-			form[field].parentNode.insertBefore(err, form[field].nextSibling);
+			formEl[field].parentNode.insertBefore(err, formEl[field].nextSibling);
 		} else {
 			//add error meta
-			form[field].forEach(function(el) {
+			formEl[field].forEach(function(el) {
 				el.classList.add('has-error');
 			});
 			//add error node
-			form[field][0].parentNode.appendChild(err);
+			formEl[field][0].parentNode.appendChild(err);
 		}
 	};
 	//remove error helper
 	var removeError = function(field) {
 		//valid field?
-		if(!form[field]) return;
+		if(!formEl[field]) return;
 		//is multi?
-		if(form[field].parentNode) {
+		if(formEl[field].parentNode) {
 			//remove error meta
-			form[field].classList.remove('has-error');
+			formEl[field].classList.remove('has-error');
 			//remove error node
-			var err = form[field].parentNode.querySelector('.error');
+			var err = formEl[field].parentNode.querySelector('.error');
 			err && err.parentNode.removeChild(err);
 		} else {
 			//remove field meta
-			form[field].forEach(function(el) {
+			formEl[field].forEach(function(el) {
 				el.classList.remove('has-error');
 			});
 			//remove error node
-			var err = form[field][0].parentNode.querySelector('.error');
+			var err = formEl[field][0].parentNode.querySelector('.error');
 			err && err.parentNode.removeChild(err);
 		}
 		//delete cache?
@@ -104,14 +107,117 @@ export default function form(name, opts = {}) {
 			delete errors[field];
 		}
 	};
-	//Method form step
-	form.step = function(name = null) {
+	//Method: render field
+	formEl.render = function(type, name, opts = {}) {
+		//set tag
+		var html = '';
+		var tag = type;
+		//set type?
+		if(tag === 'input') {
+			type = 'text';
+		} else if(tag !== 'select' && tag !== 'textarea') {
+			tag = 'input';
+		}
+		//remove name?
+		if(type === 'submit' || type === 'html') {
+			opts.value = name || 'Submit';
+			name = '';
+		}
+		//create field wrapper
+		var wrap = document.createElement('div');
+		wrap.classList.add('field', type, name || 'no-label');
+		//create label?
+		if(name && ![ '', false, null].includes(opts.label)) {
+			var label = document.createElement('label');
+			label.setAttribute('for', name);
+			label.innerHTML = capitalize(opts.label || name) + (opts.required ? '*' : '');
+			wrap.appendChild(label);
+		}
+		//is multi checkox or radio?
+		if((type === 'checkbox' || type === 'radio') && opts.options) {
+			//create group wrap
+			var isCheckbox = (type === 'checkbox');
+			var group = document.createElement('span');
+			group.classList.add(type + '-group');
+			wrap.appendChild(group);
+			//loop through options
+			opts.options.forEach(function(val, key) {
+				//create item wrap
+				var item = document.createElement('span');
+				item.classList.add(type + '-wrap');
+				group.appendChild(item);
+				//create input
+				var input = document.createElement('input');
+				input.setAttribute('id', name + '-' + key);
+				input.setAttribute('type', type);
+				input.setAttribute('name', name + (isCheckbox ? '[' + key + ']' : ''));
+				input.setAttribute('value', isCheckbox ? '1' : key);
+				//is checked?
+				if(opts.value && (key == opts.value || opts.value[key])) {
+					input.setAttribute('checked', '');
+				}
+				//create label
+				var label = document.createElement('label');
+				label.setAttribute('for', name + '-' + key);
+				label.innerHTML = capitalize(val);
+				//add to item
+				item.appendChild(input);
+				item.appendChild(label);
+			});
+		} else if(type === 'html') {
+			//set raw html
+			wrap.innerHTML = name;
+		} else {
+			//create element
+			var el = document.createElement(tag);
+			wrap.appendChild(el);
+			//set core attributes
+			opts.type = type;
+			opts.name = name;
+			//add attributes
+			opts.forEach(function(val, key) {
+				//valid value?
+				if(val && (val === true || typeof val === 'string')) {
+					//format val
+					val = (val === true) ? '' : val;
+					//valid key?
+					if(![ 'wrap', 'label' ].includes(key)) {
+						el.setAttribute(key, val);
+					}
+				}
+			});
+			//is select?
+			if(tag === 'select') {
+				//loop through options
+				(opts.options || {}).forEach(function(val, key) {
+					//skip?
+					if(!val) return;
+					//create option
+					var option = document.createElement('option');
+					option.value = key;
+					option.innerHTML = val;
+					//is selected?
+					if(opts.value == key) {
+						option.selected = true;
+					}
+					//append to element
+					el.appendChild(option);
+				});
+			}
+		}
+		//add to form
+		formEl.appendChild(wrap);
+		//return
+		return el;
+	};
+	//Method: get or set step
+	formEl.step = function(name = null) {
 		//set step?
 		if(name) {
 			//update state
 			step = name;
 			//update DOM
-			form.querySelectorAll('.step').forEach(function(el) {
+			formEl.querySelectorAll('.step').forEach(function(el) {
 				var isStep = el.classList.contains(step);
 				el.classList[isStep ? 'remove' : 'add']('hidden');
 			});
@@ -119,49 +225,54 @@ export default function form(name, opts = {}) {
 		//return
 		return step;
 	};
-	//Method: get errors
-	form.err = function(field = null, message = null) {
+	//Method: get or set errors
+	formEl.err = function(field = null, message = null) {
 		//set error?
 		if(field && message) {
 			addError(field, message);
 		}
-		//return error(s)
+		//return errors
 		return field ? (errors[field] || null) : errors;
 	};
-	//Method: get values
-	form.val = function(field = null) {
+	//Method: get or set values
+	formEl.val = function(field = null, val = null) {
+		//set field?
+		if(field && val && formEl[field]) {
+			formEl[field] = val;
+		}
+		//return values
 		return field ? (values[field] || null) : values;
 	};
 	//Method: reset fields
-	form.reset = function(field = null, skip = []) {
+	formEl.reset = function(field = null, skip = []) {
 		//loop through fields
 		opts.fields.forEach(function(v, k) {
 			//reset field?
-			if(form[k] && !skip.includes(k) && (!field || field === k)) {
+			if(formEl[k] && !skip.includes(k) && (!field || field === k)) {
 				//is checked?
-				if(form[k] instanceof NodeList) {
+				if(formEl[k] instanceof NodeList) {
 					//loop through nodes
-					form[k].forEach(function(el) {
+					formEl[k].forEach(function(el) {
 						el.checked = el.defaultChecked;
 					});
 				}
 				//default value
-				form[k].value = values[k] = form[k].defaultValue;
+				formEl[k].value = values[k] = formEl[k].defaultValue;
 				//clear error
 				removeError(k);
 			}
 		});
 	};
 	//Method: validate form
-	form.isValid = function(key = null) {
+	formEl.isValid = function(key = null) {
 		return validate(key);
 	};
 	//add focus listeners
 	opts.fields.forEach(function(v, k) {
 		//valid field?
-		if(!form[k]) return;
+		if(!formEl[k]) return;
 		//get fields
-		var fields = form[k].parentNode ? [ form[k] ] : form[k];
+		var fields = formEl[k].parentNode ? [ formEl[k] ] : formEl[k];
 		//loop through fields
 		fields.forEach(function(el) {
 			//add focus listener
@@ -175,15 +286,13 @@ export default function form(name, opts = {}) {
 		});
 	});
 	//add submit listener
-	form.addEventListener('click', function(e) {
+	formEl.addEventListener('click', function(e) {
 		//is submit?
 		if(e.target.type !== 'submit') {
 			return;
 		}
-		//prevent default
-		e.preventDefault();
 		//is valid?
-		if(form.isValid()) {
+		if(formEl.isValid()) {
 			if(opts.onSuccess) {
 				opts.onSuccess.call(form, values, errors);
 			}
@@ -194,5 +303,26 @@ export default function form(name, opts = {}) {
 		}
 	}, true);
 	//return
-	return form;
+	return formEl;
+};
+
+//create form
+form.create = function(name, opts = {}) {
+	//create element
+	var formEl = form(document.createElement('form'));
+	//set attributes
+	formEl.setAttribute('name', name);
+	formEl.setAttribute('id', name + '-form');
+	formEl.setAttribute('method', opts.method || 'post');
+	//add to parent?
+	if(opts.parent) {
+		//query selector
+		if(typeof opts.parent === 'string') {
+			opts.parent = document.querySelector(opts.parent);
+		}
+		//add to parent
+		opts.parent.appendChild(formEl);
+	}
+	//return
+	return formEl;
 };

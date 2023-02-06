@@ -13,6 +13,7 @@ export default {
 	parseHTML: parseHTML,
 	stripHTML: stripHTML,
 	esc: esc,
+	decode: decode,
 	objHandler: objHandler
 };
 
@@ -196,6 +197,16 @@ esc.js = function(input) {
 //escape css context
 esc.css = function(input) {
 	return input;
+};
+
+//decode input
+export function decode(input, type = 'html') {
+	return type ? decode[type](input) : input;
+}
+
+//decode html
+decode.html = function(input) {
+	return (new DOMParser()).parseFromString(input, "text/html").documentElement.textContent;
 };
 
 //object utils

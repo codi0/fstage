@@ -416,6 +416,25 @@ dom.fn.attr = function(key, val, escape = true) {
 	return this;
 }
 
+//set element property
+dom.fn.prop = function(key, val, escape = true) {
+	//get value?
+	if(val === undefined) {
+		return this[0] ? this[0][key] : '';
+	}
+	//escape input?
+	if(escape && val) {
+		key = esc(key);
+		val = esc(val);
+	}
+	//loop through elements
+	for(var i=0; i < this.length; i++) {
+		this[i][key] = val;
+	}
+	//chain it
+	return this;
+}
+
 //append html to element
 dom.fn.append = function(html, action = 'append') {
 	//create nodes
