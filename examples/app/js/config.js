@@ -1,63 +1,40 @@
-(function(glob) {
+//exports
+globalThis.__appConfig = {
 
-	//set vars
-	var host = '';
-	var basePath = '';
+	//general
+	debug: true,
+	name: 'Fstage',
+	urlScheme: 'hash', //Options: path, query, hash, null
 
-	//check platform
-	if(typeof __filename !== 'undefined') {
-		glob = global;
-		basePath = __filename.replace(/js\/config\.js(.*)/, '');
-	} else if(typeof WorkerGlobalScope !== 'undefined') {
-		glob = self;
-		host = location.protocol + '//' + location.hostname;
-		basePath = location.href.replace(/sw\.js(.*)/, '');
-	} else if(typeof window !== 'undefined') {
-		glob = window;
-		host = location.protocol + '//' + location.hostname;
-		basePath = document.currentScript.src.replace(/js\/config\.js(.*)/, '');
+	//app modules
+	modules: [
+		'utils/helpers',
+		'services/user',
+		'middleware/user',
+		'views/root',
+		'views/parts/header',
+		'views/parts/footer',
+		'views/home',
+		'views/notfound',
+		'views/about',
+		'webc/fs-welcome'
+	],
+
+	//app routes
+	routes: {
+		HOME: 'home', //home page
+		NOTFOUND: 'notfound', //404 page
+		ABOUT: 'about'
+	},
+
+	//service worker pre-cache
+	swPreCache: [
+		'./'
+	],
+
+	//service worker cache policies
+	swCachePolicies: {
+		'https://cdn.jsdelivr.net': 'cors'
 	}
 
-	//export config
-	glob.__APPCONFIG = {
-
-		//general
-		debug: true,
-		name: 'Fstage',
-		host: host,
-		basePath: basePath,
-		urlScheme: 'hash', //Options: path, query, hash, null
-
-		//app modules
-		modules: [
-			'utils/helpers',
-			'services/user',
-			'middleware/user',
-			'components/root',
-			'components/home',
-			'components/notfound',
-			'components/about',
-		],
-
-		//app routes
-		routes: {
-			HOME: 'home', //home page
-			NOTFOUND: 'notfound', //404 page
-			ABOUT: 'about'
-		},
-
-		//service worker pre-cache
-		swPreCache: [
-			basePath,
-			basePath + 'img/logo.png',
-			basePath + 'img/icon.png'
-		],
-
-		//service worker cache policies
-		swCachePolicies: {
-			'https://cdn.jsdelivr.net': 'cors'
-		}
-
-	};
-
-})(this);
+};

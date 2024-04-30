@@ -6,6 +6,7 @@
 	var GLOBALS = [ NAME, '$' ];
 	var MODULES = [ 'core', 'utils', 'pubsub', 'observe', 'transport', 'form', 'dom', 'app', 'webpush', 'hls', 'ipfs' ];
 	var DEFAULTS = [ 'core', 'app' ];
+	var PRELOAD = [];
 
 
 	/* POLYFILLS */
@@ -57,28 +58,36 @@
 	//env params
 	var env = (function() {
 		//Helper: format path
-		var _formatPath = function(path) {
-			var parts = path.split('?')[0].replace(/\/$/g, '').split('/');
+		var _formatPath = function(path, preload=false) {
+			//check for hash
+			var parts = path.split('#');
+			//set preload?
+			if(parts[1] && preload) {
+				if(parts[1] === '@all') {
+					PRELOAD = MODULES;
+				} else {
+					PRELOAD = parts[1].split(',');
+				}
+			}
+			//return
+			return parts[0].split('?')[0];
+		};
+		//Helper: format base path
+		var _formatBase = function(path) {
+			var parts = path.replace(/\/$/g, '').split('/');
 			if(parts[parts.length-1].indexOf('.') !== -1) parts.pop();
 			return parts.join('/') + '/';
-		};
-		//Helper: calc client ID
-		var _calcId = function(ua, uid = '') {
-			var str = uid + ua.replace(/[0-9\.\s]/g, '');
-			var h = 5381, i = str.length;
-			while(i) h = (h * 33) ^ str.charCodeAt(--i);
-			return str ? (h >>> 0).toString() : '';
 		};
 		//Helper: parse user agent
 		var _parseUa = function(ua) {
 			//set vars
-			var res = { clientOs: '', isMobile: false };
+			var res = { deviceOs: '', isMobile: false };
 			var platforms = [ { o: 'android', m: true, r: 'Android' }, { o: 'ios', m: true, r: 'iPad|iPhone|watchOS' }, { o: 'ios', m: false, r: 'Macintosh' }, { o: 'windows', m: true, r: 'Windows Phone' }, { o: 'windows', m: false, r: 'Windows' } ];
 			//test platforms
 			platforms.some(function(el) {
 				//user-agent match?
 				if(ua.match(new RegExp(el.r, 'i'))) {
-					res.clientOs = el.o;
+					res.deviceOs = el.o;
 					res.isMobile = !!el.m;
 					return true;
 				}
@@ -86,20 +95,70 @@
 			//return
 			return res;
 		};
+		//Helper: generate canvas URL
+		var _canvasUrl = function() {
+			var res = '';
+			var canvas = globalThis.document ? document.createElement('canvas') : null;
+			var ctx = (canvas && canvas.getContext) ? canvas.getContext('2d') : null;
+			if(ctx) {
+				ctx.textBaseline = "top";
+				ctx.font = "14px 'Arial'";
+				ctx.textBaseline = "alphabetic";
+				ctx.fillStyle = "#f60";
+				ctx.fillRect(125, 1, 62, 20);
+				ctx.fillStyle = "#069";
+				ctx.fillText('cd', 2, 15);
+				ctx.fillStyle = "rgba(102, 204, 0, 0.7)";
+				ctx.fillText('cd', 4, 17);
+				res = canvas.toDataURL();
+			}
+			return res;
+		};
+		//Helper: create hash
+		var _cyrb53 = function(str, seed=0) {
+			var h1 = 0xdeadbeef ^ seed, h2 = 0x41c6ce57 ^ seed;
+			for(var i = 0, ch; i < str.length; i++) {
+				ch = str.charCodeAt(i);
+				h1 = Math.imul(h1 ^ ch, 2654435761);
+				h2 = Math.imul(h2 ^ ch, 1597334677);
+			}
+			h1  = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
+			h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+			h2  = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
+			h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+			return 4294967296 * (2097151 & h2) + (h1 >>> 0);
+		};
+		//helper: generate device ID
+		var _deviceId = function(userAgent) {
+			var parts = [];
+			if(userAgent) {
+				parts.push((userAgent || '').toLowerCase().replace(/[^a-z]/g, ''));
+			}
+			if(globalThis.navigator) {
+				parts.push((navigator.language || '').toLowerCase());
+			}
+			if(globalThis.screen) {
+				parts.push(screen.colorDepth || 0);
+				parts.push((screen.height > screen.width) ? screen.height+'x'+screen.width : screen.width+'x'+screen.height);
+			}
+			parts.push(new Date().getTimezoneOffset() || 0);
+			parts.push(_canvasUrl());
+			return 'ID.' + _cyrb53(parts.join(','));
+		};
 		//base env
 		var env = {
 			//flags
-			ready: false,
 			isBrowser: false,
 			isNode: false,
 			isMobile: false,
 			isWorker: false,
-			isHybrid: !!globalThis._cordovaNative,
-			isPwa: !!(globalThis.matchMedia && globalThis.matchMedia('(display-mode: standalone)').matches),
-			//client
-			clientId: '',
-			clientOs: '',
-			clientUa: globalThis.navigator ? navigator.userAgent : '',
+			isHybrid: false,
+			isStandalone: globalThis.matchMedia && globalThis.matchMedia('(display-mode: standalone)').matches,
+			hybridPlatform: '',
+			//device
+			deviceId: '',
+			deviceOs: '',
+			deviceUa: globalThis.navigator ? navigator.userAgent : '',
 			//server
 			host: globalThis.location ? location.protocol + "//" + location.hostname : '',
 			basePath: globalThis.location ? location.href : '',
@@ -107,34 +166,47 @@
 			//nodejs
 			parseReq: function(req) {
 				env.host = (req.protocol || 'http') + "://" + req.headers.host;
-				env.clientUa = req.headers['user-agent'];
-				env.clientId = _calcId(env.clientUa);
-				var p = _parseUa(env.clientUa);
-				env.clientOs = p.clientOs;
+				env.deviceUa = req.headers['user-agent'];
+				env.deviceId = _deviceId(env.deviceUa);
+				var p = _parseUa(env.deviceUa);
+				env.deviceOs = p.deviceOs;
 				env.isMobile = p.isMobile;
 			}
 		};
+		//check hybrid
+		if(globalThis._cordovaNative) {
+			env.isHybrid = true;
+			env.hybridPlatform = 'cordova';
+		} else if(globalThis.Capacitor && Capacitor.ishybridPlatform()) {
+			env.isHybrid = true;
+			env.hybridPlatform = 'capacitor';
+		}
 		//check platform
 		if(typeof __filename !== 'undefined') {
 			env.isNode = true;
-			env.scriptPath = __filename.replace(/\\/g, '/');
 			env.basePath = process.cwd().replace(/\\/g, '/');
+			env.scriptPath = __filename.replace(/\\/g, '/');
 		} else if(typeof WorkerGlobalScope !== 'undefined') {
 			env.isWorker = true;
 		} else	if(typeof window !== 'undefined') {
 			env.isBrowser = true;
-			env.scriptPath = document.currentScript.src;
 			env.basePath = (document.querySelector('base') || {}).href || env.basePath;
+			env.scriptPath = document.currentScript ? document.currentScript.src : '';
+			if(!env.scriptPath) {
+				console.log(NAME.toLowerCase() + '.js should not be loaded as a js module');
+			}
 		}
-		//format base uri
-		env.basePath = _formatPath(env.basePath);
+		
+		//format paths
+		env.scriptPath = _formatPath(env.scriptPath, true);
+		env.basePath = _formatBase(_formatPath(env.basePath));
 		//import template path
-		env.importTpl = env.scriptPath.replace('/' + NAME.toLowerCase() + '.', '/{name}.').replace(/.js$/, '.mjs').replace('.min.', '.')
-		//calculate client ID
-		env.clientId = _calcId(env.clientUa);
-		//detect client OS
-		var p = _parseUa(env.clientUa);
-		env.clientOs = p.clientOs;
+		env.importTpl = env.scriptPath.replace('/' + NAME.toLowerCase() + '.', '/{name}.').replace(/.js$/, '.mjs').replace('.min.', '.');
+		//calculate device ID
+		env.deviceId = _deviceId(env.deviceUa);
+		//detect device OS
+		var p = _parseUa(env.deviceUa);
+		env.deviceOs = p.deviceOs;
 		env.isMobile = p.isMobile;
 		//return
 		return env;
@@ -160,7 +232,7 @@
 			//wait for promises
 			return Promise.all(proms).then(function(exports) {
 				//loop through exports
-				exports.forEach(function(e, i) {
+				exports && exports.forEach(function(e, i) {
 					res[names[i]] = e;
 				});
 				//return
@@ -185,6 +257,7 @@
 		//default opts
 		opts = Object.assign({
 			name: name,
+			import: true,
 			tpl: env.importTpl
 		}, opts);
 		//use path template?
@@ -200,29 +273,48 @@
 			//mark for processing
 			importr.path = path;
 			processExports = true;
-			//dynamic import
-			importr.cache[path] = import(path);
+			//asset or module?
+			if(!opts.import || /\.css(\#|\?|$)/.test(path)) {
+				//load asset
+				importr.cache[path] = new Promise(function(resolve) {
+					//stop here?
+					if(!globalThis.document) {
+						return resolve();
+					}
+					//is script?
+					var isScript = /\.m?js(\#|\?|$)/.test(path);
+					var isModule = /\.(mjs|esm|es6)/.test(path);
+					//create element
+					var el = document.createElement(isScript ? 'script' : 'link');
+					//set properties
+					if(isScript) {
+						el.src = path;
+						el.async = false;
+						if(isModule) el.type = 'module';
+					} else {
+						el.href = path;
+						el.rel = 'stylesheet';
+					}
+					//load event
+					el.addEventListener('load', function() {
+						resolve()
+					});
+					//append to document
+					document.documentElement.firstChild.appendChild(el);
+				});
+			} else {
+				//import js
+				importr.cache[path] = import(path);
+			}
 		}
 		//wait for promise
 		return importr.cache[path].then(function(exports) {
 			//process exports?
-			if(processExports) {
+			if(exports && processExports) {
 				//cache exports?
-				if(opts.name) {
-					//has default?
-					if(exports.default) {
-						var defName = opts.name.replace(/\/./g, function(m) { m[1].toUpperCase() });
-						CONTAINER[defName] = exports.default;
-					}
-					//add named exports?
-					if(!exports.default || path.indexOf('/index.') > 0) {
-						//loop through exports
-						for(var k in exports) {
-							if(k !== 'default') {
-								CONTAINER[k] = exports[k];
-							}
-						}
-					}
+				if(opts.name && exports.default) {
+					var defName = opts.name.replace(/\/./g, function(m) { m[1].toUpperCase() });
+					CONTAINER[defName] = exports.default;
 				}
 				//dispatch event?
 				if(globalThis.dispatchEvent) {
@@ -243,14 +335,13 @@
 	};
 
 	//create import map
-	var importMap = function(deps = {}) {
-		//can create?
-		if(!globalThis.document || importMap.loaded) {
-			return Promise.resolve(false);
-		}
+	var importMap = function() {
 		//set vars
 		var mapArr = [];
+		var doc = globalThis.document;
 		var mapPrefix = NAME.toLowerCase();
+		var mapScript = doc ? document.createElement('script') : null;
+		var allScripts = doc ? document.querySelectorAll('script') : null;
 		//loop through modules
 		MODULES.forEach(function(m) {
 			//can add to map?
@@ -264,28 +355,19 @@
 					path += '/index';
 				}
 				//add to array
-				mapArr.push('"' + name + '": "' + env.importTpl.replace('{name}', path) + '"');
+				mapArr.push("\t\t\"" + name + "\": \"" + env.importTpl.replace('{name}', path) + "\"");
 			}
 		});
-		//loop through dependencies
-		deps.forEach(function(url, name) {
-			mapArr.push('"' + name + '": "' + url + '"');
+		//loop through extras
+		(globalThis.IMPORTMAP || {}).forEach(function(path, name) {
+			mapArr.push("\t\t\"" + name + "\": \"" + path + "\"");
 		});
-		//update flag
-		importMap.loaded = true;
-		//wait for promise
-		return new Promise(function(resolve) {
-			//create script
-			var s = document.createElement('script');
-			var t = document.querySelectorAll('script');
-			s.type = 'importmap';
-			s.textContent = '{ "imports": { ' + mapArr.join(", ") + ' } }';
-			t[0].parentNode.insertBefore(s, t[0]);
-			//listen for onload
-			s.addEventListener('load', function() {
-				resolve(true);
-			});
-		});
+		//add import map?
+		if(mapScript) {
+			mapScript.type = 'importmap';
+			mapScript.textContent = "{\n\t\"imports\": {\n" + mapArr.join(",\n") + "\n\t}\n}";
+			allScripts[0].parentNode.insertBefore(mapScript, allScripts[0]);
+		}
 	};
 
 	//ready handler
@@ -307,10 +389,6 @@
 		if(modules[0] === '@all') {
 			modules = MODULES;
 		}
-		//create import map?
-		if(!importMap.loaded) {
-			importMap();
-		}
 		//async call
 		setTimeout(function() {
 			//import modules
@@ -327,9 +405,15 @@
 	var CONTAINER = {
 		env: env,
 		importr: importr,
-		importMap: importMap,
 		ready: ready
 	};
+
+	//globals export
+	GLOBALS.forEach(function(g) {
+		if(g === NAME || !globalThis[g]) {
+			globalThis[g] = CONTAINER;
+		}
+	});
 
 	//cjs export?
 	if(typeof module === 'object' && module.exports) {
@@ -340,15 +424,13 @@
 	if(typeof define === 'function' && define.amd) {
 		define(NAME, [], function() { return CONTAINER; });
 	}
-
-	//globals export
-	GLOBALS.forEach(function(g) {
-		if(g === NAME || !globalThis[g]) {
-			globalThis[g] = CONTAINER;
-		}
+	
+	//import map
+	importMap();
+	
+	//preload
+	PRELOAD.forEach(function(module) {
+		importr(module);
 	});
-
-	//additional globals
-	globalThis.importr = importr;
 
 })();

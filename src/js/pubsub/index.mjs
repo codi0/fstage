@@ -1,9 +1,6 @@
 //private vars
 var _instances = 0;
 
-//exports
-export default new pubsub();
-
 //pubsub wrapper
 function pubsub() {
 
@@ -157,3 +154,14 @@ function pubsub() {
 	return api;
 
 }
+
+//create instance
+var _obj = new pubsub();
+
+//set globals?
+if(globalThis.Fstage) {
+	Fstage.pubsub = _obj;
+}
+
+//exports
+export default _obj;

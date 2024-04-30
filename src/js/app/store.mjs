@@ -3,43 +3,46 @@ import pubsub from '../pubsub/index.mjs';
 import observe from '../observe/index.mjs';
 
 //private vars
+var run = [];
 var queue = [];
 var storeId = 0;
+var trackFn = null;
 
 //exports
 export default function store(state = {}, opts = {}) {
 
 	//local vars
-	var fnId = 0;
 	var paths = {};
-	var tokens = {};
 	var actions = {};
-	var tracking = null;
-	var locked = (opts.locked !== false);
+	var locked = !!opts.locked;
 	var evPrefix = 'store.' + (++storeId) + '.';
 
 	//observe state
 	state = observe(state, {
-		deep: !!opts.deep
+		deep: (opts.deep !== false)
 	});
 
-	//linitial ock state
+	//linitial lock state
 	state.proxyLocked = locked;
 
 	//listen for state access
 	state.onProxy('access', function(data) {
-		//is tracking?
-		if(!tracking) return;
+		//valid function?
+		if(!trackFn || !trackFn.__fsReact) {
+			return;
+		}
+		//valid state ID?
+		if(!trackFn.__fsReact.ids.includes(state.proxyId)) {
+			return;
+		}
 		//set vars
 		var path = data.path;
-		var token = tracking.__react.fnId;
-		//create arrays
+		//add paths array
 		paths[path] = paths[path] || [];
-		tokens[token] = tokens[token] || [];
 		//subscribe function?
-		if(!paths[path].includes(tracking)) {
-			paths[path].push(tracking);
-			tokens[token].push(path);
+		if(!paths[path].includes(trackFn)) {
+			paths[path].push(trackFn);
+			api.dispatch(path);
 		}
 	});
 
@@ -47,24 +50,48 @@ export default function store(state = {}, opts = {}) {
 	state.onProxy('change', function(data) {
 		//set vars
 		var path = data.path;
+		var startQueue = false;
 		//loop through functions to call
 		for(var i=0; i < (paths[path] || []).length; i++) {
 			//get function
 			var fn = paths[path][i];
-			//launch queue?
+			//valid function?
+			if(!fn || !fn.__fsReact) {
+				continue;
+			}
+			//valid state ID?
+			if(!fn.__fsReact.ids.includes(state.proxyId)) {
+				continue;
+			}
+			//already in queue?
+			if(queue.includes(fn)) {
+				continue;
+			}
+			//start queue?
 			if(!queue.length) {
-				requestAnimationFrame(function() {
-					//loop through queue
-					while(queue.length) {
-						queue[0]();
-						queue.shift();
+				startQueue = true;
+			}
+			//add to queue
+			queue.push(fn);
+		}
+		//start queue?
+		if(startQueue) {
+			//reset
+			run = [];
+			//wait for next frame
+			requestAnimationFrame(function() {
+				//loop through queue
+				while(queue.length) {
+					//next function
+					var q = queue.shift();
+					//already run?
+					if(!run.includes(q)) {
+						q({ source: 'state' });
 					}
-				});
-			}
-			//add to queue?
-			if(!queue.includes(fn)) {
-				queue.push(fn);
-			}
+				}
+				//reset
+				run = [];
+			});
 		}
 	});
 
@@ -79,43 +106,11 @@ export default function store(state = {}, opts = {}) {
 			return state;
 		},
 
-		actions: function() {
-			return actions;
-		},
-
-		inQueue: function(fn) {
-			//set vars
-			var arr = [ fn ];
-			//get root?
-			if(fn.__react) {
-				arr.push(fn.__react.fnRoot);
-			}
-			//loop through queue
-			for(var i=0; i < queue.length; i++) {
-				//direct match?
-				if(arr.includes(queue[i])) {
-					return true;
-				}
-				//root match?
-				if(queue[i].__react && arr.includes(queue[i].__react.fnRoot)) {
-					return true;
-				}
-			}
-			//not found
-			return false;
-		},
-
-		hasRun: function(name) {
-			return !!(actions[name] && actions[name].run);
-		},
-
 		dispatch: function(name, payload = null, opts = {}) {
-			//action created?
-			if(!actions[name]) {
-				throw new Error('Action not defined: ' + name);
+			//has action?
+			if(actions[name]) {
+				return actions[name](payload, opts);
 			}
-			//call action
-			return actions[name](payload, opts);
 		},
 
 		middleware: function(name, fn) {
@@ -198,67 +193,69 @@ export default function store(state = {}, opts = {}) {
 			return pubsub.on(evPrefix + name, fn);
 		},
 
-		react: function(fn, opts = {}) {
-			//is wrapped?
-			if(fn.__react && fn.__react.stateId === state.proxyId) {
-				return fn;
-			}
-			//wrap function
+		react: function(fn) {
+			//Helper: wrapper
 			var wrap = function() {
-				//reset?
-				if(opts.reset) {
-					fn = api.unreact(wrap);
-				}
 				//mark as tracked
-				var prev = tracking;
-				tracking = wrap;
-				//get args
+				var prev = trackFn;
+				trackFn = wrap;
+				//mark as run
+				run.push(wrap);
+				//get function & args
+				var fn = wrap.__fsReact.fn;
 				var args = [].slice.call(arguments);
-				//execute
-				if(opts.ctx) {
-					var res = fn.apply(opts.ctx, args);
-				} else {
-					var res = fn(...args);
-				}
+				//execute function
+				var res = fn(...args);
 				//previous
-				tracking = prev;
+				trackFn = prev;
 				//return
 				return res;
 			};
-			//cache vars
-			wrap.__react = {
-				fn: fn,
-				fnRoot: fn.__react ? fn.__react.fnRoot : fn,
-				fnId: (++fnId),
-				stateId: state.proxyId
-			};
+			//sets vars
+			var res = fn;
+			//create wrapper?
+			if(!res.__fsReact) {
+				res = wrap;
+				res.__fsReact = {
+					fn: fn,
+					ids: []
+				};
+			}
+			//add state ID?
+			if(!res.__fsReact.ids.includes(state.proxyId)) {
+				res.__fsReact.ids.push(state.proxyId);
+			}
 			//return
-			return wrap;
+			return res;
 		},
 
 		unreact: function(fn) {
 			//is wrapped?
-			if(!fn.__react || fn.__react.stateId !== state.proxyId) {
+			if(!fn.__fsReact) {
 				return fn;
 			}
-			//set vars
-			var token = fn.__react.fnId;
-			//loop through tokens
-			for(var i=0; i < (tokens[token] || []).length; i++) {
-				//get path
-				var path = tokens[token][i];
-				var index = paths[path].indexOf(fn);
-				//remove?
-				if(index >= 0) {
-					paths[path].splice(index, 1);
+			//get index
+			var index = fn.__fsReact.ids.indexOf(state.proxyId);
+			//ID found?
+			if(index >= 0) {
+				//remove state ID
+				fn.__fsReact.ids.splice(index, 1);
+				//check paths
+				for(var i=0; i < paths.length; i++) {
+					//get index
+					index = paths[i].indexOf(fn);
+					//remove from path?
+					if(index >= 0) {
+						paths[i].splice(index, 1);
+					}
 				}
 			}
-			//delete token?
-			if(tokens[token]) {
-				delete tokens[token];
+			//remove wrapper?
+			if(!fn.__fsReact.ids.length) {
+				fn = fn.__fsReact.fn;
 			}
 			//return
-			return fn.__react.fn;
+			return fn;
 		}
 
 	};

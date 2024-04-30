@@ -1,22 +1,3 @@
-//exports
-export default {
-	type: type,
-	copy: copy,
-	extend: extend,
-	debounce: debounce,
-	memoize: memoize,
-	isEmpty: isEmpty,
-	isUrl: isUrl,
-	capitalize: capitalize,
-	hash: hash,
-	scroll: scroll,
-	parseHTML: parseHTML,
-	stripHTML: stripHTML,
-	esc: esc,
-	decode: decode,
-	objHandler: objHandler
-};
-
 //get input type
 export function type(input) {
 	//is proxy?
@@ -84,7 +65,7 @@ export function memoize(fn) {
 //is input an empty value
 export function isEmpty(value) {
 	//has length?
-	if(value && ('length' in value)) {
+	if(value && value.length !== undefined) {
 		return !value.length;
 	}
 	//is object?
@@ -106,19 +87,18 @@ export function capitalize(input) {
 }
 
 //hash input
-export function hash(str) {
-	//create string?
-	if(typeof str !== 'string') {
-		str = JSON.stringify(str);
+export function hash(str, seed=0) {
+	var h1 = 0xdeadbeef ^ seed, h2 = 0x41c6ce57 ^ seed;
+	for(var i = 0, ch; i < str.length; i++) {
+		ch = str.charCodeAt(i);
+		h1 = Math.imul(h1 ^ ch, 2654435761);
+		h2 = Math.imul(h2 ^ ch, 1597334677);
 	}
-	//set vars
-	var h = 5381, i = str.length;
-	//loop
-	while(i) {
-		h = (h * 33) ^ str.charCodeAt(--i);
-	}
-	//return
-	return (h >>> 0).toString();
+	h1  = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
+	h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+	h2  = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
+	h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+	return 4294967296 * (2097151 & h2) + (h1 >>> 0);
 }
 
 //vertical page scroll
@@ -180,8 +160,9 @@ export function esc(input, type = 'html') {
 
 //escape html context
 esc.html = function(input) {
+	input = isEmpty(input) && input != 0 ? '' : input;
 	var map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '/': '&#x2F;', ':': '&#58;' };
-	return String(input || '').replace(/&amp;/g, '&').replace(/[&<>"'\/:]/g, function(i) { return map[i]; });
+	return String(input).replace(/&amp;/g, '&').replace(/[&<>"'\/:]/g, function(i) { return map[i]; });
 };
 
 //escape html attribute
@@ -191,7 +172,8 @@ esc.attr = function(input) {
 
 //escape js context
 esc.js = function(input) {
-	return String(input || '').replace(/([\(\)\'\"\r\n\t\v\0\b\f\\])/g, "\\$1");
+	input = isEmpty(input) && input != 0 ? '' : input;
+	return String(input).replace(/([\(\)\'\"\r\n\t\v\0\b\f\\])/g, "\\$1");
 };
 
 //escape css context
@@ -382,3 +364,30 @@ export var objHandler = {
 	}
 
 };
+
+//combined
+var utils = {
+	type: type,
+	copy: copy,
+	extend: extend,
+	debounce: debounce,
+	memoize: memoize,
+	isEmpty: isEmpty,
+	isUrl: isUrl,
+	capitalize: capitalize,
+	hash: hash,
+	scroll: scroll,
+	parseHTML: parseHTML,
+	stripHTML: stripHTML,
+	esc: esc,
+	decode: decode,
+	objHandler: objHandler
+};
+
+//set globals?
+if(globalThis.Fstage) {
+	Fstage.utils = utils;
+}
+
+//export default
+export default utils;

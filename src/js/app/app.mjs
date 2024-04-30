@@ -1,6 +1,9 @@
 //imports
 import { env } from '../core/index.mjs';
 import utils from '../utils/index.mjs';
+import dom from '../dom/index.mjs';
+import pubsub from '../pubsub/index.mjs';
+import router from './router.mjs';
 import components from './components.mjs';
 
 //private vars
@@ -22,6 +25,7 @@ export default function app(config = {}) {
 	}
 
 	//private vars
+	let lastRoute = '';
 	const evPrefix = 'app.' + config.id + '.';
 	const status = { init: false, mount: false, ready: false, waiting: [] };
 
@@ -35,8 +39,8 @@ export default function app(config = {}) {
 		routes: {},
 		urlScheme: 'hash',
 		rootEl: '#root',
-		rootComponent: 'root'
-	}, globalThis.__APPCONFIG, config);
+		pageTransition: 'bump-from-bottom'
+	}, config);
 
 	//update host?
 	if(app.config.host) {
@@ -49,16 +53,62 @@ export default function app(config = {}) {
 		env.basePath = app.config.basePath.replace(/\/$/g, '') + '/';
 		delete app.config.basePath;
 	}
-	
-	//app routes
-	app.routes = app.config.routes;
-	delete app.config.routes;
 
 	//imports
 	app.env = env;
 	app.utils = utils;
+	app.router = router;
+	app.pubsub = pubsub;
 	app.components = components;
-	
+
+	//Helper: page transition before update
+	components.onBeforeUpdateNode(function(from, to, rootEl) {
+		//set vars
+		var customEffects = {};
+		var route = app.router.current();
+		var component = from.getAttribute('data-component');
+		var transition = from.getAttribute('data-transition');
+		var isPage = app.router.has(component);
+		var inReverse = isPage ? route.isBack : from.hasAttribute('data-reverse');
+		//can transition?
+		if(from === rootEl || (from.id && from.id === to.id) || (isPage && route.init) || (!isPage && !transition)) {
+			return;
+		}
+		//route changed/
+		if(lastRoute === route.name) {
+			return;
+		}
+		//cache last route
+		lastRoute = route.name;
+		//set vars
+		var fromEffect = 'none';
+		var toEffect = transition || app.config.pageTransition;
+		//check for custom effects
+		for(var i in customEffects) {
+			//effect found?
+			if((inReverse ? from : to).getAttribute('data-component') === i) {
+				toEffect = customEffects[i];
+				break;
+			}
+		}
+		//append node
+		from.parentNode.insertBefore(to, from.nextSibling);
+		//hide to node
+		to.classList.add('hidden');
+		//run page transition
+		dom.transition(to, toEffect, from, fromEffect, {
+			reverse: inReverse,
+			onEnd: function(e) {
+				//remove old node?
+				if(from.parentNode) {
+					from.parentNode.removeChild(from);
+				}
+			}
+		});
+		//break
+		return false;
+	});
+
 	//app logger
 	app.logger = {
 			
@@ -199,10 +249,8 @@ export default function app(config = {}) {
 		if(typeof rootEl === 'string') {
 			rootEl = document.querySelector(rootEl);
 		}
-		//update app props
+		//update config
 		app.config.rootEl = rootEl;
-		app.pubsub = app.components.pubsub();
-		app.router = app.components.router();
 		//mark as init
 		status.init = true;
 		//run init event
@@ -219,7 +267,7 @@ export default function app(config = {}) {
 			proms.push(import(path));
 		});
 		//wait for imports
-		Promise.all(proms).then(function(results) {
+		return Promise.all(proms).then(function(results) {
 			//set vars
 			var services = [];
 			var middleware = [];
@@ -227,10 +275,10 @@ export default function app(config = {}) {
 			results.forEach(function(exports, index) {
 				//get module name
 				var name = app.config.modules[index];
-				var split = name.split("/", 2);
+				var split = name.split("/");
 				//has default?
 				if(exports.default) {
-					var n = split[1].replace(/\/./g, function(m) { m[1].toUpperCase() });
+					var n = split[split.length-1].replace(/\/./g, function(m) { m[1].toUpperCase() });
 					exports[n] = exports.default;
 					delete exports.default;
 				}
@@ -244,7 +292,7 @@ export default function app(config = {}) {
 						services.push(i);
 					} else if(split[0] === 'middleware') {
 						middleware.push(exports[i]);
-					} else if(split[0] === 'components') {
+					} else if(split[0] === 'views') {
 						app.components.register(i, exports[i]);
 					}
 				}
@@ -260,22 +308,29 @@ export default function app(config = {}) {
 				fn(app.components.store(), app);
 			});
 			//register routes
-			app.routes.forEach(function(route) {
+			app.config.routes.forEach(function(route) {
 				app.router.on(route, null);
 			});
 			//execute callback?
 			if(callback) {
 				callback(app);
 			}
-			//start app
-			app.components.start(app.config.rootComponent, app.config.rootEl, {
-				context: app,
-				router: {
-					basePath: app.env.basePath,
-					urlScheme: app.config.urlScheme,
-					defHome: app.routes.HOME,
-					def404: app.routes.NOTFOUND
-				}
+			//listen for any route change
+			app.router.on(':all', function(route) {
+				//update global store
+				app.components.store().state().merge({ route: route });
+			});
+			//start router
+			app.router.start({
+				basePath: app.env.basePath,
+				urlScheme: app.config.urlScheme,
+				defHome: app.config.routes.HOME,
+				def404: app.config.routes.NOTFOUND
+			});
+			//start components
+			app.components.start(app.config.rootEl, {
+				context: app.config,
+				pubsub: app.pubsub
 			});
 			//mark as mounted
 			status.mount = true;
@@ -298,9 +353,9 @@ export default function app(config = {}) {
 			} else {
 				onReady();
 			}
+			//done
+			return app;
 		});
-		//return
-		return app;
 	};
 
 	//capture errors

@@ -1,9 +1,14 @@
 //imports
 import { esc } from '../utils/index.mjs';
-import pubsub from '../pubsub/index.mjs';
 
 //exports
-export default function lit() {
+export default { esc: esc, html: html };
+
+//escape
+html.esc = esc;
+
+//html
+export function html() {
 
 	//set vars
 	var ctx = this;
@@ -30,11 +35,6 @@ export default function lit() {
 		params: args
 	};
 
-	//filter input
-	input = pubsub.emit('lit.input', input, {
-		filter: true
-	});
-
 	//check attribute helper
 	var checkAttr = function(text, inAttr) {
 		if(text) {
@@ -52,7 +52,6 @@ export default function lit() {
 		}
 		return inAttr;
 	};
-
 	//loop through text
 	for(var i=0; i < input.text.length; i++) {
 		//add text
@@ -60,7 +59,7 @@ export default function lit() {
 		//update inAttr
 		inAttr = checkAttr(input.text[i], inAttr);
 		//add param?
-		if(input.params[i]) {
+		if(i in input.params) {
 			if(typeof input.params[i].raw === 'string') {
 				output += input.params[i].raw;
 			} else {

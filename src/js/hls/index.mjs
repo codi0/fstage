@@ -1,9 +1,8 @@
 //hls version
-//var hlsVersion = '0.14.17';
-var hlsVersion = '1.1.5';
+var hlsVersion = '1.5.7';
 
-//exports
-export default {
+//hls object
+var hls = {
 
 	create: function(cache = true) {
 		//is cached?
@@ -88,3 +87,11 @@ export default {
 	}
 
 };
+
+//set globals?
+if(globalThis.Fstage) {
+	Fstage.hls = hls;
+}
+
+//exports
+export default hls;

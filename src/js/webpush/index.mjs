@@ -1,6 +1,3 @@
-//exports
-export default new webpush();
-
 //webpush wrapper
 function webpush() {
 
@@ -66,6 +63,10 @@ function webpush() {
 	};
 			
 	return {
+	
+		instance: function() {
+			return new webpush();
+		},
 
 		init: function(url, vapid) {
 			_url = url;
@@ -175,3 +176,14 @@ function webpush() {
 	};
 
 };
+
+//create obj
+var obj = new webpush()
+
+//set globals?
+if(globalThis.Fstage) {
+	Fstage.webpush = obj;
+}
+
+//exports
+export default obj;

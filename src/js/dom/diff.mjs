@@ -50,16 +50,14 @@ export default function domDiff(from, to, opts = {}) {
 			if(opts.beforeUpdateNode(from, to) === false) {
 				return;
 			}
-		}
-		//clone from
-		var cloned = from.cloneNode(false);
+		};
 		//update attributes
 		updateAttrs(from, to);
 		//update children
 		updateChildren(from, to);
 		//run after callback?
 		if(opts.afterUpdateNode) {
-			opts.afterUpdateNode(cloned, from);
+			opts.afterUpdateNode(from);
 		}
 	};
 
@@ -79,7 +77,7 @@ export default function domDiff(from, to, opts = {}) {
 		}
 		//cache from attr
 		var fromAttrs = from.attributes;
-		//remove discarded attrs
+		//remove discarded attributes
 		for(var i=0; i < fromAttrs.length; i++) {
 			if(!to.hasAttribute(fromAttrs[i].name)) {
 				from.removeAttribute(fromAttrs[i].name);
@@ -145,6 +143,7 @@ export default function domDiff(from, to, opts = {}) {
 											removeNode(curFromChild, from, true);
 										}
 										curFromChild = matchingFromEl;
+										curFromKey = getNodeKey(curFromChild);
 									}
 								} else {
 									isCompatible = false;
@@ -252,7 +251,7 @@ export default function domDiff(from, to, opts = {}) {
 				from.selectedIndex = index;
 			}
 		}
-		//handle select node?
+		//handle option node?
 		if(from.nodeName === 'OPTION') {
 			//has parent node?
 			if(from.parentNode) {
@@ -301,6 +300,7 @@ export default function domDiff(from, to, opts = {}) {
 			curChild = nextSibling;
 		}
 	};
+
 	//remove node helper
 	var removeNode = function(node, parentNode, skipKeyedNodes) {
 		if(parentNode) {
@@ -308,13 +308,14 @@ export default function domDiff(from, to, opts = {}) {
 		}
 		walkDiscardedNodes(node, skipKeyedNodes);
 	};
+
 	//walk discarded nodes helper
 	var walkDiscardedNodes = function(node, skipKeyedNodes) {
 		if(node.nodeType === 1) {
 			var curChild = node.firstChild;
 			while(curChild) {
-				var key = getNodeKey(curChild);
-				if(key && skipKeyedNodes) {
+				var curFromKey = getNodeKey(curChild);
+				if(curFromKey && skipKeyedNodes) {
 					keyedRemovalList.push(curFromKey);
 				} else if(curChild.firstChild) {
 					walkDiscardedNodes(curChild, skipKeyedNodes);
@@ -323,11 +324,10 @@ export default function domDiff(from, to, opts = {}) {
 			}
 		}
 	};
-
-	//start update
-	var updated = from;
-	var keyedRemovalList = [];
-	var fromNodesLookup = findKeyedNodes(from);
+	
+	//result vars
+	var result = from;
+	var getResult = function(hasChanged) { return { result: result, hasChanged: hasChanged } }
 	
 	//convert html to nodes?
 	if(typeof to === 'string') {
@@ -336,34 +336,43 @@ export default function domDiff(from, to, opts = {}) {
 		to = tmp;
 	}
 
+	//anything to update?
+	if(from.isEqualNode(to)) {
+		return getResult(false);
+	}
+
+	//start update
+	var keyedRemovalList = [];
+	var fromNodesLookup = findKeyedNodes(from);
+
 	//is element?
-	if(updated.nodeType === 1) {
+	if(result.nodeType === 1) {
 		if(to.nodeType === 1) {
 			if(from.nodeName !== to.nodeName) {
-				updated = document.createElement(to.nodeName);
+				result = document.createElement(to.nodeName);
 				while(from.firstChild) {
-					updated.appendChild(from.firstChild);
+					result.appendChild(from.firstChild);
 				}
 			}
 		} else {
-			updated = to;
+			result = to;
 		}
 	}
 
 	//is text or comment?
-	if(updated.nodeType === 3 || updated.nodeType === 8) {
-		if(to.nodeType === updated.nodeType) {
-			updated.nodeValue = to.nodeValue;
-			return updated;
+	if(result.nodeType === 3 || result.nodeType === 8) {
+		if(to.nodeType === result.nodeType) {
+			result.nodeValue = to.nodeValue;
+			return getResult(true);
 		} else {
-			updated = to;
+			result = to;
 		}
 	}
 
 	//update node?
-	if(updated !== to) {
+	if(result !== to) {
 		//update node
-		updateNode(updated, to);
+		updateNode(result, to);
 		//check keyed nodes
 		for(var i=0; i < keyedRemovalList.length; i++) {
 			//node to remove
@@ -375,17 +384,17 @@ export default function domDiff(from, to, opts = {}) {
 		}
 	}
 
-	//replace from node?
-	if(updated !== from && from.parentNode) {
-		//virtual DOM?
-		if(updated.actualize) {
-			updated = updated.actualize(from.ownerDocument || document);
-		}
-		//replace node
-		from.parentNode.replaceChild(updated, from);
+	//is virtual DOM?
+	if(result.actualize) {
+		result = result.actualize(from.ownerDocument || document);
 	}
 
-	//return
-	return updated;
+	//replace from node?
+	if(result !== from && from.parentNode) {
+		from.parentNode.replaceChild(result, from);
+	}
+
+	//result
+	return getResult(true);
 
 }

@@ -354,3 +354,8 @@ ipfs.node = function(config = {}) {
 ipfs.httpClient = function(config = {}) {
 	return ipfs(config, 'http');
 };
+
+//set globals?
+if(globalThis.Fstage) {
+	Fstage.ipfs = ipfs;
+}

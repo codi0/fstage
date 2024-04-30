@@ -1,0 +1,379 @@
+/* CORE */
+
+.small {
+	font-size: var(--small-font-size);
+}
+
+.responsive {
+	max-width: 100%;
+	height: auto;
+}
+
+.collapsed {
+	margin-top: 0;
+}
+
+.hidden {
+	visibility: hidden;
+	width: 0 !important;
+	height: 0 !important;
+	margin: 0 !important;
+	padding: 0 !important;
+	font-size: 0 !important;
+	border: none !important;
+}
+
+.hidden::before, .hidden::after, .hidden > * {
+	display: none !important;
+}
+
+
+/* GRID */
+
+.grid {
+	--min: 1;
+	--mid: 2;
+	--max: 3;
+	--gap: 0px;
+	--top: 0px;
+	display: flex;
+	flex-flow: row wrap;
+	justify-content: flex-start;
+	width: calc(100% + var(--gap));
+	margin: calc((-1 * var(--gap)) + var(--top)) 0 0 calc(-1 * var(--gap)) !important;
+}
+
+* + .grid {
+	--top: var(--body-vertical-rhythm);
+}
+
+.grid > * {
+	flex-basis: calc(calc(100% / var(--min)) - var(--gap));
+	margin: var(--gap) 0 0 var(--gap);
+	transform: translateX(0%);
+}
+
+@media (min-width: 40em) {
+
+	.grid > * {
+		flex-basis: calc(calc(100% / var(--mid)) - var(--gap));
+	}
+
+}
+
+@media (min-width: 60em) {
+
+	.grid > * {
+		flex-basis: calc(calc(100% / var(--max)) - var(--gap));
+	}
+
+}
+
+
+/* ANIMATE */
+
+.animate {
+	transition: transform 300ms ease-in-out, opacity 300ms ease-in-out;
+}
+
+.animate.none {
+	opacity: 0.99;
+}
+
+.static, .static * {
+	transition: none !important;
+}
+
+.fade.out, .fade.hidden {
+	opacity: 0;
+}
+
+.scale.out, .scale.hidden {
+	transform: scale3d(0, 0, 0);
+}
+
+.slide-from-left.out, .slide-from-left.hidden {
+	transform: translate3d(-100%, 0, 0);
+}
+
+.slide-from-right.out, .slide-from-right.hidden {
+	transform: translate3d(100%, 0, 0);
+}
+
+.slide-from-top.out, .slide-from-top.hidden {
+	transform: translate3d(0, -100%, 0);
+}
+
+.slide-from-bottom.out, .slide-from-bottom.hidden {
+	transform: translate3d(0, 100%, 0);
+}
+
+.bump-from-bottom.out, .bump-from-bottom.hidden {
+	opacity: 0;
+	transform: translate3d(0, 50px, 0);
+}
+
+
+/* CAROUSEL */
+
+.carousel {
+	--nav-size: 1rem;
+	--nav-color: #333;
+	--nav-active-color: var(--link-hover-color);
+	position: relative;
+	overflow: hidden;
+}
+
+.carousel img {
+	user-select: none;
+	pointer-events: none;
+}
+
+.carousel .grid {
+	--gap: 20px;
+	grid-auto-flow:column; 
+	flex-flow: nowrap;
+	scroll-behavior: smooth;
+}
+
+.carousel .grid > * {
+	flex-shrink: 0;
+	flex-grow: 0;
+	transition: transform 300ms ease-in-out;
+}
+
+.carousel .nav {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: transparent;
+}
+
+.carousel .nav .btn {
+	display: inline-block;
+	width: var(--nav-size);
+	height: var(--nav-size);
+	background: var(--nav-color);
+	border-radius: 50%;
+	margin-left: calc(var(--nav-size) / 1.5);
+	font-size: 0;
+	cursor: pointer;
+}
+
+.carousel .nav .btn:first-child {
+	margin-left: 0;
+}
+
+.carousel .nav .active {
+	background: var(--nav-active-color);
+}
+
+
+/* PAGINATION */
+
+.pagination {
+	display: flex;
+	justify-content: center;
+	list-style-type: none;
+	padding: 0;
+}
+
+.pagination a, .pagination .active, .pagination .current, .pagination .disabled {
+	padding: 8px 16px;
+	border: 1px solid #ddd;
+}
+
+.pagination .active, .pagination .current {
+	background: #f1f1f1;
+}
+
+.pagination .disabled, .pagination .disabled:hover {
+	cursor: default;
+	color: #bbb;
+}
+
+
+/* NOTICE */
+
+.notice {
+	position: relative;
+	padding: 12px;
+	border: 0px solid #000;
+	border-left-width: 4px;
+}
+
+.notice.pinned {
+	position: absolute;
+	top: 0; left: 0;
+}
+
+.notice.pinned.bottom {
+	top: initial;
+	bottom: 0;
+}
+
+.notice.success {
+	background: #DFF0D8;
+	border-color: #46b450;
+}
+
+.notice.error {
+	background: #F2DEDE;
+	border-color: #dc3232;
+}
+
+.notice.info {
+	background: #D9EDF7;
+	border-color: #00a0d2;
+}
+
+.notice.warn {
+	background: #FCF8E3;
+	border-color: #ffb900;
+}
+
+.notice .close {
+	font-size: 20px;
+	position: absolute;
+	top: 8px; right: 8px;
+}
+
+.notice .title {
+	font-size: 1.1em;
+	font-weight: bold;
+}
+
+.notice .close + .title {
+	margin-right: 15px;
+}
+
+
+/* OVERLAY */
+
+.overlay {
+	--head-height: 45px;
+	--head-background: #fff;
+	display: flex;
+	align-items: center;
+	position: fixed;
+	top: 0; left: 0;
+	width: 100%;
+	height: 100%;
+	padding: 0;
+	margin: 0;
+	background: rgba(0, 0, 0, 0.5);
+	z-index: 10000
+}
+
+.overlay .inner {
+	position: relative;
+	min-width: 50vw;
+	max-width: 95vw;
+	max-height: 95vh;
+	margin: auto;
+	color: #3c434a;
+	background: var(--body-background);
+	border-radius: 4px;
+	box-shadow: 0 4px 8px rgba(0, 0, 0, 0.5);
+}
+
+.overlay .head {
+	display: flex;
+	align-items: center;
+	font-size: 1.2em;
+	font-weight: bold;
+	padding: 15px;
+	height: var(--head-height);
+	margin: 0;
+	background: var(--head-background);
+}
+
+.overlay .body {
+	margin: 0;
+	padding: 15px;
+    overflow: auto;
+    max-height: calc(95vh - var(--head-height));
+}
+
+.overlay .close {
+	cursor: pointer;
+	font-size: 1.2em;
+	font-weight: normal;
+	margin: 0 0 0 auto;
+	padding-left: 20px;
+}
+
+
+/* CROPPED IMAGE */
+
+.crop {
+	--width: 100%;
+	--height: 200px;
+	--top: 50%;
+	--left: 50%;
+	position: relative;
+	display: block;
+	width: var(--width);
+	height: var(--height);
+	overflow: hidden;
+	opacity: 0.99;
+}
+
+.crop:before {
+	content: ""; 
+	display: block; 
+	padding-top: 100%;  
+}
+
+.crop img {
+    position: absolute;
+	top: var(--top);
+	left: var(--left);
+	transform: translate(calc(var(--left) * -1), calc(var(--top) * -1));
+	width: auto;
+	height: auto;
+	max-width: initial;
+	max-height: initial;
+	min-width: var(--width);
+	min-height: var(--height);
+	margin: 0;
+    border: 0;
+    z-index: 10;
+}
+
+
+/* COOKIE CONSENT */
+
+#cookie-consent {
+	--color: #fff;
+	--background: #323232;
+	position: fixed;
+	bottom: 0; left: 0;
+	width: 100%;
+	padding: 10px;
+	text-align: center;
+	font-size: var(--small-font-size);
+	background:var(--background);
+	color: var(--color);
+	z-index: 999;
+}
+
+#cookie-consent a {
+	color: var(--color);
+	padding-bottom: 3px;
+	border-bottom: 1px dotted var(--color);
+}
+
+#cookie-consent a:hover {
+	border-bottom: none;
+}
+
+#cookie-consent input, #cookie-consent button {
+	max-width: 200px;
+	width: auto;
+	height: auto;
+	padding: 5px 10px;
+	margin: 0 0 0 5px;
+	color: var(--background);
+	background: var(--color);
+}

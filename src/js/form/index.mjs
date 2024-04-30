@@ -326,3 +326,8 @@ form.create = function(name, opts = {}) {
 	//return
 	return formEl;
 };
+
+//set globals?
+if(globalThis.Fstage) {
+	Fstage.form = form;
+}

@@ -212,3 +212,8 @@ export default function observe(obj, opts = {}) {
 	//return
 	return proxy;
 }
+
+//set globals?
+if(globalThis.Fstage) {
+	Fstage.observe = observe;
+}

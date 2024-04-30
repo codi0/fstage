@@ -1,304 +1,340 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-
 	<meta charset="utf-8">
-	<title>Fstage example app</title>
-
+	<title>App loader</title>
 	<meta name="viewport" content="viewport-fit=cover, width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no">
 	<meta name="apple-mobile-web-app-capable" content="yes">
 	<meta name="mobile-web-app-capable" content="yes">
 	<meta name="format-detection" content="telephone=no">
 	<meta name="msapplication-tap-highlight" content="no">
-
-	<link rel="preconnect" href="https://cdn.jsdelivr.net">
-	<link rel="icon" href="data:,">
-
 	<style>
+	:root {
+		--pwa-color: #000;
+		--pwa-background: #fff;
+	}
+
+	* {
+		box-sizing: border-box;
+	}
+
 	html, body {
 		width: 100%;
 		height: 100%;
 		padding: 0;
 		margin: 0;
-	}
-
-	.hidden {
-		visibility: hidden;
-	}
-
-	.logo {
-		--width: 100px;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		justify-content: center;
-		width: 100%;
-		height: 100%;
-		margin: 0;
-		text-align: center;
-	}
-
-	.logo img {
-		display: inline-flex;
-		flex-direction: column;
-		width: var(--width);
-		height: var(--width);
-	}
-
-	.logo .name {
-		color: #012847;
-		font-size: 2.0em;
-		font-weight: bold;
-		letter-spacing: -1px;
-		margin-top: 2px;
-	}
-
-	.logo .desc {
-		max-width: 280px;
-		margin-top: 30px;
-		font-size: 1.3em;
+		color: var(--pwa-color);
+		background: var(--pwa-background);
 	}
 
 	#splash {
+		display: flex;
+		align-items: center;
+		justify-content: center;
 		position: absolute;
 		top: 0; left: 0;
 		width: 100%;
 		height: 100%;
-		background: #fff;
+		background: var(--pwa-background);
+		transition: opacity 300ms ease-in-out;
 		z-index: 999;
+	}
+	
+	#splash.gone {
+		opacity: 0;
+	}
+
+	#splash .spinner {
+		position: fixed;
+		top: 0;
+		bottom: 0;
+		left: 0;
+		right: 0;
+		width: 80px;
+		height: 80px;
+		margin: auto;
+		border: 12px solid #333;
+		border-top: 12px solid #ccc;
+		border-radius: 50%;
+		animation: spin 500ms linear infinite;
 	}
 
 	#splash .logo {
-		--width: 80px;
-	}
-
-	.pwa #splash .logo {
 		display: none;
+		width: 80px;
+		margin: 0;
+		padding: 0;
+		padding-bottom: 100%;
+		background-image: url('img/logo.png');
+		background-position: center;
+		background-size: 100%;
+		background-repeat: no-repeat;
 	}
 
-	#splash .loading, #splash noscript {
+	#splash .waiting,
+	#splash noscript {
 		position: absolute;
 		bottom: 40px;
 		width: 100%;
 		text-align: center;
 	}
 
+	#splash .waiting {
+		display: none;
+		color: var(--pwa-color);
+	}
+
 	#splash noscript {
 		color: red;
 	}
+
+	@keyframes fadeOut {
+		0% {
+			opacity: 1;
+		}
+		100% {
+			opacity: 0;
+		} 
+	}
+
+	@keyframes spin {
+		100% {
+			transform: rotate(360deg);
+		}
+	}
 	</style>
-	
+</head>
+<body>
+	<div id="splash">
+		<div class="spinner"></div>
+		<div class="logo"></div>
+		<div class="waiting">
+			App loading...
+		</div>
+		<noscript>
+			Please enable javascript
+		</noscript>
+	</div>
+	<div id="root"></div>
 	<script>
 	(function() {
 
-		//config vars
+		//config
 		var config = {
-		
-			useCdn: true, //whether to load fstage from cdn
-			version: '0.4.0', //version of fstage library to use
-			basePath: location.href, //basePath must be the absolute URL to this file (hardcode if needed)
+			preloadUrls: [
+				'https://cdn.jsdelivr.net/gh/codi0/fstage@latest/src/css/classes.min.css',
+				'https://cdn.jsdelivr.net/gh/codi0/fstage@latest/src/js/fstage.min.js'
+			],
+			bootstrapUrls: [
+				'./js/bootstrap.mjs'
+			],
+			manifestUrl: 'manifest.json',
+			faviconUrl: 'img/icon.png',
+			splashLogo: false,
+			splashDelay: 500,
+			waitingDelay: 2000
+		};
 
-			isHybrid: !!window._cordovaNative,
-			isPwa: !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches),
+		//pwa
+		window.PWA = {
 
-			libs: function() {
-				//use to load js or css assets immediately
-				return [
-					config.fstagePath('js'),
-					config.appPath("js/config.js"),
-					config.fstagePath('css'),
-					config.appPath("css/style.css")
-				];
-			},
-			
-			modules: function() {
-				//use to load app bootstrap module(s)
-				return [
-					'core',
-					'app',
-					config.appPath("js/app.mjs")
-				];
-			},
-
-			fstagePath: function(type) {
-				if(config.useCdn) {
-					return "https://cdn.jsdelivr.net/gh/codi0/fstage@" + config.version + "/src/" + type + "/fstage.min." + type;
-				} else {
-					return "../../src/" + type + "/fstage." + type;
+			supportsES6: function() {
+				try {
+					new Function("(a = 0) => a");
+					return true;
+				} catch(e) {
+					return false;
 				}
 			},
 
-			appPath: function(path) {
-				var parts = config.basePath.split('#')[0].split('?')[0].replace(/\/$/g, '').split('/');
-				if(parts[parts.length-1].indexOf('.') !== -1) parts.pop();
-				return parts.join('/') + '/' + path;
+			loadAsset: function(url, type='') {
+				//is array?
+				if(Array.isArray(url)) {
+					var proms = [];
+					url.forEach(function(url) {
+						proms.push(PWA.loadAsset(url));
+					});
+					return Promise.all(proms);
+				}
+				//create promise
+				return new Promise(function(resolve) {
+					//valid url?
+					if(!url) {
+						return resolve();
+					}
+					//is script?
+					var isScript = /\.m?js(\#|\?|$)/.test(url);
+					//is module?
+					if(!type && isScript && /\.(mjs|esm|es6)/.test(url)) {
+						type = 'module';
+					}
+					//import module?
+					if(type == 'module') {
+						return import(url).then(resolve);
+					}
+					//create element
+					var el = document.createElement(isScript ? 'script' : 'link');
+					//set properties
+					if(isScript) {
+						el.src = url;
+						el.async = false;
+						if(type) el.type = type;
+					} else {
+						el.href = url;
+						el.rel = type || 'stylesheet';
+					}
+					//load event
+					el.addEventListener('load', function() {
+						resolve();
+					});
+					//append to document
+					document.documentElement.firstChild.appendChild(el);
+				});
+			},
+
+			dispatchEvent: function(name, args = {}) {
+				//create custom event
+				var e = new CustomEvent(name, { detail: args });
+				//dispatch
+				return window.dispatchEvent(e);
+			},
+
+			splash: {
+
+				display: function(show, delayMs=0) {
+					setTimeout(function() {
+						var splash = document.querySelector("#splash");
+						splash.classList[show ? 'remove' : 'add']('gone');
+						splash.querySelector('.waiting').innerHTML = '';
+						setTimeout(function() {
+							splash.style.display = show ? 'flex' : 'none';
+						}, show ? 0 : 300);
+					}, delayMs);
+				},
+
+				logo: function(show) {
+					document.querySelector("#splash .logo").style.display = show ? 'block' : 'none';
+					document.querySelector("#splash .spinner").style.display = show ? 'none' : 'block';
+				}
+
+			},
+
+			ready: function(fn) {
+				//set vars
+				var that = PWA.ready;
+				that.cache = that.cache || [];
+				//process fn
+				if(!fn) {
+					return that.flag;
+				} else if(fn === true) {
+					that.flag = true;
+				} else {
+					that.cache.push(fn);
+				}
+				//run callbacks?
+				if(that.flag) {
+					//loop through cache
+					that.cache.forEach(function(cb) {
+						cb();
+					});
+					//clear cache
+					that.cache = [];
+				}
 			}
 
 		};
 
-		//set title
-		document.title = 'Loading...'
-
-		//is hybrid?
-		if(config.isHybrid) {
-			document.documentElement.classList.add('hybrid');
-		}
-		
-		//is pwa?
-		if(config.isPwa) {
-			document.documentElement.classList.add('pwa');
+		//is supported?
+		if(!PWA.supportsES6()) {
+			return alert('Your browser is not supported. Please use a different browser to continue.');
 		}
 
-		//process after window loaded
+		//display logo?
+		PWA.splash.logo(config.splashLogo);
+
+		//wait for window to load
 		window.addEventListener('load', function() {
 
-			//non-blocking
-			setTimeout(function() {
-
-				//browser supported?
-				if(!window.fetch) {
-					return alert('Your browser is out of date and not supported. Please use a different browser to continue.');
-				}
-
-				//can use service worker?
-				if('serviceWorker' in window.navigator) {
-					//worker event dispatcher
-					var swEvent = function(name, args = {}) {
-						var done = false;
-						var callback = function() {
-							if(!done && document.readyState === 'complete') {
-								var e = new CustomEvent(name, { detail: args });
-								window.dispatchEvent(e);
-								done = true;
-							}
-						};
-						callback();
-						document.addEventListener('readystatechange', callback);
-					};
-					//register service worker
-					navigator.serviceWorker.register('sw.js').then(function(reg) {
-						//set vars
-						var isNew = !navigator.serviceWorker.controller;
-						//callback
-						var callback = function() {
-							swEvent('swUpdate', { reg: reg, isNew: isNew });
-						};
-						//state change listener
-						var stateChangeListener = function() {
-							reg.installing.postMessage('skipWaiting');
-							reg.installing.addEventListener('statechange', function(e) {
-								if(this.state === 'installed') {
-									callback();
-								}
-							});
-						};
-						//is waiting?
-						if(reg.waiting) {
-							reg.waiting.postMessage('skipWaiting');
-							return callback();
-						}
-						//is installing?
-						if(reg.installing) {
-							return stateChangeListener();
-						}
-						//ask for notification?
-						if(reg.active && location.hash.indexOf('#push=') === 0) {
-							var id = location.hash.split('=')[1];
-							reg.active.postMessage({ action: 'getNotification', id: id });
-							location.hash = '';
-						}
-						//listen for state change
-						reg.addEventListener('updatefound', stateChangeListener);
-					}).catch(function(error) {
-						//show error
-						console.error(error.message);
-						//dispatch event
-						swEvent('swFailed', error);
-					});
-					//listen for messages
-					navigator.serviceWorker.addEventListener('message', function(e) {
-						//force refresh?
-						if(e.data === 'forceRefresh') {
-							location.reload();
-							return;
-						}
-					});
-				} else {
-					//show error
-					console.error('Service worker not supported');
-				}
-
-				//load assets
-				config.libs().forEach(function(url) {
+			//can use service worker?
+			if('serviceWorker' in window.navigator) {
+				//register service worker
+				navigator.serviceWorker.register('sw.js').then(function(reg) {
 					//set vars
-					var el, type = url.split('?')[0].split('.').pop();
-					//css?
-					if(type === 'css') {
-						el = document.createElement('link');
-						el.rel = "stylesheet";
-						el.href = url;
-					}
-					//javascript?
-					if(type === 'js' || type === 'mjs') {
-						el = document.createElement('script');
-						el.type = (type === 'mjs') ? 'module' : '';
-						el.async = false;
-						el.src = url;
-						el.addEventListener('load', function() {
-							if(url.indexOf('fstage') > 0) {
-								Fstage.ready(config.modules());
+					var isNew = !navigator.serviceWorker.controller;
+					//callback
+					var callback = function() {
+						PWA.dispatchEvent('swUpdate', { reg: reg, isNew: isNew });
+					};
+					//state change listener
+					var stateChangeListener = function() {
+						reg.installing.postMessage('skipWaiting');
+						reg.installing.addEventListener('statechange', function(e) {
+							if(this.state === 'activated') {
+								PWA.ready(callback);
 							}
 						});
+					};
+					//is waiting?
+					if(reg.waiting) {
+						reg.waiting.postMessage('skipWaiting');
+						return callback();
 					}
-					//load asset?
-					el && document.documentElement.firstChild.appendChild(el);
+					//is installing?
+					if(reg.installing) {
+						return stateChangeListener();
+					}
+					//ask for notification?
+					if(reg.active && location.hash.indexOf('#push=') === 0) {
+						var id = location.hash.split('=')[1];
+						reg.active.postMessage({ action: 'getNotification', id: id });
+						location.hash = '';
+					}
+					//listen for state change
+					reg.addEventListener('updatefound', stateChangeListener);
+				}).catch(function(error) {
+					//show error
+					console.error(error.message);
+					//dispatch event
+					PWA.dispatchEvent('swFailed', error);
 				});
+				//listen for messages
+				navigator.serviceWorker.addEventListener('message', function(e) {
+					//force refresh?
+					if(e.data === 'forceRefresh') {
+						location.reload();
+						return;
+					}
+				});
+			} else {
+				//show error
+				console.error('Service worker not supported');
+			}
+			
+			//preload urls
+			PWA.loadAsset(config.preloadUrls).then(function() {
+				//bootstrap urls
+				PWA.loadAsset(config.bootstrapUrls).then(function() {
+					//app loaded
+					PWA.ready(true);
+					//hide splash
+					PWA.splash.display(false, config.splashDelay);
+				});
+			});
+			
+			//load manifest
+			PWA.loadAsset(config.manifestUrl, 'manifest');
 
-				//load manifest?
-				if(!config.isHybrid) {
-					var manifest = document.createElement('link');
-					manifest.rel = "manifest";
-					manifest.href = "manifest.json";
-					document.documentElement.firstChild.appendChild(manifest);
-				}
-				
-				//load icon?
-				if(!config.isHybrid) {
-					var icon = document.querySelector('[rel="icon"]');
-					icon.type = "image/png";
-					icon.sizes = "any";
-					icon.href = "img/icon.png";
-				}
+			//load favicon
+			PWA.loadAsset(config.faviconUrl, 'icon');
 
-				//loading message
-				setTimeout(function() {
-					var loading = document.querySelector('#splash .loading');
-					loading.classList.remove('hidden');
-				}, 2000);
-
-			}, 0);
+			//waiting message
+			setTimeout(function() {
+				document.querySelector('#splash .waiting').style.display = 'block';
+			}, config.waitingDelay);
 
 		});
 
 	})();
 	</script>
-
-</head>
-<body>
-
-	<div id="splash">
-		<div class="logo">
-			<img src="img/logo.png" alt="Fstage" width="80" height="80">
-		</div>
-		<div class="loading hidden">
-			App loading...
-		</div>
-		<noscript>
-			Please enable javascript to continue
-		</noscript>
-	</div>
-
-	<div id="root"></div>
-
 </body>
 </html>

@@ -1,6 +1,6 @@
 export function middleware(store, ctx) {
 
-	store.middleware('getProfile', function(action) {
+	store.middleware('user', function(action) {
 		//update payload
 		action.payload = ctx.user.getProfile();
 		//define reducer
