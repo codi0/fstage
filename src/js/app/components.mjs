@@ -12,7 +12,7 @@ function components() {
 
 	//private vars
 	var _registered = {};
-	var _rendering = [];
+	var _rendered = [];
 	var _store = null;
 	var _rootEl = null;
 	var _stylesheets = {};
@@ -166,6 +166,27 @@ function components() {
 				});
 			}
 		});
+		//get child components
+		var components = el.childComponents();
+		//add self
+		components.unshift(el);
+		//loop through array
+		components.forEach(function(el) {
+			//skip animating?
+			if(el.classList.contains('animate')) {
+				return;
+			}
+			//already in array?
+			if(_rendered.includes(el)) {
+				return;
+			}
+			//add to array
+			_rendered.push(el);
+			//schedule for removal
+			requestAnimationFrame(function() {
+				removeFromArray(_rendered, el);
+			});
+		});
 		//return
 		return diff.hasChanged;
 	};
@@ -180,12 +201,6 @@ function components() {
 		if(config.debug) {
 			console.log('render', this.getAttribute(config.attribute), source);
 		}
-		//mark as rendering
-		_rendering.push(this);
-		//schedule for removal
-		requestAnimationFrame(function() {
-			removeFromArray(_rendering, this);
-		}.bind(this));
 		//render css
 		renderCss(this, source);
 		//render html
@@ -443,10 +458,10 @@ function components() {
 							}
 							//check rendering array?
 							if(action !== 'unmounted') {
-								if(!_rendering.includes(el)) {
+								if(!_rendered.includes(el)) {
 									return;
 								} else {
-									removeFromArray(_rendering, el);
+									removeFromArray(_rendered, el);
 								}
 							}
 							//add action
