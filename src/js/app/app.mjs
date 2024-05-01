@@ -74,7 +74,7 @@ export default function app(config = {}) {
 		if(from === rootEl || (from.id && from.id === to.id) || (isPage && route.init) || (!isPage && !transition)) {
 			return;
 		}
-		//route changed/
+		//route changed?
 		if(lastRoute === route.name) {
 			return;
 		}
@@ -329,6 +329,7 @@ export default function app(config = {}) {
 			});
 			//start components
 			app.components.start(app.config.rootEl, {
+				debug: app.config.debug,
 				context: app.config,
 				pubsub: app.pubsub
 			});

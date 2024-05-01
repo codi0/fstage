@@ -16,7 +16,9 @@ export const about = function({ target, html, props, state, store, context }) {
 							<ion-checkbox slot="start"></ion-checkbox>
 							<ion-label>
 								<h1>Create Idea</h1>
-								<ion-note>Run Idea by Brandy</ion-note>
+								<ion-note>
+									Run Idea by Brandy
+								</ion-note>
 							</ion-label>
 							<ion-badge color="success" slot="end">
 								5 Days

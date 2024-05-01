@@ -1,6 +1,11 @@
 //imports
 import { capitalize } from '../utils/index.mjs';
 
+//set globals?
+if(globalThis.Fstage) {
+	Fstage.form = form;
+}
+
 //form wrapper
 export default function form(name, opts = {}) {
 	//set vars
@@ -326,8 +331,3 @@ form.create = function(name, opts = {}) {
 	//return
 	return formEl;
 };
-
-//set globals?
-if(globalThis.Fstage) {
-	Fstage.form = form;
-}

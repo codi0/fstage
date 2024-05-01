@@ -37,6 +37,60 @@ export default function domDiff(from, to, opts = {}) {
 		return res;
 	};
 
+	//add node helper
+	var addNode = function(node, parentNode) {
+		//walk helper
+		var walkChildNodes = function(el) {
+			var curChild = el.firstChild;
+			while(curChild) {
+				var nextSibling = curChild.nextSibling;
+				var key = getNodeKey(curChild);
+				if(key) {
+					var unmatchedFromEl = fromNodesLookup[key];
+					if(unmatchedFromEl && curChild.nodeName === unmatchedFromEl.nodeName) {
+						curChild.parentNode.replaceChild(unmatchedFromEl, curChild);
+						updateNode(unmatchedFromEl, curChild);
+					} else {
+						walkChildNodes(curChild);
+					}
+				} else {
+					walkChildNodes(curChild);
+				}
+				curChild = nextSibling;
+			}
+		};
+		//add node
+		if(parentNode) {
+			parentNode.appendChild(node);
+			walkChildNodes(node);
+		}
+	};
+
+	//remove node helper
+	var removeNode = function(node, parentNode, skipKeyedNodes) {
+		//walk helper
+		var walkDiscardedNodes = function(node) {
+			if(node.nodeType === 1) {
+				var curChild = node.firstChild;
+				while(curChild) {
+					var curFromKey = getNodeKey(curChild);
+					if(curFromKey && skipKeyedNodes) {
+						keyedRemovalList.push(curFromKey);
+					} else if(curChild.firstChild) {
+						walkDiscardedNodes(curChild);
+					}
+					curChild = curChild.nextSibling;
+				}
+			}
+		};
+		//remove node?
+		if(parentNode) {
+			parentNode.removeChild(node);
+		}
+		//walk discarded
+		walkDiscardedNodes(node);
+	};
+
 	//update node helper
 	var updateNode = function(from, to) {
 		//delete node key
@@ -50,7 +104,7 @@ export default function domDiff(from, to, opts = {}) {
 			if(opts.beforeUpdateNode(from, to) === false) {
 				return;
 			}
-		};
+		}
 		//update attributes
 		updateAttrs(from, to);
 		//update children
@@ -71,9 +125,26 @@ export default function domDiff(from, to, opts = {}) {
 		var toAttrs = to.attributes;
 		//set updated attributes
 		for(var i=0; i < toAttrs.length; i++) {
+			//merge classes?
+			if(toAttrs[i].name === 'class' && toAttrs[i].value && opts.removeAttr === false) {
+				//loop through to classes
+				toAttrs[i].value.split(/\s+/).forEach(function(cls) {
+					//add class?
+					if(!from.classList.contains(cls)) {
+						from.classList.add(cls);
+					}
+				});
+				//next
+				continue;
+			}
+			//update value?
 			if(from.getAttribute(toAttrs[i].name) !== toAttrs[i].value) {
 				from.setAttribute(toAttrs[i].name, toAttrs[i].value);
 			}
+		}
+		//skip remove attributes?
+		if(opts.removeAttr === false) {
+			return;
 		}
 		//cache from attr
 		var fromAttrs = from.attributes;
@@ -185,8 +256,7 @@ export default function domDiff(from, to, opts = {}) {
 				if(curToChild.actualize) {
 					curToChild = curToChild.actualize(from.ownerDocument || document);
 				}
-				from.appendChild(curToChild);
-				nodeAdded(curToChild);
+				addNode(curToChild, from);
 			}
 			//move to next sibling
 			curToChild = toNextSibling;
@@ -276,52 +346,6 @@ export default function domDiff(from, to, opts = {}) {
 			}
 			//update boolean attr
 			updateAttrBool(from, to, 'selected');
-		}
-	};
-
-	//node added helper
-	var nodeAdded = function(el) {
-		var curChild = el.firstChild;
-		while(curChild) {
-			var nextSibling = curChild.nextSibling;
-			var key = getNodeKey(curChild);
-			//key = null;
-			if(key) {
-				var unmatchedFromEl = fromNodesLookup[key];
-				if(unmatchedFromEl && curChild.nodeName === unmatchedFromEl.nodeName) {
-					curChild.parentNode.replaceChild(unmatchedFromEl, curChild);
-					updateNode(unmatchedFromEl, curChild);
-				} else {
-					nodeAdded(curChild);
-				}
-			} else {
-				nodeAdded(curChild);
-			}
-			curChild = nextSibling;
-		}
-	};
-
-	//remove node helper
-	var removeNode = function(node, parentNode, skipKeyedNodes) {
-		if(parentNode) {
-			parentNode.removeChild(node);
-		}
-		walkDiscardedNodes(node, skipKeyedNodes);
-	};
-
-	//walk discarded nodes helper
-	var walkDiscardedNodes = function(node, skipKeyedNodes) {
-		if(node.nodeType === 1) {
-			var curChild = node.firstChild;
-			while(curChild) {
-				var curFromKey = getNodeKey(curChild);
-				if(curFromKey && skipKeyedNodes) {
-					keyedRemovalList.push(curFromKey);
-				} else if(curChild.firstChild) {
-					walkDiscardedNodes(curChild, skipKeyedNodes);
-				}
-				curChild = curChild.nextSibling;
-			}
 		}
 	};
 	

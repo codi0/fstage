@@ -14,16 +14,22 @@ export default function store(state = {}, opts = {}) {
 	//local vars
 	var paths = {};
 	var actions = {};
-	var locked = !!opts.locked;
 	var evPrefix = 'store.' + (++storeId) + '.';
+	
+	//default opts
+	opts = Object.assign({
+		debug: false,
+		locked: false,
+		deep: true
+	});
 
 	//observe state
 	state = observe(state, {
-		deep: (opts.deep !== false)
+		deep: opts.deep
 	});
 
 	//linitial lock state
-	state.proxyLocked = locked;
+	state.proxyLocked = opts.locked;
 
 	//listen for state access
 	state.onProxy('access', function(data) {
@@ -51,21 +57,27 @@ export default function store(state = {}, opts = {}) {
 		//set vars
 		var path = data.path;
 		var startQueue = false;
+		//stop here?
+		if(!paths[path] || !paths[path].length) {
+			return;
+		}
+		//debug?
+		if(opts.debug) {
+			console.log('proxy', path, 'changed');
+		}
 		//loop through functions to call
-		for(var i=0; i < (paths[path] || []).length; i++) {
-			//get function
-			var fn = paths[path][i];
+		paths[path].forEach(function(fn) {
 			//valid function?
 			if(!fn || !fn.__fsReact) {
-				continue;
+				return;
 			}
 			//valid state ID?
 			if(!fn.__fsReact.ids.includes(state.proxyId)) {
-				continue;
+				return;
 			}
 			//already in queue?
 			if(queue.includes(fn)) {
-				continue;
+				return;
 			}
 			//start queue?
 			if(!queue.length) {
@@ -73,7 +85,7 @@ export default function store(state = {}, opts = {}) {
 			}
 			//add to queue
 			queue.push(fn);
-		}
+		});
 		//start queue?
 		if(startQueue) {
 			//reset
@@ -86,7 +98,7 @@ export default function store(state = {}, opts = {}) {
 					var q = queue.shift();
 					//already run?
 					if(!run.includes(q)) {
-						q({ source: 'state' });
+						q('state');
 					}
 				}
 				//reset
@@ -168,7 +180,7 @@ export default function store(state = {}, opts = {}) {
 						//call reducer
 						action.reducer.call(api, state, action.payload);
 						//reset lock
-						state.proxyLocked = locked;
+						state.proxyLocked = opts.locked;
 					}
 				}
 				//return promise

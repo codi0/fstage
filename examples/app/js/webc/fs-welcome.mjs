@@ -18,7 +18,7 @@ export class FsWelcomeElement extends HTMLElement {
 
 	generateHtml() {
 		if(this.props.name) {
-			this.innerHTML = `Welcome to ${this.props.name}!`;
+			this.innerHTML = `Welcome to Fstage, ${this.props.name}!`;
 		} else {
 			this.innerHTML = `Loading...`;
 		}

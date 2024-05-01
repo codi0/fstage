@@ -1,8 +1,7 @@
-//hls version
-var hlsVersion = '1.5.7';
-
 //hls object
 var hls = {
+
+	version: '1.5.7',
 
 	create: function(cache = true) {
 		//is cached?
@@ -18,13 +17,14 @@ var hls = {
 			globalThis.exports = {};
 		}
 		//import hls
-		return import(isNode ? 'hls.js' : 'https://cdn.jsdelivr.net/npm/hls.js@' + hlsVersion).then(function(module) {
+		return import(isNode ? 'hls.js' : 'https://cdn.jsdelivr.net/npm/hls.js@' + this.version).then(function(module) {
 			//set vars
 			var hls = null;
 			//reset exports?
 			if(!isNode) {
 				globalThis.Hls = globalThis.Hls || exports.Hls;
 				globalThis.exports = globalThis._exports;
+				delete globalThis._exports;
 				hls = globalThis.Hls;
 			} else {
 				hls = module.default;
@@ -35,6 +35,12 @@ var hls = {
 			}
 			//return
 			return hls;
+		}).error(function(err) {
+			//reset exports?
+			if(!isNode) {
+				globalThis.exports = globalThis._exports;
+				delete globalThis._exports;
+			}
 		});
 	},
 

@@ -9,7 +9,7 @@ export const header = function({ target, html, props, state, store, context }) {
 	target.addEventListener('componentHtml', function(e) {
 		return html`
 			<ion-toolbar>
-				<ion-title>Ionic Blank</ion-title>
+				<ion-title>${context.name} demo app</ion-title>
 			</ion-toolbar>
 		`;
 	});

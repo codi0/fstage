@@ -1,6 +1,11 @@
 //imports
 import { objHandler } from '../utils/index.mjs';
 
+//set globals?
+if(globalThis.Fstage) {
+	Fstage.observe = observe;
+}
+
 //private vars
 var events = {};
 var ignore = {};
@@ -211,9 +216,4 @@ export default function observe(obj, opts = {}) {
 	}
 	//return
 	return proxy;
-}
-
-//set globals?
-if(globalThis.Fstage) {
-	Fstage.observe = observe;
 }

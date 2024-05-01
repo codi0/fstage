@@ -60,7 +60,7 @@ export function html() {
 		inAttr = checkAttr(input.text[i], inAttr);
 		//add param?
 		if(i in input.params) {
-			if(typeof input.params[i].raw === 'string') {
+			if(input.params[i] && typeof input.params[i].raw === 'string') {
 				output += input.params[i].raw;
 			} else {
 				output += esc(input.params[i], inAttr ? 'attr' : 'html');

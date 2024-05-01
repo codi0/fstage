@@ -178,12 +178,12 @@ function webpush() {
 };
 
 //create obj
-var obj = new webpush()
+var _obj = new webpush()
 
 //set globals?
 if(globalThis.Fstage) {
-	Fstage.webpush = obj;
+	Fstage.webpush = _obj;
 }
 
 //exports
-export default obj;
+export default _obj;

@@ -5,8 +5,8 @@ import dom from 'fstage/dom';
 import { importr } from 'fstage/core';
 
 //load ionic assets
-await importr('https://cdn.jsdelivr.net/npm/@ionic/core@7.8.4/css/ionic.bundle.min.css');
-await importr('https://cdn.jsdelivr.net/npm/@ionic/core@7.8.4/dist/ionic/ionic.esm.min.js', { import: false });
+await importr('https://cdn.jsdelivr.net/npm/@ionic/core@8.0.1/css/ionic.bundle.min.css');
+await importr('https://cdn.jsdelivr.net/npm/@ionic/core@8.0.1/dist/ionic/ionic.esm.min.js', { import: false });
 
 //create app
 await app(globalThis.__appConfig).mount('#root', function(app) {
