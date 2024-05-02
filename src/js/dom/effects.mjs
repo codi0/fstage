@@ -52,19 +52,22 @@ dom.fn.animate = function(effect, opts = {}) {
 			el.classList.add.apply(el.classList, effect.split(/\s+/g));
 			//add animate (out)
 			isOut && el.classList.add('animate');
-			//start animation
+			//before next repaint
 			requestAnimationFrame(function() {
-				//add animate (not out)
-				!isOut && el.classList.add('animate');
-				//apply classes
-				isIn && el.classList.add('in');
-				isOut && el.classList.add('out');
-				!isOut && el.classList.remove('hidden');
-				//manually fire listeners?
-				if(globalThis.getComputedStyle(el, null).getPropertyValue('transition') === 'all 0s ease 0s') {
-					onStart.call(el);
-					onEnd.call(el);
-				}
+				//after next repaint
+				requestAnimationFrame(function() {
+					//add animate (not out)
+					!isOut && el.classList.add('animate');
+					//apply classes
+					isIn && el.classList.add('in');
+					isOut && el.classList.add('out');
+					!isOut && el.classList.remove('hidden');
+					//manually fire listeners?
+					if(globalThis.getComputedStyle(el, null).getPropertyValue('transition') === 'all 0s ease 0s') {
+						onStart.call(el);
+						onEnd.call(el);
+					}
+				});
 			});
 		})(this[i]);
 	}

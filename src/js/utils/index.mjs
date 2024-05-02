@@ -365,6 +365,79 @@ export var objHandler = {
 
 };
 
+export function queueManager(opts={}) {
+
+	//default opts
+	opts = Object.assign({
+		queue: [],
+		runCache: [],
+		allowDupes: false,
+		type: 'requestAnimationFrame'
+	}, opts || {});
+
+	//is instance?
+	if(!(this instanceof queueManager)) {
+		return console.error('Queue must be an instance of queueManager');
+	}
+
+	//valid type?
+	if(!globalThis[opts.type]) {
+		console.log(opts.type + ' not available, using setTimeout instead');
+		opts.type = 'setTimeout';
+	}
+
+	//public api
+	var api = {
+	
+		add: function(cb, args=[]) {
+			//can queue?
+			if(!opts.allowDupes && opts.queue.includes(cb)) {
+				return false;
+			}
+			//cache args
+			cb.__args = args;
+			//add to queue
+			opts.queue.push(cb);
+			//start queue?
+			if(opts.queue.length == 1) {
+				//reset cache
+				opts.runCache = [];
+				//schedule run
+				globalThis[opts.type](api.run);
+			}
+			//return
+			return true;
+		},
+
+		run: function() {
+			//loop through queue
+			while(opts.queue.length) {
+				//next function
+				var cb = opts.queue.shift();
+				var args = cb.__args || [];
+				delete cb.__args;
+				//run now?
+				if(opts.allowDupes || !opts.runCache.includes(cb)) {
+					api.markRun(cb);
+					cb(...args);
+				}
+			}
+		},
+
+		markRun: function(cb) {
+			//add to cache?
+			if(!opts.runCache.includes(cb)) {
+				opts.runCache.push(cb);
+			}
+		}
+
+	};
+
+	//return
+	return api;
+
+};
+
 //combined
 var utils = {
 	type: type,
@@ -381,7 +454,8 @@ var utils = {
 	stripHTML: stripHTML,
 	esc: esc,
 	decode: decode,
-	objHandler: objHandler
+	objHandler: objHandler,
+	queueManager: queueManager
 };
 
 //set globals?

@@ -1,12 +1,12 @@
 //imports
 import pubsub from '../pubsub/index.mjs';
 import observe from '../observe/index.mjs';
+import { queueManager } from '../utils/index.mjs';
 
 //private vars
-var run = [];
-var queue = [];
 var storeId = 0;
 var trackFn = null;
+var queue = new queueManager();
 
 //exports
 export default function store(state = {}, opts = {}) {
@@ -15,13 +15,13 @@ export default function store(state = {}, opts = {}) {
 	var paths = {};
 	var actions = {};
 	var evPrefix = 'store.' + (++storeId) + '.';
-	
+
 	//default opts
 	opts = Object.assign({
 		debug: false,
 		locked: false,
 		deep: true
-	});
+	}, opts || {});
 
 	//observe state
 	state = observe(state, {
@@ -56,7 +56,6 @@ export default function store(state = {}, opts = {}) {
 	state.onProxy('change', function(data) {
 		//set vars
 		var path = data.path;
-		var startQueue = false;
 		//stop here?
 		if(!paths[path] || !paths[path].length) {
 			return;
@@ -75,36 +74,9 @@ export default function store(state = {}, opts = {}) {
 			if(!fn.__fsReact.ids.includes(state.proxyId)) {
 				return;
 			}
-			//already in queue?
-			if(queue.includes(fn)) {
-				return;
-			}
-			//start queue?
-			if(!queue.length) {
-				startQueue = true;
-			}
 			//add to queue
-			queue.push(fn);
+			queue.add(fn, [ 'state' ]);
 		});
-		//start queue?
-		if(startQueue) {
-			//reset
-			run = [];
-			//wait for next frame
-			requestAnimationFrame(function() {
-				//loop through queue
-				while(queue.length) {
-					//next function
-					var q = queue.shift();
-					//already run?
-					if(!run.includes(q)) {
-						q('state');
-					}
-				}
-				//reset
-				run = [];
-			});
-		}
 	});
 
 	//public api
@@ -212,7 +184,7 @@ export default function store(state = {}, opts = {}) {
 				var prev = trackFn;
 				trackFn = wrap;
 				//mark as run
-				run.push(wrap);
+				queue.markRun(wrap);
 				//get function & args
 				var fn = wrap.__fsReact.fn;
 				var args = [].slice.call(arguments);

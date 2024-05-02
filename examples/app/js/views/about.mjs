@@ -13,14 +13,14 @@ export const about = function({ target, html, props, state, store, context }) {
 				<ion-content>
 					<ion-list>
 						<ion-item>
-							<ion-checkbox slot="start"></ion-checkbox>
+							<ion-checkbox></ion-checkbox>
 							<ion-label>
 								<h1>Create Idea</h1>
 								<ion-note>
 									Run Idea by Brandy
 								</ion-note>
 							</ion-label>
-							<ion-badge color="success" slot="end">
+							<ion-badge color="success">
 								5 Days
 							</ion-badge>
 						</ion-item>

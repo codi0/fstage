@@ -60,6 +60,9 @@ export default function app(config = {}) {
 	app.router = router;
 	app.pubsub = pubsub;
 	app.components = components;
+	
+	//set debug
+	components.debug = app.config.debug;
 
 	//Helper: page transition before update
 	components.onBeforeUpdateNode(function(from, to, rootEl) {
@@ -329,7 +332,6 @@ export default function app(config = {}) {
 			});
 			//start components
 			app.components.start(app.config.rootEl, {
-				debug: app.config.debug,
 				context: app.config,
 				pubsub: app.pubsub
 			});

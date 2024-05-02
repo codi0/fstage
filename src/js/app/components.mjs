@@ -8,7 +8,7 @@ import pubsub from '../pubsub/index.mjs';
 export default new components();
 
 //wrapper
-function components() {
+function components(config={}) {
 
 	//private vars
 	var _registered = {};
@@ -19,15 +19,14 @@ function components() {
 	var _mutations = null;
 
 	//default config
-	var config = {
-		debug: true,
+	var config = Object.assign({
 		store: store,
 		litHtml: html,
 		domDiff: domDiff,
 		pubsub: pubsub,
 		context: null,
 		attribute: 'data-component'
-	};
+	}, config || {});
 
 	//Helper: remove item from array
 	var removeFromArray = function(arr, item) {
@@ -198,7 +197,7 @@ function components() {
 			return this;
 		}
 		//debug?
-		if(config.debug) {
+		if(api.debug) {
 			console.log('render', this.getAttribute(config.attribute), source);
 		}
 		//render css
@@ -269,7 +268,7 @@ function components() {
 	};
 
 	//Helper: update globals
-	var updateGlobals = function() {
+	var updateGlobals = function() {		
 		//cache listener methods
 		var oa = HTMLElement.prototype.addEventListener;
 		var or = HTMLElement.prototype.removeEventListener;
@@ -317,6 +316,8 @@ function components() {
 	//public api
 	var api = {
 
+		debug: config.debug || false,
+
 		root: function() {
 			return _rootEl;
 		},
@@ -328,7 +329,7 @@ function components() {
 			if(!_store || !global) {
 				//create object
 				s = config.store(state || null, {
-					debug: config.debug
+					debug: api.debug
 				});
 				//cache object?
 				if(global) {
@@ -524,7 +525,7 @@ function components() {
 								return;
 							}
 							//debug?
-							if(config.debug) {
+							if(api.debug) {
 								console.log(action, attr);
 							}
 							//is unmounted?
