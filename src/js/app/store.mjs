@@ -184,7 +184,7 @@ export default function store(state = {}, opts = {}) {
 				var prev = trackFn;
 				trackFn = wrap;
 				//mark as run
-				queue.markRun(wrap);
+				queue.markAsRun(wrap);
 				//get function & args
 				var fn = wrap.__fsReact.fn;
 				var args = [].slice.call(arguments);

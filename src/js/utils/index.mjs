@@ -371,8 +371,9 @@ export function queueManager(opts={}) {
 	opts = Object.assign({
 		queue: [],
 		runCache: [],
+		callback: null,
 		allowDupes: false,
-		type: 'requestAnimationFrame'
+		scheduler: 'requestAnimationFrame'
 	}, opts || {});
 
 	//is instance?
@@ -381,53 +382,76 @@ export function queueManager(opts={}) {
 	}
 
 	//valid type?
-	if(!globalThis[opts.type]) {
-		console.log(opts.type + ' not available, using setTimeout instead');
-		opts.type = 'setTimeout';
+	if(!globalThis[opts.scheduler]) {
+		console.log(opts.scheduler + ' not available, using setTimeout instead');
+		opts.scheduler = 'setTimeout';
 	}
 
 	//public api
 	var api = {
 	
-		add: function(cb, args=[]) {
+		add: function(payload, args=[]) {
+			//valid payload?
+			if(!opts.callback && typeof payload !== 'function') {
+				throw new Error('Queue payload must be a callback, or opts.callback must be set');
+				return false;
+			}
 			//can queue?
-			if(!opts.allowDupes && opts.queue.includes(cb)) {
+			if(!opts.allowDupes && opts.queue.includes(payload)) {
 				return false;
 			}
 			//cache args
-			cb.__args = args;
+			payload.__args = args;
 			//add to queue
-			opts.queue.push(cb);
+			opts.queue.push(payload);
 			//start queue?
 			if(opts.queue.length == 1) {
 				//reset cache
 				opts.runCache = [];
 				//schedule run
-				globalThis[opts.type](api.run);
+				globalThis[opts.scheduler](api.run);
 			}
 			//return
 			return true;
 		},
 
+		remove: function(payload) {
+			//get by index
+			var index = opts.queue.indexOf(payload);
+			//remove item?
+			if(index >= 0) {
+				opts.queue.splice(index, 1);
+			}
+			//return
+			return index >= 0;
+		},
+
 		run: function() {
 			//loop through queue
 			while(opts.queue.length) {
-				//next function
-				var cb = opts.queue.shift();
-				var args = cb.__args || [];
-				delete cb.__args;
+				//next payload
+				var payload = opts.queue.shift();
+				var args = payload.__args || [];
+				delete payload.__args;
 				//run now?
-				if(opts.allowDupes || !opts.runCache.includes(cb)) {
-					api.markRun(cb);
-					cb(...args);
+				if(opts.allowDupes || !opts.runCache.includes(payload)) {
+					//wrap callback?
+					if(opts.callback) {
+						args.unshift(payload);
+						payload = opts.callback;
+					}
+					//mark as run
+					api.markAsRun(payload);
+					//callback
+					payload(...args);
 				}
 			}
 		},
 
-		markRun: function(cb) {
+		markAsRun: function(payload) {
 			//add to cache?
-			if(!opts.runCache.includes(cb)) {
-				opts.runCache.push(cb);
+			if(!opts.runCache.includes(payload)) {
+				opts.runCache.push(payload);
 			}
 		}
 
