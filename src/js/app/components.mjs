@@ -3,7 +3,6 @@ import store from './store.mjs';
 import { html } from './lit.mjs';
 import domDiff from '../dom/diff.mjs';
 import pubsub from '../pubsub/index.mjs';
-import { queueManager } from '../utils/index.mjs';
 
 //exports
 export default new components();
@@ -36,11 +35,6 @@ function components(config={}) {
 		}
 	};
 
-	//Helper: is component
-	var isComponent = function(el) {
-		return el.isComponent || el.getAttribute(config.attribute);
-	};
-
 	//Helper: get props data
 	var getProps = function(el) {
 		//set vars
@@ -65,7 +59,11 @@ function components(config={}) {
 	};
 
 	//Helper: dispatch event
-	var dispatchEvent = function(name, el, ctx=null) {
+	var dispatchEvent = function(name, el, container=null) {
+		//debug?
+		if(api.debug && [ 'mounted', 'updated', 'unmounted' ].includes(name)) {
+			console.log(name, el.getAttribute(config.attribute));
+		}
 		//set vars
 		var name = name.charAt(0).toUpperCase() + name.slice(1);
 		var type = 'component' + name;
@@ -74,7 +72,7 @@ function components(config={}) {
 			detail: el.__fsComp || {}
 		});
 		//dispatch
-		(ctx || el).dispatchEvent(e);
+		(container || el).dispatchEvent(e);
 		//has result?
 		if(el.__fsRes && (type in el.__fsRes)) {
 			return el.__fsRes[type];
@@ -86,7 +84,6 @@ function components(config={}) {
 	//Helper: render css
 	var renderCss = function(el, source) {
 		//set vars
-		var updated = false;
 		var css = (dispatchEvent('css', el) || '').trim();
 		//has css?
 		if(css) {
@@ -116,11 +113,7 @@ function components(config={}) {
 			_stylesheets[id].str = css;
 			//update stylesheet
 			_stylesheets[id].obj.replaceSync(css);
-			//mark as updated
-			updated = true;
 		}
-		//return
-		return updated;
 	};
 
 	//Helper: render html
@@ -147,51 +140,103 @@ function components(config={}) {
 		if(!newEl) {
 			return false;
 		}
-		//diff the DOM
-		var diff = config.domDiff(el, newEl, {
-			removeAttr: false,
-			beforeUpdateNode: function(from, to) {
-				//run event
-				var res = config.pubsub.emit('components.beforeUpdateNode', [ from, to, el ], {
-					method: 'apply'
-				});
-				//skip update?
-				if(res.includes(false)) {
-					return false;
+		//Helper: process components
+		var processComponents = function(action, node) {
+			//anything to process?
+			if(!node || !node.tagName) {
+				return;
+			}
+			//console.log('process', action, node);
+			//Helper: check component
+			var check = function(node, isParent) {
+				//already processing?
+				if(node.__fsComp.processing) {
+					return;
 				}
-			},
-			afterUpdateNode: function(to) {
-				//run event
-				config.pubsub.emit('components.afterUpdateNode', [ to, el ], {
-					method: 'apply'
+				//console.log(isParent ? 'parent' : 'child', action, node);
+				//set event
+				var evName = node.__fsComp.attached ? 'updated' : 'mounted';
+				//has unmounted?
+				if(!isParent && action === 'unmounted') {
+					evName = 'unmounted';
+				}
+				//update flags
+				node.__fsComp.processing = true;
+				node.__fsComp.attached = (action !== 'unmounted');
+				//schedule for dispatch
+				requestAnimationFrame(function() {
+					dispatchEvent(evName, node);
+					node.__fsComp.processing = false;
 				});
+			};
+			//check parent?
+			if(action !== 'unmounted') {
+				var parent = node.parentComponent();
+				parent && check(parent, true);
+			}
+			//check children?
+			if(action !== 'updated') {
+				node.childComponents(true).forEach(function(child) {
+					check(child, false);
+				});
+			}
+		};
+		//diff the DOM
+		config.domDiff(el, newEl, {
+			ignoreActive: false,
+			ignoreActiveValue: false,
+			removeAttributes: false,
+			checkEqualNode: true,
+			callbacks: {
+				beforeNodeAdded: function(node) {
+					//run event
+					var res = config.pubsub.emit('components.beforeNodeAdded', [ node ], {
+						method: 'apply'
+					});
+					//skip update?
+					if(res.includes(false)) {
+						return false;
+					}
+				},
+				afterNodeAdded: function(node) {
+					processComponents('mounted', node);
+				},
+				beforeNodeMorphed: function(oldNode, newNode) {
+					//run event
+					var res = config.pubsub.emit('components.beforeNodeMorphed', [ oldNode, newNode ], {
+						method: 'apply'
+					});
+					//is routing?
+					if(oldNode.classList && oldNode.classList.contains('animate')) {
+						processComponents('unmounted', oldNode);
+						processComponents('mounted', newNode);
+						return false;
+					}
+					//skip update?
+					if(res.includes(false)) {
+						return false;
+					}
+				},
+				afterNodeMorphed: function(oldNode, didSelfChange) {
+					if(didSelfChange) {
+						processComponents('updated', oldNode);
+					}
+				},
+				beforeNodeRemoved: function(node) {
+					//run event
+					var res = config.pubsub.emit('components.beforeNodeRemoved', [ node ], {
+						method: 'apply'
+					});
+					//skip update?
+					if(res.includes(false)) {
+						return false;
+					}
+				},
+				afterNodeRemoved: function(node) {
+					processComponents('unmounted', node);
+				}
 			}
 		});
-		//get components
-		var components = el.childComponents(true);
-		//loop through array
-		while(components.length) {
-			//set vars
-			var el = components.shift();
-			//skip animating?
-			if(el.classList.contains('animate')) {
-				continue;
-			}
-			//already rendering?
-			if(el.__fsComp.rendering) {
-				continue;
-			}
-			//mark as rendering
-			el.__fsComp.rendering = true;
-			//schedule for removal
-			requestAnimationFrame(function() {
-				requestAnimationFrame(function() {
-					el.__fsComp.rendering = false;
-				});
-			});
-		}
-		//return
-		return diff.hasChanged;
 	};
 
 	//Helper: render component
@@ -206,8 +251,8 @@ function components(config={}) {
 			var node = this;
 			//start loop
 			while(node && node.tagName) {
-				//is node rendering?
-				if(node.__fsComp && node.__fsComp.rendering) {
+				//is node being processed?
+				if(node.__fsComp && node.__fsComp.processing) {
 					return this;
 				}
 				//stop here?
@@ -270,7 +315,7 @@ function components(config={}) {
 				state: ls.state(),
 				store: gs.state(),
 				context: opts.context || config.context,
-				rendering: false,
+				processing: false,
 				attached: false
 			}
 			//call function?
@@ -333,7 +378,9 @@ function components(config={}) {
 		//Add: find child components
 		HTMLElement.prototype.childComponents = function(self=false) {
 			var children = api.find(this);
-			self && children.unshift(this);
+			if(self && this.isComponent) {
+				children.unshift(this);
+			}
 			return children;
 		};
 	};
@@ -409,14 +456,6 @@ function components(config={}) {
 			return this;
 		},
 
-		onBeforeUpdateNode: function(fn) {
-			return config.pubsub.on('components.beforeUpdateNode', fn);
-		},
-
-		onAfterUpdateNode: function(fn) {
-			return config.pubsub.on('components.afterUpdateNode', fn);
-		},
-
 		start: function(rootEl, opts = {}) {
 			//already started?
 			if(_mutations) {
@@ -443,154 +482,14 @@ function components(config={}) {
 					api.store(opts.state);
 				}	
 			}
-			//create queue
-			var queue = new queueManager({
-				allowDupes: true,
-				scheduler: 'requestAnimationFrame',
-				callback: function(mutations) {
-					//loop through mutations
-					while(mutations.length) {
-						//set vars
-						var components = [];
-						var mutation = mutations.shift();
-						//Helper: check attach status
-						var isValidAction = function(el, action) {
-							return (!el.__fsComp.attached && action === 'mounted') || (el.__fsComp.attached && action !== 'mounted');
-						};
-						//Helper: add components
-						var addComponents = function(arr, action) {
-							//loop through array
-							for(var i=0; i < arr.length; i++) {
-								//set vars
-								var el = arr[i];
-								//valid node type?
-								if(el.nodeType !== 1) {
-									return;
-								}
-								//already included?
-								if(components.includes(el)) {
-									return;
-								}
-								//is component?
-								if(!isComponent(el)) {
-									return;
-								}
-								//valid action?
-								if(el.isComponent && !isValidAction(el, action)) {
-									return;
-								}
-								//check rendering array?
-								if(action !== 'unmounted') {
-									//is rendering?
-									if(!el.__fsComp.rendering) {
-										return;
-									}
-									//mark as not rendering
-									el.__fsComp.rendering = false;
-								}
-								//add action
-								el.action = action;
-								//add to array
-								components.push(el);
-							}
-						};
-						//Helper: add parent component
-						var addParent = function(el, action) {
-							//start loop
-							while(el.parentNode && document !== el.parentNode) {
-								//is component?
-								if(isComponent(el.parentNode)) {
-									addComponents([ el.parentNode ], action);
-									break;
-								}
-								//next parent
-								el = el.parentNode;
-							}
-						};
-						//valid node type?
-						if(mutation.target.nodeType !== 1) {
-							return;
-						}
-						//check added nodes
-						mutation.addedNodes.forEach(function(el) {
-							addComponents([ mutation.target ], 'mounted');
-							addComponents([ el ], 'mounted');
-							addComponents(el.childComponents ? el.childComponents() : [], 'mounted');
-							addParent(el, 'updated');
-						});
-						//check removed nodes
-						mutation.removedNodes.forEach(function(el) {
-							addComponents([ el ], 'unmounted');
-							addComponents(el.childComponents ? el.childComponents() : [], 'unmounted');
-						});
-						//check attributes
-						if(mutation.attributeName) {
-							addComponents([ mutation.target ], 'updated');
-							addParent(mutation.target, 'updated');
-						}
-						//loop through components
-						while(components.length) {
-							//set vars
-							var el = components.shift();
-							var action = el.action;
-							var attr = el.getAttribute(config.attribute);
-							//delete action
-							delete el.action;
-							//sync component?
-							if(!el.isComponent && attr) {
-								syncComponent(el, {
-									source: 'mutation'
-								});
-							}
-							//is component?
-							if(el.isComponent) {
-								//valid action?
-								if(!isValidAction(el, action)) {
-									return;
-								}
-								//debug?
-								if(api.debug) {
-									console.log(action, attr);
-								}
-								//is unmounted?
-								if(action === 'unmounted') {
-									el.__fsComp.attached = false;
-									el.render = api.store().unreact(el.render);
-								} else {
-									el.__fsComp.attached = true;
-								}
-								//dispatch event
-								dispatchEvent(action, el);
-							}
-						}
-					}
-				}
-			});
-			//create observer
-			_mutations = new MutationObserver(function(mutations) {
-				queue.add(mutations);
-			});
-			//observe changes
-			_mutations.observe(_rootEl, {
-				subtree: true,
-				childList: true,
-				attributes: true,
-				attributeOldValue: true,
-				characterData: false,
-				characterDataOldValue: false
-			});
 			//return
 			return this.make(opts.name || 'root', {
 				element: _rootEl
 			});
 		},
 
-		stop: function() {
-			//stop observing?
-			if(_mutations) {
-				_mutations.disconnect();
-				_mutations = null;
-			}
+		onDiff: function(type, fn) {
+			return config.pubsub.on('components.' + type, fn);
 		}
 
 	};

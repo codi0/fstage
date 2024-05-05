@@ -64,8 +64,12 @@ export default function app(config = {}) {
 	//set debug
 	components.debug = app.config.debug;
 
-	//Helper: page transition before update
-	components.onBeforeUpdateNode(function(from, to, rootEl) {
+	//Helper: page transition check
+	components.onDiff('beforeNodeMorphed', function(from, to) {
+		//valid element?
+		if(!from.tagName || !to.tagName) {
+			return;
+		}
 		//set vars
 		var customEffects = {};
 		var route = app.router.current();
@@ -74,7 +78,7 @@ export default function app(config = {}) {
 		var isPage = app.router.has(component);
 		var inReverse = isPage ? route.isBack : from.hasAttribute('data-reverse');
 		//can transition?
-		if(from === rootEl || (from.id && from.id === to.id) || (isPage && route.init) || (!isPage && !transition)) {
+		if((from.id && from.id === to.id) || (isPage && route.init) || (!isPage && !transition)) {
 			return;
 		}
 		//route changed?
@@ -94,8 +98,15 @@ export default function app(config = {}) {
 				break;
 			}
 		}
-		//append node
-		from.parentNode.insertBefore(to, from.nextSibling);
+		//insert to node?
+		if(!document.body.contains(to)) {
+			//can insert?
+			if(!from.parentNode) {
+				return;
+			}
+			//insert from node sibling
+			from.parentNode.insertBefore(to, from.nextSibling);
+		}
 		//hide to node
 		to.classList.add('hidden');
 		//run page transition

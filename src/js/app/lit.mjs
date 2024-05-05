@@ -18,6 +18,9 @@ export function html() {
 
 	//is raw loop?
 	if(typeof args[1] === 'function') {
+		if(typeof args[0] === 'number') {
+			args[0] = Array(args[0]).fill(null);
+		}
 		args[0].forEach(function(val, key) {
 			output += (args[1].call(ctx, val, key) || '').trim();
 		});

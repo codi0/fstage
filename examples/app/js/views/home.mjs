@@ -7,9 +7,9 @@ export const home = function({ target, html, props, state, store, context }) {
 				display: flex;
 				justify-content: center;
 				align-items: center;
-				height: 100%;
+				height: calc(100% - 56px);
 			}
-			scoped button {
+			scoped ion-button {
 				position: absolute;
 				width: calc(100% - 20px);
 				left: 10px;
@@ -26,9 +26,9 @@ export const home = function({ target, html, props, state, store, context }) {
 				<div class="content">
 					<fs-welcome name="${store.user ? store.user.name : ''}" count="${store.counters.welcome}"></fs-welcome>
 				</div>
-				<button data-route="${context.routes.ABOUT}">
-					Page transition
-				</button>
+				<ion-button expand="block" data-route="${context.routes.LIST}">
+					Click to transition page
+				</ion-button>
 			</ion-page>
 		`;
 	});

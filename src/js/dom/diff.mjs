@@ -1,424 +1,439 @@
-//imports
-import dom from './dom.mjs';
-
-//add to dom
-dom.diff = domDiff;
-
-//Forked: https://github.com/patrick-steele-idem/morphdom/
-export default function domDiff(from, to, opts = {}) {
-
-	//get node key helper
-	var getNodeKey = function(node) {
-		//set vars
-		var key = '';
-		//custom callback?
-		if(opts.onGetKey) {
-			key = opts.onGetKey(node, opts.key);
-		} else if( node.getAttribute && !node.classList.contains('page')) {
-			key = node.getAttribute(opts.key || 'id');
-		}
-		//return
-		return key || '';
-	};
-
-	//find keyed nodes helper
-	var findKeyedNodes = function(node, res = {}) {
-		if(node.nodeType === 1 || node.nodeType === 11) {
-			var curChild = node.firstChild;
-			while(curChild) {
-				var key = getNodeKey(curChild);
-				if(key) {
-					res[key] = curChild;
-				}
-				res = findKeyedNodes(curChild, res);
-				curChild = curChild.nextSibling;
-			}
-		}
-		return res;
-	};
-
-	//add node helper
-	var addNode = function(node, parentNode) {
-		//walk helper
-		var walkChildNodes = function(el) {
-			var curChild = el.firstChild;
-			while(curChild) {
-				var nextSibling = curChild.nextSibling;
-				var key = getNodeKey(curChild);
-				if(key) {
-					var unmatchedFromEl = fromNodesLookup[key];
-					if(unmatchedFromEl && curChild.nodeName === unmatchedFromEl.nodeName) {
-						curChild.parentNode.replaceChild(unmatchedFromEl, curChild);
-						updateNode(unmatchedFromEl, curChild);
-					} else {
-						walkChildNodes(curChild);
-					}
-				} else {
-					walkChildNodes(curChild);
-				}
-				curChild = nextSibling;
-			}
-		};
-		//add node
-		if(parentNode) {
-			parentNode.appendChild(node);
-			walkChildNodes(node);
-		}
-	};
-
-	//remove node helper
-	var removeNode = function(node, parentNode, skipKeyedNodes) {
-		//walk helper
-		var walkDiscardedNodes = function(node) {
-			if(node.nodeType === 1) {
-				var curChild = node.firstChild;
-				while(curChild) {
-					var curFromKey = getNodeKey(curChild);
-					if(curFromKey && skipKeyedNodes) {
-						keyedRemovalList.push(curFromKey);
-					} else if(curChild.firstChild) {
-						walkDiscardedNodes(curChild);
-					}
-					curChild = curChild.nextSibling;
-				}
-			}
-		};
-		//remove node?
-		if(parentNode) {
-			parentNode.removeChild(node);
-		}
-		//walk discarded
-		walkDiscardedNodes(node);
-	};
-
-	//update node helper
-	var updateNode = function(from, to) {
-		//delete node key
-		delete fromNodesLookup[getNodeKey(to)];
-		//equivalent node?
-		if(from.isEqualNode(to)) {
-			return;
-		}
-		//run before callback?
-		if(opts.beforeUpdateNode) {
-			if(opts.beforeUpdateNode(from, to) === false) {
-				return;
-			}
-		}
-		//update attributes
-		updateAttrs(from, to);
-		//update children
-		updateChildren(from, to);
-		//run after callback?
-		if(opts.afterUpdateNode) {
-			opts.afterUpdateNode(from);
-		}
-	};
-
-	//update attrs helper
-	var updateAttrs = function(from, to) {
-		//skip fragment?
-		if(from.nodeType === 11 || to.nodeType === 11) {
-			return;
-		}
-		//cache to attr
-		var toAttrs = to.attributes;
-		//set updated attributes
-		for(var i=0; i < toAttrs.length; i++) {
-			//merge classes?
-			if(toAttrs[i].name === 'class' && toAttrs[i].value && opts.removeAttr === false) {
-				//loop through to classes
-				toAttrs[i].value.split(/\s+/).forEach(function(cls) {
-					//add class?
-					if(!from.classList.contains(cls)) {
-						from.classList.add(cls);
-					}
-				});
-				//next
-				continue;
-			}
-			//update value?
-			if(from.getAttribute(toAttrs[i].name) !== toAttrs[i].value) {
-				from.setAttribute(toAttrs[i].name, toAttrs[i].value);
-			}
-		}
-		//skip remove attributes?
-		if(opts.removeAttr === false) {
-			return;
-		}
-		//cache from attr
-		var fromAttrs = from.attributes;
-		//remove discarded attributes
-		for(var i=0; i < fromAttrs.length; i++) {
-			if(!to.hasAttribute(fromAttrs[i].name)) {
-				from.removeAttribute(fromAttrs[i].name);
-			}
-		}
-	};
-
-	//update boolean attr helper
-	var updateAttrBool = function(from, to, name) {
-		from[name] = to[name];
-		from[from[name] ? 'setAttribute' : 'removeAttribute'](name, '');
-	};
-
-	//update child nodes helper
-	var updateChildren = function(from, to) {
-		//set vars
-		var curToChild = to.firstChild;
-		var curFromChild = from.firstChild;
-		var curToKey, curFromKey, fromNextSibling, toNextSibling, matchingFromEl;
-		//handle textarea node?
-		if(from.nodeName === 'TEXTAREA') {
-			from.value = to.value;
-			return;
-		}
-		//walk 'to' children
-		outer: while(curToChild) {
-			//set next 'to' sibling
-			toNextSibling = curToChild.nextSibling;
-			//get 'to' node key
-			curToKey = getNodeKey(curToChild);
-			//walk 'from' children
-			while(curFromChild) {
-				//set next 'from' sibling
-				fromNextSibling = curFromChild.nextSibling;
-				//is same node?
-				if(curToChild === curFromChild) {
-					//move to next sibling
-					curToChild = toNextSibling;
-					curFromChild = fromNextSibling;
-					continue outer;
-				}
-				//compatible flag
-				var isCompatible = undefined;
-				//get 'from' node key
-				curFromKey = getNodeKey(curFromChild);
-				//same node type?
-				if(curFromChild.nodeType === curToChild.nodeType) {
-					//is element?
-					if(curFromChild.nodeType === 1) {
-						//has key?
-						if(curToKey) {
-							//keys not matching?
-							if(curToKey !== curFromKey) {
-								//match found in lookup?
-								if((matchingFromEl = fromNodesLookup[curToKey])) {
-									if(fromNextSibling === matchingFromEl) {
-										isCompatible = false;
-									} else {
-										from.insertBefore(matchingFromEl, curFromChild);
-										if(curFromKey) {
-											keyedRemovalList.push(curFromKey);
-										} else {
-											removeNode(curFromChild, from, true);
-										}
-										curFromChild = matchingFromEl;
-										curFromKey = getNodeKey(curFromChild);
-									}
-								} else {
-									isCompatible = false;
-								}
-							}
-						} else if(curFromKey) {
-							isCompatible = false;
-						}
-						isCompatible = (isCompatible !== false) && (curFromChild.nodeName === curToChild.nodeName);
-						if(isCompatible) {
-							updateNode(curFromChild, curToChild);
-						}
-					}
-					//is text or comment?
-					if(curFromChild.nodeType === 3 || curFromChild.nodeType === 8) {
-						isCompatible = true;
-						curFromChild.nodeValue = curToChild.nodeValue;
-					}
-				}
-				//is compatible?
-				if(isCompatible) {
-					//move to next sibling
-					curToChild = toNextSibling;
-					curFromChild = fromNextSibling;
-					continue outer;
-				}
-				if(curFromKey) {
-					keyedRemovalList.push(curFromKey);
-				} else {
-					removeNode(curFromChild, from, true);
-				}
-				curFromChild = fromNextSibling;
-			}
-			//append node
-			if(curToKey && (matchingFromEl = fromNodesLookup[curToKey]) && matchingFromEl.nodeName === curToChild.nodeName) {
-				from.appendChild(matchingFromEl);
-				updateNode(matchingFromEl, curToChild);
-			} else {
-				if(curToChild.actualize) {
-					curToChild = curToChild.actualize(from.ownerDocument || document);
-				}
-				addNode(curToChild, from);
-			}
-			//move to next sibling
-			curToChild = toNextSibling;
-			curFromChild = fromNextSibling;
-		}
-		//clean up from?
-		while(curFromChild) {
-			fromNextSibling = curFromChild.nextSibling;
-			curFromKey = getNodeKey(curFromChild);
-			if(curFromKey) {
-				keyedRemovalList.push(curFromKey);
-			} else {
-				removeNode(curFromChild, from, true);
-			}
-			curFromChild = fromNextSibling;
-		}
-		//handle input node?
-		if(from.nodeName === 'INPUT') {
-			//update boolean attrs
-			updateAttrBool(from, to, 'checked');
-			updateAttrBool(from, to, 'disabled');
-			//set value
-			from.value = to.value;
-			//remove value attr?
-			if(!to.hasAttribute('value')) {
-				from.removeAttribute('value');
-			}
-		}
-		//handle select node?
-		if(from.nodeName === 'SELECT') {
-			//is multi select?
-			if(!to.hasAttribute('multiple')) {
-				//set vars
-				var curChild = from.firstChild;
-				var index = -1, i = 0, optgroup;
-				//loop through children
-				while(curChild) {
-					//is optgroup node?
-					if(curChild.nodeName === 'OPTGROUP') {
-						optgroup = curChild;
-						curChild = optgroup.firstChild;
-					}
-					//is option node?
-					if(curChild.nodeName === 'OPTION') {
-						//is selected?
-						if(curChild.hasAttribute('selected')) {
-							index = i;
-							break;
-						}
-						//increment
-						i++;
-					}
-					//move to next sibling
-					curChild = curChild.nextSibling;
-					//move to next opt group?
-					if(!curChild && optgroup) {
-						curChild = optgroup.nextSibling;
-						optgroup = null;
-					}
-				}
-				//update index
-				from.selectedIndex = index;
-			}
-		}
-		//handle option node?
-		if(from.nodeName === 'OPTION') {
-			//has parent node?
-			if(from.parentNode) {
-				//set vars
-				var parentNode = from.parentNode;
-				var parentName = parentNode.nodeName;
-				//parent is optgroup node?
-				if(parentName === 'OPTGROUP') {
-					parentNode = parentNode.parentNode;
-					parentName = parentNode && parentNode.nodeName;
-				}
-				//parent is select node?
-				if(parentName === 'SELECT' && !parentNode.hasAttribute('multiple')) {
-					//remove attribute?
-					if(from.hasAttribute('selected') && !to.selected) {
-						fromEl.setAttribute('selected', 'selected');
-						fromEl.removeAttribute('selected');
-					}
-					//update index
-					parentNode.selectedIndex = -1;
-				}
-			}
-			//update boolean attr
-			updateAttrBool(from, to, 'selected');
-		}
-	};
-	
-	//result vars
-	var result = from;
-	var getResult = function(hasChanged) { return { result: result, hasChanged: hasChanged } }
-	
-	//convert html to nodes?
-	if(typeof to === 'string') {
-		var tmp = from.cloneNode(false);
-		tmp.innerHTML = to;
-		to = tmp;
+/**
+ * Fork of https://github.com/bigskysoftware/idiomorph/
+**/
+export default function morph(oldNode, newNode, config = {}) {
+	//convert html string?
+	if(typeof newNode === 'string') {
+		var tpl = document.createElement('template');
+		tpl.innerHTML = newNode;
+		newNode = tpl.content.firstElementChild;
 	}
+	//noop helper
+	var noop = function() {};
+	//create context
+	var ctx = Object.assign({
+		ignoreActive: false,
+		ignoreActiveValue: false,
+		removeAttributes: true,
+		checkEqualNode: true,
+		idMap: createIdMap(oldNode, newNode),
+		deadIds: new Set()
+	}, config || {});
+	//set callbacks
+	ctx.callbacks = Object.assign({
+		beforeNodeAdded: noop,
+		afterNodeAdded: noop,
+		beforeNodeMorphed: noop,
+		afterNodeMorphed: noop,
+		beforeNodeRemoved: noop,
+		afterNodeRemoved: noop,
+		beforeAttributeUpdated: noop
+	}, config.callbacks || {});
+	//morph root node
+	return morphOldToNew(oldNode, newNode, ctx);
+}
 
+function morphOldToNew(oldNode, newNode, ctx) {
+	//ignore active element?
+	if(ctx.ignoreActive && oldNode === document.activeElement) {
+		return;
+	}
+	//is empty node?
+	if(!newNode) {
+		if(ctx.callbacks.beforeNodeRemoved(oldNode) === false) return oldNode;
+		oldNode.remove();
+		ctx.callbacks.afterNodeRemoved(oldNode);
+		return null;
+	}
+	//replace node directly?
+	if(!isSoftMatch(oldNode, newNode)) {
+		if(ctx.callbacks.beforeNodeRemoved(oldNode) === false) return oldNode;
+		if(ctx.callbacks.beforeNodeAdded(newNode) === false) return oldNode;
+		oldNode.parentElement.replaceChild(newNode, oldNode);
+		ctx.callbacks.afterNodeAdded(newNode);
+		ctx.callbacks.afterNodeRemoved(oldNode);
+		return newNode;
+	}
+	//keep old node attributes?
+	if(!ctx.removeAttributes && oldNode.getAttribute && newNode.getAttribute) {
+		//merge classes
+		var classes = newNode.getAttribute('class');
+		classes && classes.split(/\s+/).forEach(function(cls) {
+			if(cls && !oldNode.classList.contains(cls)) {
+				oldNode.classList.add(cls);
+			}
+		});
+		//add missing attribtes to new node
+		for(var i=0; i < oldNode.attributes.length; i++) {
+			//get attribute
+			var attr = oldNode.attributes[i];
+			//add attribute to new node?
+			if(!newNode.hasAttribute(attr.name)) {
+				newNode.setAttribute(attr.name, attr.value);
+			}
+		}
+	}
+	//is equal node?
+	if(ctx.checkEqualNode && oldNode.isEqualNode(newNode)) {
+		return oldNode;
+	}
+	//morph old node to new node
+	if(ctx.callbacks.beforeNodeMorphed(oldNode, newNode) === false) return oldNode;
+	var didSelfChange = syncNodeFrom(newNode, oldNode, ctx);
+	if(!ignoreActiveValue(oldNode, ctx)) {
+		morphChildren(newNode, oldNode, ctx);
+	}
+	ctx.callbacks.afterNodeMorphed(oldNode, didSelfChange);
+	return oldNode;
+}
+
+function morphChildren(newParent, oldParent, ctx) {
+	//set vars
+	var nextNewChild = newParent.firstChild;
+	var insertionPoint = oldParent.firstChild;
+	var newChild;
+	//loop through new nodes
+	while(nextNewChild) {
+		//check next new child
+		newChild = nextNewChild;
+		nextNewChild = newChild.nextSibling;
+		//at the end of the parent node's children?
+		if(insertionPoint == null) {
+			if(ctx.callbacks.beforeNodeAdded(newChild) === false) return;
+			oldParent.appendChild(newChild);
+			ctx.callbacks.afterNodeAdded(newChild);
+			removeIdsFromConsideration(ctx, newChild);
+			continue;
+		}
+		//id set match found?
+		if(isIdSetMatch(newChild, insertionPoint, ctx)) {
+			morphOldToNew(insertionPoint, newChild, ctx);
+			insertionPoint = insertionPoint.nextSibling;
+			removeIdsFromConsideration(ctx, newChild);
+			continue;
+		}
+		//check for next id set match
+		var idSetMatch = findIdSetMatch(newParent, oldParent, newChild, insertionPoint, ctx);
+		//match found?
+		if(idSetMatch) {
+			insertionPoint = removeNodesBetween(insertionPoint, idSetMatch, ctx);
+			morphOldToNew(idSetMatch, newChild, ctx);
+			removeIdsFromConsideration(ctx, newChild);
+			continue;
+		}
+		//no id set match found, so check for next soft match
+		var softMatch = findSoftMatch(newParent, oldParent, newChild, insertionPoint, ctx);
+		//match found?
+		if(softMatch) {
+			insertionPoint = removeNodesBetween(insertionPoint, softMatch, ctx);
+			morphOldToNew(softMatch, newChild, ctx);
+			removeIdsFromConsideration(ctx, newChild);
+			continue;
+		}
+		//no matches found at all, so insert node directly
+		if(ctx.callbacks.beforeNodeAdded(newChild) === false) return;
+		oldParent.insertBefore(newChild, insertionPoint);
+		ctx.callbacks.afterNodeAdded(newChild);
+		removeIdsFromConsideration(ctx, newChild);
+	}
+	//remove any unmatched old nodes
+	while(insertionPoint !== null) {
+		var tempNode = insertionPoint;
+		insertionPoint = insertionPoint.nextSibling;
+		removeNode(tempNode, ctx);
+	}
+}
+
+function syncNodeFrom(from, to, ctx) {
+	//set vars
+	var didChange = false;
+	//is html element?
+	if(from.nodeType === 1) {
+		//loop through from attributes
+		for(var fromAttribute of from.attributes) {
+			//anything to update?
+			if(to.getAttribute(fromAttribute.name) !== fromAttribute.value) {
+				//skip attribute?
+				if(!ignoreAttribute(fromAttribute.name, to, 'update', ctx)) {
+					to.setAttribute(fromAttribute.name, fromAttribute.value);
+					didChange = true;
+				}
+			}
+		}
+		//loop through to attributes (backwards)
+		for(var i = to.attributes.length-1; 0 <= i; i--) {
+			//anything to remove?
+			if(!from.hasAttribute(to.attributes[i].name)) {
+				//skip attribute?
+				if(!ignoreAttribute(to.attributes[i].name, to, 'remove', ctx)) {
+					to.removeAttribute(to.attributes[i].name);
+					didChange = true;
+				}
+			}
+		}
+	}
+	//is comment or text node?
+	if(from.nodeType === 8 || from.nodeType === 3) {
+		//anything to update?
+		if(to.nodeValue !== from.nodeValue) {
+			to.nodeValue = from.nodeValue;
+			didChange = true;
+		}
+	}
+	//sync input values?
+	if(!ignoreActiveValue(to, ctx)) {
+		if(syncInputValue(from, to, ctx)) {
+			didChange = true;
+		}
+	}
+	//return
+	return didChange;
+}
+
+function syncInputValue(from, to, ctx) {
+	//set vars
+	var didChange = false;
+	//select input element type
+	if(from instanceof HTMLInputElement && to instanceof HTMLInputElement && from.type !== 'file') {
+		//sync chaecked attribute?
+		if(syncBooleanAttribute(from, to, 'checked', ctx)) {
+			didChange = true;
+		}
+		//sync disabled attribute?
+		if(syncBooleanAttribute(from, to, 'disabled', ctx)) {
+			didChange = true;
+		}
+		//remove value attribute?
+		if(!from.hasAttribute('value') && to.hasAttribute('value')) {
+			//skip attribute?
+			if(!ignoreAttribute('value', to, 'remove', ctx)) {
+				to.value = '';
+				to.removeAttribute('value');
+				didChange = true;
+			}
+		}
+		//change value attribute?
+		if(from.value !== to.value) {
+			//skip attribute?
+			if(!ignoreAttribute('value', to, 'update', ctx)) {
+				to.setAttribute('value', from.value);
+				to.value = from.value;
+				didChange = true;
+			}
+		}
+	} else if(from instanceof HTMLOptionElement) {
+		didChange = syncBooleanAttribute(from, to, 'selected', ctx)
+	} else if(from instanceof HTMLTextAreaElement && to instanceof HTMLTextAreaElement) {
+		//anything to update?
+		if(from.value !== to.value) {
+			//skip attribute?
+			if(!ignoreAttribute('value', to, 'update', ctx)) {
+				//update attribute
+				to.value = from.value;
+				//update child value?
+				if(to.firstChild && to.firstChild.nodeValue !== from.value) {
+					to.firstChild.nodeValue = from.value;
+				}
+				//mark as changed
+				didChange = true;
+			}
+		}
+	}
+	//return
+	return didChange;
+}
+
+function syncBooleanAttribute(from, to, attributeName, ctx) {
+	//set vars
+	var didChange = false;
 	//anything to update?
-	if(from.isEqualNode(to)) {
-		return getResult(false);
-	}
-
-	//start update
-	var keyedRemovalList = [];
-	var fromNodesLookup = findKeyedNodes(from);
-
-	//is element?
-	if(result.nodeType === 1) {
-		if(to.nodeType === 1) {
-			if(from.nodeName !== to.nodeName) {
-				result = document.createElement(to.nodeName);
-				while(from.firstChild) {
-					result.appendChild(from.firstChild);
-				}
+	if(from[attributeName] !== to[attributeName]) {
+		//skip attribute?
+		var ignoreUpdate = ignoreAttribute(attributeName, to, 'update', ctx);
+		//update attribute?
+		if(!ignoreUpdate) {
+			to[attributeName] = from[attributeName];
+			didChange = true;
+		}
+		//has from attribute?
+		if(from[attributeName]) {
+			if(!ignoreUpdate) {
+				to.setAttribute(attributeName, from[attributeName]);
+				didChange = true;
 			}
 		} else {
-			result = to;
-		}
-	}
-
-	//is text or comment?
-	if(result.nodeType === 3 || result.nodeType === 8) {
-		if(to.nodeType === result.nodeType) {
-			result.nodeValue = to.nodeValue;
-			return getResult(true);
-		} else {
-			result = to;
-		}
-	}
-
-	//update node?
-	if(result !== to) {
-		//update node
-		updateNode(result, to);
-		//check keyed nodes
-		for(var i=0; i < keyedRemovalList.length; i++) {
-			//node to remove
-			var toRemove = fromNodesLookup[keyedRemovalList[i]];
-			//can remove?
-			if(toRemove) {
-				removeNode(toRemove, toRemove.parentNode, false);
+			if(!ignoreAttribute(attributeName, to, 'remove', ctx)) {
+				to.removeAttribute(attributeName);
+				didChange = true;
 			}
 		}
 	}
+	//return
+	return didChange;
+}
 
-	//is virtual DOM?
-	if(result.actualize) {
-		result = result.actualize(from.ownerDocument || document);
+function ignoreAttribute(attr, to, updateType, ctx) {	
+	//skip attribute removal?
+	if(!ctx.removeAttributes && updateType === 'remove') {
+		return true;
 	}
-
-	//replace from node?
-	if(result !== from && from.parentNode) {
-		from.parentNode.replaceChild(result, from);
+	//skip active element value?
+	if(attr === 'value' && ctx.ignoreActiveValue && to === document.activeElement) {
+		return true;
 	}
+	//callback result
+	return ctx.callbacks.beforeAttributeUpdated(attr, to, updateType) === false;
+}
 
-	//result
-	return getResult(true);
+function ignoreActiveValue(node, ctx) {
+	return ctx.ignoreActiveValue && node === document.activeElement && node !== document.body;
+}
 
+function removeNode(tempNode, ctx) {
+	removeIdsFromConsideration(ctx, tempNode)
+	if(ctx.callbacks.beforeNodeRemoved(tempNode) === false) return;
+	tempNode.remove();
+	ctx.callbacks.afterNodeRemoved(tempNode);
+}
+
+function removeNodesBetween(startInclusive, endExclusive, ctx) {
+	while(startInclusive !== endExclusive) {
+		var tempNode = startInclusive;
+		startInclusive = startInclusive.nextSibling;
+		removeNode(tempNode, ctx);
+	}
+	removeIdsFromConsideration(ctx, endExclusive);
+	return endExclusive.nextSibling;
+}
+
+function isSoftMatch(node1, node2) {
+	//empty nodes?
+	if(!node1 || !node2) {
+		return false;
+	}
+	//check node type match
+	return node1.nodeType === node2.nodeType && node1.tagName === node2.tagName
+}
+
+function findSoftMatch(newNode, oldParent, newChild, insertionPoint, ctx) {
+	//set vars
+	var potentialSoftMatch = insertionPoint;
+	var nextSibling = newChild.nextSibling;
+	var siblingSoftMatchCount = 0;
+	//start match loop
+	while(potentialSoftMatch != null) {
+		 //the current potential soft match has a potential id set match with the remaining new node
+		if(getIdIntersectionCount(ctx, potentialSoftMatch, newNode) > 0) {
+			return null;
+		}
+		//if we have a soft match with the current node, return it
+		if(isSoftMatch(newChild, potentialSoftMatch)) {
+			return potentialSoftMatch;
+		}
+		//the next new node has a soft match with this node, so increment the count of future soft matches
+		if(isSoftMatch(nextSibling, potentialSoftMatch)) {
+			siblingSoftMatchCount++;
+			nextSibling = nextSibling.nextSibling;
+			//if there are two future soft matches, bail to allow the siblings to soft match
+			if(siblingSoftMatchCount >= 2) {
+				return null;
+			}
+		}
+		//advanced to the next old child node
+		potentialSoftMatch = potentialSoftMatch.nextSibling;
+	}
+	//return
+	return potentialSoftMatch;
+}
+
+function isIdSetMatch(node1, node2, ctx) {
+	if(!node1 || !node2) {
+		return false;
+	}
+	if(node1.nodeType === node2.nodeType && node1.tagName === node2.tagName) {
+		if(node1.id !== "" && node1.id === node2.id) {
+			return true;
+		}
+		return getIdIntersectionCount(ctx, node1, node2) > 0;
+	}
+	return false;
+}
+
+function findIdSetMatch(newNode, oldParent, newChild, insertionPoint, ctx) {
+	//max id matches we are willing to discard in our search
+	var newChildPotentialIdCount = getIdIntersectionCount(ctx, newChild, oldParent);
+	var potentialMatch = null;
+	//only search forward if there is a possibility of an id match
+	if(newChildPotentialIdCount > 0) {
+		var potentialMatch = insertionPoint;
+		var otherMatchCount = 0;
+		while(potentialMatch != null) {
+			//if we have an id match, return the current potential match
+			if(isIdSetMatch(newChild, potentialMatch, ctx)) {
+				return potentialMatch;
+			}
+			//compute the other potential matches of this new nodes
+			otherMatchCount += getIdIntersectionCount(ctx, potentialMatch, newNode);
+			if(otherMatchCount > newChildPotentialIdCount) {
+				return null;
+			}
+			//advanced to the next old child node
+			potentialMatch = potentialMatch.nextSibling;
+		}
+	}
+	return potentialMatch;
+}
+
+function isIdInConsideration(ctx, id) {
+	return !ctx.deadIds.has(id);
+}
+
+function idIsWithinNode(ctx, id, targetNode) {
+	return (ctx.idMap.get(targetNode) || new Set()).has(id);
+}
+
+function removeIdsFromConsideration(ctx, node) {
+	var idSet = ctx.idMap.get(node) || new Set();
+	for(var id of idSet) {
+		ctx.deadIds.add(id);
+	}
+}
+
+function getIdIntersectionCount(ctx, node1, node2) {
+	var sourceSet = ctx.idMap.get(node1) || new Set();
+	var matchCount = 0;
+	for(var id of sourceSet) {
+		//a potential match is an id in the source and potentialIdsSet, but not added to the DOM
+		if(isIdInConsideration(ctx, id) && idIsWithinNode(ctx, id, node2)) {
+			++matchCount;
+		}
+	}
+	return matchCount;
+}
+
+function populateIdMapForNode(node, idMap) {
+	//find all elements with an id property
+	var nodeParent = node.parentElement;
+	var idElements = node.querySelectorAll('[id]');
+	for(var elt of idElements) {
+		var current = elt;
+		//walk up tree, adding the element id to the parent's id set
+		while(current !== nodeParent && current != null) {
+			var idSet = idMap.get(current);
+			// f the id set doesn't exist, insert it in the map
+			if(idSet == null) {
+				idSet = new Set();
+				idMap.set(current, idSet);
+			}
+			idSet.add(elt.id);
+			current = current.parentElement;
+		}
+	}
+}
+
+function createIdMap(oldNode, newNode) {
+	var idMap = new Map();
+	populateIdMapForNode(oldNode, idMap);
+	populateIdMapForNode(newNode, idMap);
+	return idMap;
 }

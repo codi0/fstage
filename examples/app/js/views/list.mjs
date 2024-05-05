@@ -1,4 +1,4 @@
-export const about = function({ target, html, props, state, store, context }) {
+export const list = function({ target, html, props, state, store, context }) {
 
 	//render scoped or global css
 	target.addEventListener('componentCss', function(e) {
@@ -12,18 +12,22 @@ export const about = function({ target, html, props, state, store, context }) {
 			<ion-page>
 				<ion-content>
 					<ion-list>
-						<ion-item>
-							<ion-checkbox></ion-checkbox>
-							<ion-label>
-								<h1>Create Idea</h1>
-								<ion-note>
-									Run Idea by Brandy
-								</ion-note>
-							</ion-label>
-							<ion-badge color="success">
-								5 Days
-							</ion-badge>
-						</ion-item>
+						${html(500, function() {
+							return html`
+								<ion-item>
+									<ion-checkbox></ion-checkbox>
+									<ion-label>
+										<h1>Create Idea</h1>
+										<ion-note>
+											Run Idea by Brandy
+										</ion-note>
+									</ion-label>
+									<ion-badge color="success">
+										5 Days
+									</ion-badge>
+								</ion-item>
+							`;
+						})}
 					</ion-list>
 				</ion-content>
 			</ion-page>

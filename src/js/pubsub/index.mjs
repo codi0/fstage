@@ -81,7 +81,12 @@ function pubsub() {
 		off: function(id, token) {
 			//token found?
 			if(_cbs[id] && _cbs[id][token]) {
-				delete _cbs[id][token];
+				//delete all?
+				if(Object.keys(_cbs[id]).length <= 1) {
+					delete _cbs[id];
+				} else {
+					delete _cbs[id][token];
+				}
 			}
 		},
 
@@ -89,28 +94,32 @@ function pubsub() {
 			//set vars
 			var proms = [];
 			var last = _id;
-			//cache ID
-			_id = id;
-			//create queue
-			_queue[id] = {
-				res: {},
-				args: args,
-				ctx: opts.ctx || null,
-				async: opts.async,
-				filter: opts.filter,
-				method: opts.method || 'call'
-			};
-			//is filter?
-			if(opts.filter) {
-				proms.push(opts.method === 'apply' ? args[0] : args);
+			//has listeners?
+			if(_cbs[id]) {
+				//cache ID
+				_id = id;
+				//create queue
+				_queue[id] = {
+					res: {},
+					args: args,
+					ctx: opts.ctx || null,
+					async: opts.async,
+					filter: opts.filter,
+					method: opts.method || 'call'
+				};
+				//is filter?
+				if(opts.filter) {
+					proms.push(opts.method === 'apply' ? args[0] : args);
+				}
+				//loop through subscribers
+				for(var token in _cbs[id]) {
+					proms.push(_invoke(id, token));
+				}
+				//delete queue
+				delete _queue[id];
+				//reset ID
+				_id = last;
 			}
-			//loop through subscribers
-			for(var token in (_cbs[id] || {})) {
-				proms.push(_invoke(id, token));
-			}
-			//delete queue
-			delete _queue[id];
-			_id = last;
 			//sync return?
 			if(!opts.async) {
 				return _result(proms, opts.filter);

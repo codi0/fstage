@@ -14,17 +14,17 @@ globalThis.__appConfig = {
 		'views/root',
 		'views/parts/header',
 		'views/parts/footer',
-		'views/home',
 		'views/notfound',
-		'views/about',
+		'views/home',
+		'views/list',
 		'webc/fs-welcome'
 	],
 
 	//app routes
 	routes: {
-		HOME: 'home', //home page
-		NOTFOUND: 'notfound', //404 page
-		ABOUT: 'about'
+		HOME: 'home',
+		LIST: 'list',
+		NOTFOUND: 'notfound'
 	},
 
 	//service worker pre-cache
