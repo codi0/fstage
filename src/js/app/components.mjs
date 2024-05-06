@@ -129,7 +129,7 @@ function components(config={}) {
 			newEl.innerHTML = html;
 		}
 		//scan for child components
-		var children = (newEl || el).childComponents()
+		var children = (newEl || el).childComponents();
 		//loop through children
 		while(children.length) {
 			syncComponent(children.shift(), {

@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 	<meta charset="utf-8">
-	<title>App loader</title>
+	<title>App loading...</title>
 	<meta name="viewport" content="viewport-fit=cover, width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no">
 	<meta name="apple-mobile-web-app-capable" content="yes">
 	<meta name="mobile-web-app-capable" content="yes">
@@ -27,7 +27,7 @@
 		background: var(--pwa-background);
 	}
 
-	#splash {
+	.fs-loader {
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -40,11 +40,11 @@
 		z-index: 999;
 	}
 	
-	#splash.gone {
+	.fs-loader.fading {
 		opacity: 0;
 	}
 
-	#splash .spinner {
+	.fs-loader .spinner {
 		position: fixed;
 		top: 0;
 		bottom: 0;
@@ -59,7 +59,7 @@
 		animation: spin 500ms linear infinite;
 	}
 
-	#splash .logo {
+	.fs-loader .logo {
 		display: none;
 		width: 80px;
 		margin: 0;
@@ -71,21 +71,18 @@
 		background-repeat: no-repeat;
 	}
 
-	#splash .waiting,
-	#splash noscript {
-		position: absolute;
-		bottom: 40px;
+	.fs-loader-parent {
+		position: relative;
+	}
+
+	#no-js {
+		display: flex;
+		justify-content: center;
+		align-items: center;
 		width: 100%;
-		text-align: center;
-	}
-
-	#splash .waiting {
-		display: none;
-		color: var(--pwa-color);
-	}
-
-	#splash noscript {
+		height: 100%;
 		color: red;
+		font-weight: bold;
 	}
 
 	@keyframes fadeOut {
@@ -105,16 +102,10 @@
 	</style>
 </head>
 <body>
-	<div id="splash">
-		<div class="spinner"></div>
-		<div class="logo"></div>
-		<div class="waiting">
-			App loading...
-		</div>
-		<noscript>
-			Please enable javascript
-		</noscript>
-	</div>
+	<div>
+	<noscript id="no-js">
+		Enable javascript to continue
+	</noscript>
 	<div id="root"></div>
 	<script>
 	(function() {
@@ -201,22 +192,44 @@
 				return window.dispatchEvent(e);
 			},
 
-			splash: {
-
-				display: function(show, delayMs=0) {
-					setTimeout(function() {
-						var splash = document.querySelector("#splash");
-						splash.classList[show ? 'remove' : 'add']('gone');
-						splash.querySelector('.waiting').innerHTML = '';
-						setTimeout(function() {
-							splash.style.display = show ? 'flex' : 'none';
-						}, show ? 0 : 300);
-					}, delayMs);
-				},
-
-				logo: function(show) {
-					document.querySelector("#splash .logo").style.display = show ? 'block' : 'none';
-					document.querySelector("#splash .spinner").style.display = show ? 'none' : 'block';
+			loader: function(selector, type='spinner') {
+				//set vars
+				var el = selector;
+				var loader = null;
+				//query element?
+				if(typeof el === 'string') {
+					el = document.querySelector(el);
+				}
+				//found?
+				if(el) {
+					loader = document.createElement('div');
+					loader.classList.add('fs-loader');
+					loader.innerHTML = '<div class="' + type + '"></div>';
+					el.insertBefore(loader, el.firstChild);
+				}
+				//update helper
+				var update = function(show, delay) {
+					el && setTimeout(function() {
+						if(show) {
+							el.classList.add('fs-loader-parent');
+							el.insertBefore(loader, el.firstChild);
+						} else {
+							loader.classList.add('fading');
+							setTimeout(function() {
+								loader.remove();
+								el.classList.remove('fs-loader-parent');
+							}, 300);
+						}
+					}, delay);
+				};
+				//return
+				return {
+					show: function(delay=0) {
+						update(true, delay);
+					},
+					hide: function(delay=0) {
+						update(false, delay);
+					}
 				}
 
 			},
@@ -251,8 +264,11 @@
 			return alert('Your browser is not supported. Please use a different browser to continue.');
 		}
 
-		//display logo?
-		PWA.splash.logo(config.splashLogo);
+		//create splash loader
+		var splash = PWA.loader('body', config.splashLogo ? 'logo' : 'spinner');
+		
+		//show splash
+		splash.show();
 
 		//wait for window to load
 		window.addEventListener('load', function() {
@@ -319,7 +335,7 @@
 					//app loaded
 					PWA.ready(true);
 					//hide splash
-					PWA.splash.display(false, config.splashDelay);
+					splash.hide(config.splashDelay);
 				});
 			});
 			
@@ -328,11 +344,6 @@
 
 			//load favicon
 			PWA.loadAsset(config.faviconUrl, 'icon');
-
-			//waiting message
-			setTimeout(function() {
-				document.querySelector('#splash .waiting').style.display = 'block';
-			}, config.waitingDelay);
 
 		});
 

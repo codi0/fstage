@@ -12,7 +12,7 @@ export const list = function({ target, html, props, state, store, context }) {
 			<ion-page>
 				<ion-content>
 					<ion-list>
-						${html(500, function() {
+						${html(1000, function() {
 							return html`
 								<ion-item>
 									<ion-checkbox></ion-checkbox>
