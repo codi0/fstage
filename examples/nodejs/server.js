@@ -6,7 +6,7 @@ http.createServer(function(req, res) {
 	fstage.env.parseReq(req);
 	//load fstage modules
 	fstage.ready('@all', function(exports) {
-		var output = 'Fstage v ' + fstage.version + ":\n";
+		var output = "Fstage modules:\n";
 		for(var k in exports) {
 			output += "\n" + k;
 		}

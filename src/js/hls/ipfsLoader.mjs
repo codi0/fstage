@@ -1,5 +1,5 @@
 //hls custom loader
-export default function hlsIpfsLoader(ipfsNode, debug) {
+export default function hlsIpfsLoader(heliaFs, debug) {
 
 	//loader function
 	return function() {
@@ -27,7 +27,7 @@ export default function hlsIpfsLoader(ipfsNode, debug) {
 			//already has ext?
 			if(path.indexOf('.') === -1) {
 				//check cid
-				for await (var info of ipfsNode.ls(path, opts)) {
+				for await (var info of heliaFs.ls(path, opts)) {
 					//valid file?
 					if(info && info.type === 'file') {
 						//add count
@@ -56,7 +56,7 @@ export default function hlsIpfsLoader(ipfsNode, debug) {
 			//debug
 			log("Fetching cid:", cid, opts);
 			//loop through chunks
-			for await (var chunk of ipfsNode.cat(cid, opts)) {
+			for await (var chunk of heliaFs.cat(cid, opts)) {
 				//cache chunk
 				chunks.push(chunk);
 				//add tto buffer size

@@ -1,17 +1,17 @@
 //imports
-import 'https://cdn.jsdelivr.net/npm/helia/dist/index.min.js';
-import 'https://cdn.jsdelivr.net/npm/@helia/unixfs/dist/index.min.js';
-import 'https://cdn.jsdelivr.net/npm/datastore-level/dist/index.min.js';
-import 'https://cdn.jsdelivr.net/npm/blockstore-level/dist/index.min.js';
-import 'https://cdn.jsdelivr.net/npm/multiformats/dist/index.min.js';
+import { createHeila, libp2pDefaults } from 'helia';
+import { unixfs } from '@helia/unixfs';
+import { LevelDatastore } from 'datastore-level';
+import { LevelBlockstore } from 'blockstore-level';
+import { CID } from 'multiformats/cid';
 
 //export globals
-export var createHelia = Helia.createHelia;
-export var libp2pDefaults = Helia.libp2pDefaults;
-export var LevelDatastore = DatastoreLevel.LevelDatastore;
-export var LevelBlockstore = BlockstoreLevel.LevelBlockstore;
-export var unixfs = HeliaUnixfs.unixfs;
-export var CID = Multiformats.CID;
+export createHelia;
+export libp2pDefaults;
+export LevelDatastore;
+export LevelBlockstore;
+export unixfs;
+export CID;
 
 //private vars
 var instances = {};

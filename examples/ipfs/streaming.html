@@ -26,18 +26,18 @@
 				http: 'https://multiplatform-f.akamaihd.net/i/multi/will/bunny/big_buck_bunny_,640x360_400,640x360_700,640x360_1000,950x540_1500,.f4v.csmil/master.m3u8'
 			};
 			//extract exports
-			var hls = exports.hls.default;
-			var ipfs = exports.ipfs.default;
-			//create ipfs node
-			var node = await ipfs.node();
-			var meta = await node.id();
-			var isOnline = await node.isOnline();
+			var stream = exports.hls.stream;
+			var createNode = exports.ipfs.createNode;
+			//create ipfs
+			var node = await createNode();
+			var id = node.libp2p.peerId;
+			var isOnline = (node.libp2p.status === 'started');
 			//set status html
 			var status = document.querySelector('#status');
-			status.innerHTML  = '<p><b>Ipfs</b><br>Node: ' + meta.id + '<br>Status: ' + (isOnline ? 'online' : 'offline') + '</p>';
+			status.innerHTML  = '<p><b>Ipfs</b><br>Node: ' + id + '<br>Status: ' + (isOnline ? 'online' : 'offline') + '</p>';
 			status.innerHTML += '<p><b>Video</b><br>Path: ' + urls[type] + '<br>Status: <span id="video-status">Loading...</span></p>';
 			//start streaming
-			hls.stream(urls[type], function(mediaEl) {
+			stream(urls[type], function(mediaEl) {
 				document.querySelector('#video').appendChild(mediaEl);
 				document.querySelector('#video-status').innerHTML = 'Ready to play';
 			});
