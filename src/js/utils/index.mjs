@@ -146,6 +146,31 @@ export function parseHTML(input, first = false) {
 	return first ? (input[0] || null) : input;
 }
 
+export function asyncHTML(el, html, opts={}) {
+	//set vars
+	var tpl = html;
+	//create template?
+	if(typeof tpl === 'string') {
+		tpl = document.createElement('template');
+		tpl.innerHTML = html;
+	}
+	//process data
+	var process = function(parent) {
+		var child = parent.firstChild;
+		parent.removeChild(child);
+		requestAnimationFrame(function() {
+			el.appendChild(child);
+			if(parent.firstChild) {
+				process(parent);
+			} else {
+				opts.onEnd && opts.onEnd(el);
+			}
+		});
+	};
+	opts.onStart && opts.onStart(el);
+	process(tpl.content || tpl);
+}
+
 //strip html
 export function stripHTML(html) {
 	var el = document.createElement('div');
@@ -475,6 +500,7 @@ var utils = {
 	hash: hash,
 	scroll: scroll,
 	parseHTML: parseHTML,
+	asyncHTML: asyncHTML,
 	stripHTML: stripHTML,
 	esc: esc,
 	decode: decode,

@@ -98,14 +98,43 @@ export default function app(config = {}) {
 				break;
 			}
 		}
-		//insert to node?
+		//can insert?
 		if(!document.body.contains(to)) {
 			//can insert?
 			if(!from.parentNode) {
 				return;
 			}
-			//insert from node sibling
+			//clone with props
+			var toOrg = to;
+			to = to.cloneNode(false);
+			for(var i in toOrg) {
+				if(toOrg.hasOwnProperty(i)) {
+					to[i] = toOrg[i];
+				}
+			}
+			//insert to node
 			from.parentNode.insertBefore(to, from.nextSibling);
+			//process components
+			app.components.process('unmounted', from);
+			app.components.process('mounted', to);
+			app.components.process('mounted', toOrg, { parent: false, self: false });
+			//get loader
+			var loader = (PWA && PWA.loader) ? PWA.loader(toOrg.lastChild) : null;
+			var checkHydrated = from.classList.contains('hydrated');
+			var start = performance.now();
+			//async render
+			app.utils.asyncHTML(to, toOrg, {
+				onStart: function(target) {
+					loader && loader.show();
+				},
+				onEnd: function(target) {
+					var end = performance.now() - start;
+					var delay = (end > 25) ? 100 : 0;
+					setTimeout(function() {
+						loader && loader.hide();
+					}, delay);
+				}
+			});
 		}
 		//hide to node
 		to.classList.add('hidden');

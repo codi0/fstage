@@ -140,47 +140,6 @@ function components(config={}) {
 		if(!newEl) {
 			return false;
 		}
-		//Helper: process components
-		var processComponents = function(action, node) {
-			//anything to process?
-			if(!node || !node.tagName) {
-				return;
-			}
-			//console.log('process', action, node);
-			//Helper: check component
-			var check = function(node, isParent) {
-				//already processing?
-				if(node.__fsComp.processing) {
-					return;
-				}
-				//console.log(isParent ? 'parent' : 'child', action, node);
-				//set event
-				var evName = node.__fsComp.attached ? 'updated' : 'mounted';
-				//has unmounted?
-				if(!isParent && action === 'unmounted') {
-					evName = 'unmounted';
-				}
-				//update flags
-				node.__fsComp.processing = true;
-				node.__fsComp.attached = (action !== 'unmounted');
-				//schedule for dispatch
-				requestAnimationFrame(function() {
-					dispatchEvent(evName, node);
-					node.__fsComp.processing = false;
-				});
-			};
-			//check parent?
-			if(action !== 'unmounted') {
-				var parent = node.parentComponent();
-				parent && check(parent, true);
-			}
-			//check children?
-			if(action !== 'updated') {
-				node.childComponents(true).forEach(function(child) {
-					check(child, false);
-				});
-			}
-		};
 		//diff the DOM
 		config.domDiff(el, newEl, {
 			ignoreActive: false,
@@ -199,19 +158,13 @@ function components(config={}) {
 					}
 				},
 				afterNodeAdded: function(node) {
-					processComponents('mounted', node);
+					api.process('mounted', node);
 				},
 				beforeNodeMorphed: function(oldNode, newNode) {
 					//run event
 					var res = config.pubsub.emit('components.beforeNodeMorphed', [ oldNode, newNode ], {
 						method: 'apply'
 					});
-					//is routing?
-					if(oldNode.classList && oldNode.classList.contains('animate')) {
-						processComponents('unmounted', oldNode);
-						processComponents('mounted', newNode);
-						return false;
-					}
 					//skip update?
 					if(res.includes(false)) {
 						return false;
@@ -219,7 +172,7 @@ function components(config={}) {
 				},
 				afterNodeMorphed: function(oldNode, didSelfChange) {
 					if(didSelfChange) {
-						processComponents('updated', oldNode);
+						api.process('updated', oldNode);
 					}
 				},
 				beforeNodeRemoved: function(node) {
@@ -233,7 +186,7 @@ function components(config={}) {
 					}
 				},
 				afterNodeRemoved: function(node) {
-					processComponents('unmounted', node);
+					api.process('unmounted', node);
 				}
 			}
 		});
@@ -293,12 +246,9 @@ function components(config={}) {
 		}
 		//new component?
 		if(!el.isComponent) {
-			//set read-only property
-			Object.defineProperty(el, 'isComponent', {
-				value: true,
-				writable: false
-			});
-			//set attribute?
+			//mark as component
+			el.isComponent = true;
+			//set component attribute?
 			if(config.attribute && opts.name) {
 				el.setAttribute(config.attribute, opts.name);
 			}
@@ -376,12 +326,8 @@ function components(config={}) {
 			return res;
 		};
 		//Add: find child components
-		HTMLElement.prototype.childComponents = function(self=false) {
-			var children = api.find(this);
-			if(self && this.isComponent) {
-				children.unshift(this);
-			}
-			return children;
+		HTMLElement.prototype.childComponents = function() {
+			return api.find(this);
 		};
 	};
 
@@ -418,6 +364,19 @@ function components(config={}) {
 			return Array.from(nodes);
 		},
 
+		register: function(name, fn) {
+			//set vars
+			name = name.toLowerCase();
+			//is registered?
+			if(name in _registered) {
+				throw new Error('Component already registered');
+			}
+			//add to register
+			_registered[name] = fn;
+			//chain it
+			return this;
+		},
+
 		make: function(name, opts={}) {
 			//is callback?
 			if(typeof opts === 'function') {
@@ -443,17 +402,56 @@ function components(config={}) {
 			return syncComponent(opts.element, opts);
 		},
 
-		register: function(name, fn) {
-			//set vars
-			name = name.toLowerCase();
-			//is registered?
-			if(name in _registered) {
-				throw new Error('Component already registered');
+		process: function(action, node, opts={}) {
+			//anything to process?
+			if(!node || !node.tagName) {
+				return;
 			}
-			//add to register
-			_registered[name] = fn;
-			//chain it
-			return this;
+			//set opts
+			opts = Object.assign({ 
+				parent: true,
+				self: true,
+				children: true
+			}, opts || {});
+			//Helper: check component
+			var check = function(node, isParent) {
+				//anything to process?
+				if(!node.isComponent || node.__fsComp.processing) {
+					return;
+				}
+				//set event
+				var evName = node.__fsComp.attached ? 'updated' : 'mounted';
+				//has unmounted?
+				if(!isParent && action === 'unmounted') {
+					evName = 'unmounted';
+				}
+				//update flags
+				node.__fsComp.processing = true;
+				node.__fsComp.attached = (action !== 'unmounted');
+				//schedule for dispatch
+				requestAnimationFrame(function() {
+					dispatchEvent(evName, node);
+					node.__fsComp.processing = false;
+				});
+			};
+			//check parent?
+			if(opts.parent && action !== 'unmounted') {
+				var parent = node.parentComponent();
+				parent && check(parent, true);
+			}
+			//check non-parents?
+			if(action !== 'updated') {
+				//check self?
+				if(opts.self) {
+					check(node, false);
+				}
+				//check children?
+				if(opts.children) {
+					node.childComponents().forEach(function(child) {
+						check(child, false);
+					});
+				}
+			}
 		},
 
 		start: function(rootEl, opts = {}) {
