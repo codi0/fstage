@@ -2,7 +2,11 @@ export const header = function({ target, html, props, state, store, context }) {
 
 	//render scoped or global css
 	target.addEventListener('componentCss', function(e) {
-
+		return html`
+			scoped {
+				z-index: 99999;
+			}
+		`;
 	});
 
 	//render html using template literals

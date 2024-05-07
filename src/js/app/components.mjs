@@ -411,12 +411,13 @@ function components(config={}) {
 			opts = Object.assign({ 
 				parent: true,
 				self: true,
-				children: true
+				children: true,
+				allowDelayed: false
 			}, opts || {});
 			//Helper: check component
 			var check = function(node, isParent) {
 				//anything to process?
-				if(!node.isComponent || node.__fsComp.processing) {
+				if(!node.isComponent || node.__fsComp.processing || node.__fsDelayed) {
 					return;
 				}
 				//set event
@@ -434,6 +435,15 @@ function components(config={}) {
 					node.__fsComp.processing = false;
 				});
 			};
+			//is delayed?
+			if(node.__fsDelayed) {
+				//stop here?
+				if(!opts.allowDelayed) {
+					return;
+				}
+				//remove flag
+				delete node.__fsDelayed;
+			}
 			//check parent?
 			if(opts.parent && action !== 'unmounted') {
 				var parent = node.parentComponent();

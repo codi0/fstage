@@ -105,34 +105,43 @@ export default function app(config = {}) {
 				return;
 			}
 			//clone with props
-			var toOrg = to;
+			var toInner = to;
 			to = to.cloneNode(false);
-			for(var i in toOrg) {
-				if(toOrg.hasOwnProperty(i)) {
-					to[i] = toOrg[i];
+			for(var i in toInner) {
+				if(toInner.hasOwnProperty(i)) {
+					to[i] = toInner[i];
+				}
+			}
+			//get loader?
+			var loader;
+			if(globalThis.PWA && PWA.loader) {
+				var tmp = toInner.querySelector('[data-loader]');
+				if(tmp) {
+					loader = PWA.loader(tmp);
 				}
 			}
 			//insert to node
 			from.parentNode.insertBefore(to, from.nextSibling);
-			//process components
-			app.components.process('unmounted', from);
-			app.components.process('mounted', to);
-			app.components.process('mounted', toOrg, { parent: false, self: false });
-			//get loader
-			var loader = (PWA && PWA.loader) ? PWA.loader(toOrg.lastChild) : null;
-			var checkHydrated = from.classList.contains('hydrated');
-			var start = performance.now();
 			//async render
-			app.utils.asyncHTML(to, toOrg, {
+			app.utils.asyncHTML(to, toInner, {
 				onStart: function(target) {
-					loader && loader.show();
+					//mark as delayed
+					from.__fsDelayed = true;
+					to.__fsDelayed = true;
+					//show loader?
+					if(loader) {
+						loader.show();
+					}
 				},
 				onEnd: function(target) {
-					var end = performance.now() - start;
-					var delay = (end > 25) ? 100 : 0;
-					setTimeout(function() {
-						loader && loader.hide();
-					}, delay);
+					//hide loader?
+					if(loader) {
+						loader.hide(250);
+					}
+					//process to node
+					app.components.process('mounted', to, {
+						allowDelayed: true
+					});
 				}
 			});
 		}
@@ -142,10 +151,12 @@ export default function app(config = {}) {
 		dom.transition(to, toEffect, from, fromEffect, {
 			reverse: inReverse,
 			onEnd: function(e) {
-				//remove old node?
-				if(from.parentNode) {
-					from.parentNode.removeChild(from);
-				}
+				//remove from node
+				from.remove();
+				//process from node
+				app.components.process('unmounted', from, {
+					allowDelayed: true
+				});
 			}
 		});
 		//break

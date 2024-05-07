@@ -9,7 +9,7 @@ export const list = function({ target, html, props, state, store, context }) {
 	target.addEventListener('componentHtml', function(e) {
 		return html`
 			<ion-header data-component="header"></ion-header>
-			<ion-page>
+			<ion-page data-loader>
 				<ion-content>
 					<ion-list>
 						${html(1000, function() {
