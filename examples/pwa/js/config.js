@@ -11,34 +11,41 @@ globalThis.FSCONFIG = {
 	},
 
 	loadAssets: [
-		//fstage
-		'@fstage/store',
-		'@fstage/lit',
-		//ionic
-		'https://cdn.jsdelivr.net/npm/@ionic/core@8/css/ionic.bundle.min.css',
-		'https://cdn.jsdelivr.net/npm/@ionic/core@8/dist/ionic/ionic.esm.min.js',
-		'https://cdn.jsdelivr.net/npm/@ionic/pwa-elements@3/dist/ionicpwaelements/ionicpwaelements.esm.min.js',
-		//capacitor
-		//'@capacitor/core',
-		//'@capacitor/splash-screen',
-		//'@capacitor/camera',
-		//store
-		'js/store/tasks.mjs',
-		//theme
-		'js/theme/layout.mjs',
-		'js/theme/header.mjs',
-		//pages
-		'js/pages/home.mjs',
-		'js/pages/about.mjs',
-		//misc
-		'css/style.css',
-		'manifest.json',
-		'favicon.png'
+		[
+			//preload
+			'@fstage/env'
+		],
+		[
+			//fstage
+			'@fstage/store',
+			'@fstage/sync',
+			'@fstage/lit',
+			//ionic
+			'https://cdn.jsdelivr.net/npm/@ionic/core@8/css/ionic.bundle.min.css',
+			'https://cdn.jsdelivr.net/npm/@ionic/core@8/dist/ionic/ionic.esm.min.js',
+			'https://cdn.jsdelivr.net/npm/@ionic/pwa-elements@3/dist/ionicpwaelements/ionicpwaelements.esm.min.js',
+			//capacitor
+			//'@capacitor/core',
+			//'@capacitor/splash-screen',
+			//'@capacitor/camera',
+			//store
+			'js/store/tasks.mjs',
+			//theme
+			'js/theme/layout.mjs',
+			'js/theme/header.mjs',
+			//pages
+			'js/pages/home.mjs',
+			'js/pages/about.mjs',
+			//misc
+			'css/style.css',
+			'manifest.json',
+			'favicon.png'
+		]
 	],
 
 	loadFilters: function(e, fstage) {
 		//skip capacitor on non-web platform?
-		if(/@capacitor/.test(e.path) && Fstage.platform() !== 'web') {
+		if(/@capacitor/.test(e.path) && fstage.env && fstage.env.isHybrid) {
 			e.path = '';
 		}
 	},
