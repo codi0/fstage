@@ -1,5 +1,18 @@
+//private vars
+const _cache = {};
+
 //webpush wrapper
-function webpush() {
+export function createWebpush(config={}) {
+
+	//set config
+	config = Object.assign({
+		name: 'default'
+	}, config);
+
+	//check cache?
+	if(_cache[config.name]) {
+		return _cache[config.name];
+	}
 
 	//internal vars
 	var _url = null;
@@ -61,12 +74,9 @@ function webpush() {
 			});
 		});				
 	};
-			
-	return {
-	
-		instance: function() {
-			return new webpush();
-		},
+
+	//public api
+	const api = {
 
 		init: function(url, vapid) {
 			_url = url;
@@ -175,15 +185,10 @@ function webpush() {
 
 	};
 
-};
+	//add to cache
+	_cache[config.name] = api;
 
-//create obj
-var _obj = new webpush()
+	//return
+	return api;
 
-//set globals?
-if(globalThis.Fstage) {
-	Fstage.webpush = _obj;
 }
-
-//exports
-export default _obj;

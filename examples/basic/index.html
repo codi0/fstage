@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<title>Fstage - All modules</title>
+	<meta name="viewport" content="viewport-fit=cover, width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no">
+	<link rel="icon" href="data:image/x-icon;," type="image/x-icon">
+	<style>
+	* { box-sizing: border-box; }
+	html, body, #wrap { width: 100%; height: 100%; padding: 0; margin: 0; }
+	html, body { line-height: 1.5; background: #f2f2f2; }
+	p { margin: 0 0 1em 0; }
+	#wrap { max-width: 720px; padding: 10px; margin: 0 auto; background: #fff; }
+	</style>
+	<script type="module" src="../../src/js/fstage.mjs"></script>
+	<script type="module">
+	Fstage.load('@all').then(function(exports) {
+		//set vars
+		var html = [];
+		//add title
+		html.push('<p><b>Fstage modules loaded:</b></p>');
+		html.push('<ul>');
+		//loop through globals
+		for(var i in Fstage) {
+			html.push('<li>Fstage.' + i + '</li>');
+		}
+		html.push('</ul>');
+		//update DOM
+		document.querySelector('#status').innerHTML = html.join("\n");
+		//log to console
+		console.log(Fstage);
+	});
+	</script>
+</head>
+<body>
+	<div id="wrap">
+		<div id="status"><p>Loading...</p></div>
+	</div>
+</body>
+</html>

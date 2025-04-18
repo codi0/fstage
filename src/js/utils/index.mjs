@@ -1,20 +1,48 @@
 //get input type
-export function type(input) {
+export function getType(input) {
 	//is proxy?
-	if(input && input.proxyId) {
-		input = input.proxyTarget;
+	if(input && input.__proxy) {
+		input = input.__proxy.target;
 	}
 	//return
 	return {}.toString.call(input).match(/\s([a-zA-Z]+)/)[1].toLowerCase();
 }
 
+//is empty value
+export function isEmpty(value) {
+	//has length?
+	if(value && value.length !== undefined) {
+		return !value.length;
+	}
+	//is object?
+	if(value && value.constructor === Object) {
+		return !Object.keys(value).length;
+	}
+	//other options
+	return (value === null || value === false || value == 0);
+}
+
+//extend object
+export function extend(obj={}) {
+	var args = [].slice.call(arguments);
+	return Object.assign(...args);
+}
+
 //copy input
-export function copy(input) {
+export function copy(input, deep=false) {
+	//deep copy?
+	if(deep) {
+		if(globalThis.structuredClone) {
+			return structuredClone(input);
+		} else {
+			return JSON.parse(JSON.stringify(input));
+		}
+	}
 	//get type
-	var type = type(input);
+	var type = getType(input);
 	//is array?
 	if(type === 'array') {
-		return input.filter(function() { return true; });
+		return input.slice();
 	}
 	//is object?
 	if(type === 'object') {
@@ -24,13 +52,75 @@ export function copy(input) {
 	return input;
 }
 
-//extend object
-export function extend(obj = {}) {
-	return Object.assign.apply(null, [].slice.call(arguments));
+//loop through input
+export function forEach(input, fn) {
+	//is empty?
+	if(!input) return;
+	//get type
+	var type = getType(input);
+	//is object?
+	if(type === 'object') {
+		//loop through keys
+		for(var i in input) {
+			if(input.hasOwnProperty(i)) {
+				fn(input[i], i, input);
+			}
+		}
+	} else {
+		//convert to array?
+		if(type !== 'array') {
+			input = [ input ];
+		}
+		//loop through array
+		for(var i=0; i < input.length; i++) {
+			fn(input[i], i, input);
+		}
+	}
+}
+
+//input to string
+export function toString(input) {
+	//convert to string?
+	if(typeof str !== 'string') {
+		input = JSON.stringify(input);
+	}
+	//return
+	return input;
+}
+
+//hash input
+export function hash(input) {
+	var str = toString(arguments);
+	var h1 = 0xdeadbeef ^ 0, h2 = 0x41c6ce57 ^ 0;
+	for(var i = 0, ch; i < str.length; i++) {
+		ch = str.charCodeAt(i);
+		h1 = Math.imul(h1 ^ ch, 2654435761);
+		h2 = Math.imul(h2 ^ ch, 1597334677);
+	}
+	h1  = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
+	h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+	h2  = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
+	h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+	return 4294967296 * (2097151 & h2) + (h1 >>> 0);
+}
+
+//cache function result
+export function memoize(fn) {
+	//set vars
+	var cache = {};
+	//return
+	return function() {
+		//create key
+		var key = hash(...arguments);
+		//get result
+		cache[key] = cache[key] || fn.apply(this, arguments);
+		//return
+		return cache[key];
+	}
 }
 
 //debounce function call
-export function debounce(fn, wait = 100) {
+export function debounce(fn, wait=100) {
 	//set vars
 	var tid;
 	//return closure
@@ -47,38 +137,9 @@ export function debounce(fn, wait = 100) {
 	};
 }
 
-//cache function result
-export function memoize(fn) {
-	//set vars
-	var cache = {};
-	//return
-	return function() {
-		//create key
-		var key = hash(arguments);
-		//get result
-		cache[key] = cache[key] || fn.apply(this, arguments);
-		//return
-		return cache[key];
-	}
-}
-
-//is input an empty value
-export function isEmpty(value) {
-	//has length?
-	if(value && value.length !== undefined) {
-		return !value.length;
-	}
-	//is object?
-	if(value && value.constructor === Object) {
-		return !Object.keys(value).length;
-	}
-	//other options
-	return (value === null || value === false || value == 0);
-}
-
-//is input a aurl
-export function isUrl(value) {
-	return value.match(/(http(s)?:\/\/.)?(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)/g) !== null;
+//is url
+export function isUrl(input) {
+	return input.match(/(http(s)?:\/\/.)?(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)/g) !== null;
 }
 
 //capitalize input
@@ -86,23 +147,8 @@ export function capitalize(input) {
 	return input ? input.charAt(0).toUpperCase() + input.slice(1) : '';
 }
 
-//hash input
-export function hash(str, seed=0) {
-	var h1 = 0xdeadbeef ^ seed, h2 = 0x41c6ce57 ^ seed;
-	for(var i = 0, ch; i < str.length; i++) {
-		ch = str.charCodeAt(i);
-		h1 = Math.imul(h1 ^ ch, 2654435761);
-		h2 = Math.imul(h2 ^ ch, 1597334677);
-	}
-	h1  = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
-	h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-	h2  = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
-	h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-	return 4294967296 * (2097151 & h2) + (h1 >>> 0);
-}
-
 //vertical page scroll
-export function scroll(position = null, opts = {}) {
+export function scroll(position=null, opts={}) {
 	//set opts
 	opts = Object.assign({
 		parent: document.body,
@@ -133,7 +179,7 @@ export function scroll(position = null, opts = {}) {
 }
 
 //parse html
-export function parseHTML(input, first = false) {
+export function parseHTML(input, first=false) {
 	//parse html string?
 	if(typeof input === 'string') {
 		var d = document.createElement('template');
@@ -146,31 +192,6 @@ export function parseHTML(input, first = false) {
 	return first ? (input[0] || null) : input;
 }
 
-export function asyncHTML(el, html, opts={}) {
-	//set vars
-	var tpl = html;
-	//create template?
-	if(typeof tpl === 'string') {
-		tpl = document.createElement('template');
-		tpl.innerHTML = html;
-	}
-	//process data
-	var process = function(parent) {
-		var child = parent.firstChild;
-		parent.removeChild(child);
-		requestAnimationFrame(function() {
-			el.appendChild(child);
-			if(parent.firstChild) {
-				process(parent);
-			} else {
-				opts.onEnd && opts.onEnd(el);
-			}
-		});
-	};
-	opts.onStart && opts.onStart(el);
-	process(tpl.content || tpl);
-}
-
 //strip html
 export function stripHTML(html) {
 	var el = document.createElement('div');
@@ -179,7 +200,7 @@ export function stripHTML(html) {
 }
 
 //escape input
-export function esc(input, type = 'html') {
+export function esc(input, type='html') {
 	return type ? esc[type](input) : input;
 }
 
@@ -207,7 +228,7 @@ esc.css = function(input) {
 };
 
 //decode input
-export function decode(input, type = 'html') {
+export function decode(input, type='html') {
 	return type ? decode[type](input) : input;
 }
 
@@ -216,302 +237,248 @@ decode.html = function(input) {
 	return (new DOMParser()).parseFromString(input, "text/html").documentElement.textContent;
 };
 
-//object utils
-export var objHandler = {
-
-	get: function(obj, key) {
-		//split key?
-		if(typeof key === 'string') {
-			key = key ? key.split('.') : [];
+//get or set nested key
+export function nestedKey(input, key, opts={}) {
+	//set vars
+	var res = input;
+	var hasVal = ('val' in opts);
+	//split key into parts
+	var keyArr = key ? key.split('.') : [];
+	//loop through parts
+	for(var i=0; i < keyArr.length; i++) {
+		//get key part
+		var k = keyArr[i];
+		//has value?
+		if(hasVal) {
+			//next level?
+			if(i < keyArr.length-1) {
+				//get type
+				var t = getType(res[k]);
+				//is iterable?
+				if(![ 'object', 'array' ].includes(t)) {
+					res[k] = Number.isInteger(Number(k)) ? [] : {}
+				}
+				//next level
+				res = res[k];
+			} else {
+				//update value
+				if(opts.val === undefined) {
+					//delete value
+					if(Array.isArray(res)) {
+						res.splice(k, 1);
+					} else {
+						delete res[k];
+					}
+				} else {
+					res[k] = opts.val;
+				}
+			}
 		} else {
-			key = key || [];
-		}
-		//loop through key parts
-		for(var i=0; i < key.length; i++) {
-			//next level
-			obj = obj[key[i]];
 			//not found?
-			if(obj === undefined) {
+			if(res[k] === undefined) {
+				res = opts.default;
 				break;
 			}
+			//next level
+			res = res[k];
 		}
-		//return
-		return obj;
-	},
-
-	set: function(obj, key, val, opts = {}) {
-		//set vars
-		var obj = obj || {};
-		var tmp = obj;
-		//split key?
-		if(typeof key === 'string') {
-			key = key ? key.split('.') : [];
-		} else {
-			key = key || [];
-		}
-		//loop through key parts
-		for(var i=0; i < key.length; i++) {
-			tmp = tmp[key[i]] = tmp[key[i]] || {};
-		}
-		//deep merge?
-		if(opts.deep && val && typeof val === 'object') {
-			tmp = this.merge(tmp, val, opts);
-		} else {
-			tmp = val;
-		}
-		//return
-		return obj;
-	},
-
-	merge: function(obj, update, opts = {}) {
-		//is object?
-		if(!obj || typeof obj !== 'object') {
-			obj = {};
-		}
-		//copy object?
-		if(opts.copy) {
-			obj = Object.assign({}, obj);
-		}
-		//is function?
-		if(typeof update === 'function') {
-			return update(obj, this.merge);
-		}
-		//set default arr key?
-		if(opts.arrKey === undefined) {
-			opts.arrKey = 'id';
-		}
-		//arr to obj helper
-		var arr2obj = function(arr) {
-			//can update?
-			if(opts.arrKey && arr && typeof arr[0] === 'object' && (opts.arrKey in arr[0])) {
-				//tmp obj
-				var tmp = {};
-				//loop through array
-				for(var i=0; i < arr.length; i++) {
-					if(opts.arrKey in arr[i]) {
-						tmp[arr[i][opts.arrKey]] = arr[i];
-					}
-				}
-				//update
-				arr = tmp;
-			}
-			//return
-			return arr;
-		};
-		//format update
-		update = arr2obj(update) || {};
-		//loop through update
-		for(var k in update) {
-			//skip property?
-			if(!update.hasOwnProperty(k)) {
-				continue;
-			}
-			//get value
-			var v = arr2obj(update[k]);
-			//copy value
-			if(!v || !obj[k] || obj[k] === v || typeof v !== 'object' || Array.isArray(v)) {
-				obj[k] = v;
-			} else {
-				obj[k] = this.merge(obj[k], v, opts);
-			}
-		}
-		//return
-		return obj;
-	},
-
-	filter: function(obj, filters) {
-		//can filter?
-		if(obj && filters) {
-			//set vars
-			var tmp = {};
-			//loop through object
-			for(var i in obj) {
-				//set flag
-				var keep = true;
-				//loop through filters
-				for(var j in filters) {
-					//delete record?
-					if(obj[i][j] != filters[j]) {
-						keep = false;
-						break;
-					}
-				}
-				//keep?
-				if(keep) {
-					tmp[i] = obj[i];
-				}
-			}
-			//update
-			obj = tmp;
-		}
-		//return
-		return obj;
-	},
-
-	sort: function(obj, order) {
-		//can order?
-		if(obj && order) {
-			//set vars
-			var arr = [];
-			var limit = order.limit || 0;
-			var offset = order.offset || 0;
-			//create array
-			for(var i in obj) {
-				var item = obj[i];
-				arr.push([ i, item ]);
-			}
-			//sort array?
-			if(order.key) {
-				arr.sort(function(a, b) {
-					var one = order.desc ? -1 : 1;
-					var two = order.desc ? 1 : -1;
-					return (a[1][order.key] > b[1][order.key]) ? one : two;
-				});
-			}
-			//reset
-			obj = {};
-			//re-create object
-			for(var i=0; i < arr.length; i++) {
-				//use offset?
-				if(offset && i < offset) {
-					continue;
-				}
-				//use limit?
-				if(limit && i >= (limit + offset)) {
-					break;
-				}
-				//add item
-				obj[arr[i][0]] = arr[i][1];
-			}
-		}
-		//return
-		return obj;
 	}
-
-};
-
-export function queueManager(opts={}) {
-
-	//default opts
-	opts = Object.assign({
-		queue: [],
-		runCache: [],
-		callback: null,
-		allowDupes: false,
-		scheduler: 'requestAnimationFrame'
-	}, opts || {});
-
-	//is instance?
-	if(!(this instanceof queueManager)) {
-		return console.error('Queue must be an instance of queueManager');
-	}
-
-	//valid type?
-	if(!globalThis[opts.scheduler]) {
-		console.log(opts.scheduler + ' not available, using setTimeout instead');
-		opts.scheduler = 'setTimeout';
-	}
-
-	//public api
-	var api = {
-	
-		add: function(payload, args=[]) {
-			//valid payload?
-			if(!opts.callback && typeof payload !== 'function') {
-				throw new Error('Queue payload must be a callback, or opts.callback must be set');
-				return false;
-			}
-			//can queue?
-			if(!opts.allowDupes && opts.queue.includes(payload)) {
-				return false;
-			}
-			//cache args
-			payload.__args = args;
-			//add to queue
-			opts.queue.push(payload);
-			//start queue?
-			if(opts.queue.length == 1) {
-				//reset cache
-				opts.runCache = [];
-				//schedule run
-				globalThis[opts.scheduler](api.run);
-			}
-			//return
-			return true;
-		},
-
-		remove: function(payload) {
-			//get by index
-			var index = opts.queue.indexOf(payload);
-			//remove item?
-			if(index >= 0) {
-				opts.queue.splice(index, 1);
-			}
-			//return
-			return index >= 0;
-		},
-
-		run: function() {
-			//loop through queue
-			while(opts.queue.length) {
-				//next payload
-				var payload = opts.queue.shift();
-				var args = payload.__args || [];
-				delete payload.__args;
-				//run now?
-				if(opts.allowDupes || !opts.runCache.includes(payload)) {
-					//wrap callback?
-					if(opts.callback) {
-						args.unshift(payload);
-						payload = opts.callback;
-					}
-					//mark as run
-					api.markAsRun(payload);
-					//callback
-					payload(...args);
-				}
-			}
-		},
-
-		markAsRun: function(payload) {
-			//add to cache?
-			if(!opts.runCache.includes(payload)) {
-				opts.runCache.push(payload);
-			}
-		}
-
-	};
-
 	//return
-	return api;
-
-};
-
-//combined
-var utils = {
-	type: type,
-	copy: copy,
-	extend: extend,
-	debounce: debounce,
-	memoize: memoize,
-	isEmpty: isEmpty,
-	isUrl: isUrl,
-	capitalize: capitalize,
-	hash: hash,
-	scroll: scroll,
-	parseHTML: parseHTML,
-	asyncHTML: asyncHTML,
-	stripHTML: stripHTML,
-	esc: esc,
-	decode: decode,
-	objHandler: objHandler,
-	queueManager: queueManager
-};
-
-//set globals?
-if(globalThis.Fstage) {
-	Fstage.utils = utils;
+	return hasVal ? input : res;
 }
 
-//export default
-export default utils;
+//check value equality
+export function isEqual(a, b) {
+	//is same?
+	if(a === b) {
+		return true;
+	}
+	//only one is empty?
+	if((a || b) && (a === undefined || b === undefined || a === null || b === null)) {
+		return false;
+	}
+	//get types
+	var aType = getType(a);
+	var bType = getType(b);
+	//different types?
+	if(aType !== bType) {
+		return false;
+	}
+	//check array?
+	if(aType === 'array') {
+		//same length?
+		if(a.length !== b.length) {
+			return false;
+		}
+		//loop through array
+		for(var i=0; i < a.length; i++) {
+			if(!isEqual(a[i], b[i])) {
+				return false;
+			}
+		}
+	}
+	//check object?
+	if(aType === 'object') {
+		//get keys
+		var aKeys = Object.keys(a);
+		var bKeys = Object.keys(b);
+		//same length?
+		if(aKeys.length !== bKeys.length) {
+			return false;
+		}
+		//loop through object
+		for(var i=0; i < aKeys.length; i++) {
+			var key = aKeys[i];
+			var type = getType(a[key]);
+			if(a[key] && b[key]) {
+				if(a[key] === b[key]) {
+					continue;
+				}
+				if(a[key] && (type === 'array' || type === 'object')) {
+					if(!isEqual(a[key], b[key])) {
+						return false;
+					}
+				} else if(a[key] !== b[key]) {
+					return false;
+				}
+			} else if((a[key] && !b[key]) || (!a[key] && b[key])) {
+				return false;
+			}
+		}
+	}
+	//success
+	return true;
+}
+
+//diff values
+export 	function diffValues(oldVal, newVal, path='', processed=[]) {
+	//set vars
+	var changes = [];
+	//anything to diff?
+	if(oldVal === newVal) {
+		return changes;
+	}
+	//check types
+	var oldType = getType(oldVal);
+	var newType = getType(newVal);
+	var objOrArr = [ 'object', 'array' ];
+	var useProcessed = Array.isArray(processed);
+	//non-compatible types?
+	if(oldType !== newType || !objOrArr.includes(oldType) || !objOrArr.includes(newType)) {
+		changes.push({
+			action: oldVal === undefined ? 'add' : (newVal === undefined ? 'remove' : 'change'),
+			path: path,
+			val: newVal,
+			oldVal: oldVal
+		});
+		return changes;
+	}
+	//check old processed?
+	if(useProcessed && oldType === 'object') {
+		if(processed.includes(oldVal)) {
+			return changes;
+		} else {
+			processed.push(oldVal);
+		}
+	}
+	//check new processed?
+	if(useProcessed && newType === 'object') {
+		if(processed.includes(newVal)) {
+			return changes;
+		} else {
+			processed.push(newVal);
+		}
+	}
+	//loop through old value
+	for(var key in oldVal) {
+		//skip key?
+		if(oldVal[key] === undefined) {
+			continue;
+		}
+		//set key vars
+		var oldKeyType = getType(oldVal[key]);
+		var pathKey = path + (path ? '.' : '') + key;
+		//key removed?
+		if(newVal[key] === undefined) {
+			changes.push({
+				action: 'remove',
+				path: pathKey,
+				val: newVal[key],
+				oldVal: oldVal[key]
+			});
+			continue;
+		}
+		//deep diff?
+		if(oldVal[key] && newVal[key] && ![ 'date', 'regexp', 'string', 'number' ].includes(oldKeyType)) {
+			changes.push(...diffValues(oldVal[key], newVal[key], pathKey, processed));
+			continue;
+		}
+		//value updated?
+		if(oldVal[key] !== newVal[key]) {
+			changes.push({
+				action: 'update',
+				path: pathKey,
+				val: newVal[key],
+				oldVal: oldVal[key]
+			});
+		}
+	}
+	//loop through new value
+	for(var key in newVal) {
+		//skip key?
+		if(newVal[key] === undefined) {
+			continue;
+		}
+		//key added?
+		if(oldVal[key] === undefined) {
+			changes.push({
+				action: 'add',
+				path: path + (path ? '.' : '') + key,
+				val: newVal[key],
+				oldVal: oldVal[key]
+			});
+		}
+	}
+	//return
+	return changes;
+}
+
+//schedule task helper
+export function scheduleTask(cb, frameNum=0) {
+	//microtask?
+    if(frameNum <= 0) {
+        return Promise.resolve().then(function() {
+			cb();
+		});
+	}
+	//counter
+	var count = 0;
+	//frame helper
+	var frame = function() {
+		count++;
+		if(count > frameNum) {
+			cb();
+		} else {
+			requestAnimationFrame(frame);
+		}
+	};
+	//macrotask
+    requestAnimationFrame(frame);
+}
+
+//get global css
+export function getGlobalCss(useCache=true) {
+	//generate cache?
+	if(!useCache || !getGlobalCss.__$cache) {
+		getGlobalCss.__$cache = Array.from(document.styleSheets).map(function(s) {
+			var sheet = new CSSStyleSheet();
+			var css = Array.from(s.cssRules).map(function(rule) {
+				return rule.cssText;
+			}).join(' ');
+			sheet.replaceSync(css);
+			return sheet;
+		});
+	}
+	//return
+	return getGlobalCss.__$cache;
+}

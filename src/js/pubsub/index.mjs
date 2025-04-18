@@ -1,15 +1,26 @@
 //private vars
-var _instances = 0;
+var _cache = {};
+var _counter = 0;
 
 //pubsub wrapper
-function pubsub() {
+export function createPubsub(config={}) {
+
+	//set config
+	config = Object.assign({
+		name: 'default'
+	}, config);
+
+	//check cache?
+	if(_cache[config.name]) {
+		return _cache[config.name];
+	}
 
 	//local vars
 	var _cbs = {};
 	var _id = null;
 	var _queue = {};
 	var _guid = 0;
-	var _prefix = (++_instances) + '.';
+	var _prefix = (++_counter) + '.';
 
 	//invoke callback handler
 	var _invoke = function(id, token) {
@@ -45,8 +56,11 @@ function pubsub() {
 	var _result = function(arr, singular = false) {
 		//get singular result?
 		if(singular && arr.length) {
+			//start loop
 			while(arr.length) {
+				//get last item
 				var tmp = arr.pop();
+				//is defined?
 				if(tmp !== undefined) {
 					return tmp;
 				}
@@ -58,10 +72,6 @@ function pubsub() {
 
 	//public api
 	var api = {
-
-		instance: function() {
-			return new pubsub();
-		},
 
 		has: function(id) {
 			return !!_cbs[id];
@@ -158,19 +168,11 @@ function pubsub() {
 		}
 	
 	};
+	
+	//save to cache
+	_cache[config.name] = api;
 
 	//return
 	return api;
 
 }
-
-//create instance
-var _obj = new pubsub();
-
-//set globals?
-if(globalThis.Fstage) {
-	Fstage.pubsub = _obj;
-}
-
-//exports
-export default _obj;

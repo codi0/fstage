@@ -1,26 +1,12 @@
 //imports
-import { capitalize } from '../utils/index.mjs';
-
-//set globals?
-if(globalThis.Fstage) {
-	Fstage.form = form;
-}
+import { forEach, capitalize } from '../utils/index.mjs';
 
 //form wrapper
-export default function form(name, opts = {}) {
+function wrapForm(el, opts={}) {
 	//set vars
 	var step = '';
 	var values = {};
 	var errors = {};
-	var formEl = (typeof name == 'string') ? document[name] : name;
-	//create form?
-	if(!formEl) {
-		return form.create(name, opts);
-	}
-	//already created?
-	if(formEl.step) {
-		return formEl;
-	}
 	//set fields?
 	if(!opts.fields) {
 		opts.fields = {};
@@ -30,25 +16,25 @@ export default function form(name, opts = {}) {
 		//set vars
 		var isValid = true;
 		//loop through fields
-		opts.fields.forEach(function(v, k) {
+		forEach(opts.fields, function(v, k) {
 			//skip field?
-			if(field && k !== field) {
+			if(field && key !== field) {
 				return;
-			}
+			};
 			//field found?
-			if(formEl[k]) {
+			if(el[k]) {
 				//get field value
-				var value = formEl[k].value.trim();
+				var value = el[k].value.trim();
 				//remove error
 				removeError(k);
 				//filter value?
 				if(v.filter) {
-					value = v.filter.call(form, value);
+					value = v.filter(value, el);
 				}
 				//validate value?
 				if(v.validator) {
 					//call validator
-					var res = v.validator.call(form, value);
+					var res = v.validator(value, el);
 					//error returned?
 					if(res instanceof Error) {
 						addError(k, res.message);
@@ -65,7 +51,7 @@ export default function form(name, opts = {}) {
 	//add error helper
 	var addError = function(field, message) {
 		//valid field?
-		if(!formEl[field]) return;
+		if(!el[field]) return;
 		//create error node
 		var err = document.createElement('div');
 		err.classList.add('error');
@@ -73,38 +59,38 @@ export default function form(name, opts = {}) {
 		//add to cache
 		errors[field] = message;
 		//is multi?
-		if(formEl[field].parentNode) {
+		if(el[field].parentNode) {
 			//add error meta
-			formEl[field].classList.add('has-error');
+			el[field].classList.add('has-error');
 			//add error node
-			formEl[field].parentNode.insertBefore(err, formEl[field].nextSibling);
+			el[field].parentNode.insertBefore(err, el[field].nextSibling);
 		} else {
 			//add error meta
-			formEl[field].forEach(function(el) {
+			forEach(el[field], function(el) {
 				el.classList.add('has-error');
 			});
 			//add error node
-			formEl[field][0].parentNode.appendChild(err);
+			el[field][0].parentNode.appendChild(err);
 		}
 	};
 	//remove error helper
 	var removeError = function(field) {
 		//valid field?
-		if(!formEl[field]) return;
+		if(!el[field]) return;
 		//is multi?
-		if(formEl[field].parentNode) {
+		if(el[field].parentNode) {
 			//remove error meta
-			formEl[field].classList.remove('has-error');
+			el[field].classList.remove('has-error');
 			//remove error node
-			var err = formEl[field].parentNode.querySelector('.error');
+			var err = el[field].parentNode.querySelector('.error');
 			err && err.parentNode.removeChild(err);
 		} else {
 			//remove field meta
-			formEl[field].forEach(function(el) {
+			forEach(el[field], function(el) {
 				el.classList.remove('has-error');
 			});
 			//remove error node
-			var err = formEl[field][0].parentNode.querySelector('.error');
+			var err = el[field][0].parentNode.querySelector('.error');
 			err && err.parentNode.removeChild(err);
 		}
 		//delete cache?
@@ -113,7 +99,7 @@ export default function form(name, opts = {}) {
 		}
 	};
 	//Method: render field
-	formEl.render = function(type, name, opts = {}) {
+	el.render = function(type, name, opts = {}) {
 		//set tag
 		var html = '';
 		var tag = type;
@@ -146,7 +132,7 @@ export default function form(name, opts = {}) {
 			group.classList.add(type + '-group');
 			wrap.appendChild(group);
 			//loop through options
-			opts.options.forEach(function(val, key) {
+			forEach(opts.options, function(val, key) {
 				//create item wrap
 				var item = document.createElement('span');
 				item.classList.add(type + '-wrap');
@@ -180,7 +166,7 @@ export default function form(name, opts = {}) {
 			opts.type = type;
 			opts.name = name;
 			//add attributes
-			opts.forEach(function(val, key) {
+			forEach(opts, function(val, key) {
 				//valid value?
 				if(val && (val === true || typeof val === 'string')) {
 					//format val
@@ -194,9 +180,11 @@ export default function form(name, opts = {}) {
 			//is select?
 			if(tag === 'select') {
 				//loop through options
-				(opts.options || {}).forEach(function(val, key) {
-					//skip?
-					if(!val) return;
+				forEach(opts.options, function(val, key) {
+					//empty value?
+					if(!val) {
+						return;
+					}
 					//create option
 					var option = document.createElement('option');
 					option.value = key;
@@ -211,18 +199,18 @@ export default function form(name, opts = {}) {
 			}
 		}
 		//add to form
-		formEl.appendChild(wrap);
+		el.appendChild(wrap);
 		//return
 		return el;
 	};
 	//Method: get or set step
-	formEl.step = function(name = null) {
+	el.step = function(name = null) {
 		//set step?
 		if(name) {
 			//update state
 			step = name;
 			//update DOM
-			formEl.querySelectorAll('.step').forEach(function(el) {
+			forEach(el.querySelectorAll('.step'), function(el) {
 				var isStep = el.classList.contains(step);
 				el.classList[isStep ? 'remove' : 'add']('hidden');
 			});
@@ -231,7 +219,7 @@ export default function form(name, opts = {}) {
 		return step;
 	};
 	//Method: get or set errors
-	formEl.err = function(field = null, message = null) {
+	el.err = function(field = null, message = null) {
 		//set error?
 		if(field && message) {
 			addError(field, message);
@@ -240,46 +228,46 @@ export default function form(name, opts = {}) {
 		return field ? (errors[field] || null) : errors;
 	};
 	//Method: get or set values
-	formEl.val = function(field = null, val = null) {
+	el.val = function(field = null, val = null) {
 		//set field?
-		if(field && val && formEl[field]) {
-			formEl[field] = val;
+		if(field && val && el[field]) {
+			el[field] = val;
 		}
 		//return values
 		return field ? (values[field] || null) : values;
 	};
 	//Method: reset fields
-	formEl.reset = function(field = null, skip = []) {
+	el.reset = function(field = null, skip = []) {
 		//loop through fields
-		opts.fields.forEach(function(v, k) {
+		forEach(opts.fields, function(v, k) {
 			//reset field?
-			if(formEl[k] && !skip.includes(k) && (!field || field === k)) {
+			if(el[k] && !skip.includes(k) && (!field || field === k)) {
 				//is checked?
-				if(formEl[k] instanceof NodeList) {
+				if(el[k] instanceof NodeList) {
 					//loop through nodes
-					formEl[k].forEach(function(el) {
+					forEach(el[k], function(el) {
 						el.checked = el.defaultChecked;
 					});
 				}
 				//default value
-				formEl[k].value = values[k] = formEl[k].defaultValue;
+				el[k].value = values[k] = el[k].defaultValue;
 				//clear error
 				removeError(k);
 			}
 		});
 	};
 	//Method: validate form
-	formEl.isValid = function(key = null) {
+	el.isValid = function(key = null) {
 		return validate(key);
 	};
 	//add focus listeners
-	opts.fields.forEach(function(v, k) {
+	forEach(opts.fields, function(v, k) {
 		//valid field?
-		if(!formEl[k]) return;
+		if(!el[k]) return;
 		//get fields
-		var fields = formEl[k].parentNode ? [ formEl[k] ] : formEl[k];
+		var fields = el[k].parentNode ? [ el[k] ] : el[k];
 		//loop through fields
-		fields.forEach(function(el) {
+		forEach(fields, function(el) {
 			//add focus listener
 			el.addEventListener('focus', function(e) {
 				removeError(k);
@@ -291,43 +279,43 @@ export default function form(name, opts = {}) {
 		});
 	});
 	//add submit listener
-	formEl.addEventListener('click', function(e) {
+	el.addEventListener('click', function(e) {
 		//is submit?
 		if(e.target.type !== 'submit') {
 			return;
 		}
 		//is valid?
-		if(formEl.isValid()) {
+		if(el.isValid()) {
 			if(opts.onSuccess) {
-				opts.onSuccess.call(form, values, errors);
+				opts.onSuccess(values, errors, el);
 			}
 		} else {
 			if(opts.onError) {
-				opts.onError.call(form, values, errors);
+				opts.onError(values, errors, el);
 			}
 		}
 	}, true);
 	//return
-	return formEl;
-};
+	return el;
+}
 
 //create form
-form.create = function(name, opts = {}) {
-	//create element
-	var formEl = form(document.createElement('form'));
-	//set attributes
-	formEl.setAttribute('name', name);
-	formEl.setAttribute('id', name + '-form');
-	formEl.setAttribute('method', opts.method || 'post');
-	//add to parent?
-	if(opts.parent) {
-		//query selector
-		if(typeof opts.parent === 'string') {
-			opts.parent = document.querySelector(opts.parent);
+export function createForm(el, opts={}) {
+	//element exists?
+	if(typeof el === 'string') {
+		if(document[el]) {
+			el = document[el];
+		} else {
+			el = document.createElement('form');
+			el.setAttribute('name', name);
+			el.setAttribute('id', name + '-form');
+			el.setAttribute('method', opts.method || 'post');
 		}
-		//add to parent
-		opts.parent.appendChild(formEl);
+	}
+	//wrap form?
+	if(!el.step) {
+		el = wrapForm(el);
 	}
 	//return
-	return formEl;
-};
+	return el;
+}

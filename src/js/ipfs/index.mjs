@@ -6,25 +6,25 @@ import 'https://cdn.jsdelivr.net/npm/blockstore-level/dist/index.min.js';
 import 'https://cdn.jsdelivr.net/npm/multiformats/dist/index.min.js';
 
 //export globals
-export var createHelia = Helia.createHelia;
-export var libp2pDefaults = Helia.libp2pDefaults;
-export var LevelDatastore = DatastoreLevel.LevelDatastore;
-export var LevelBlockstore = BlockstoreLevel.LevelBlockstore;
-export var unixfs = HeliaUnixfs.unixfs;
-export var CID = Multiformats.CID;
+export const createHelia = Helia.createHelia;
+export const libp2pDefaults = Helia.libp2pDefaults;
+export const LevelDatastore = DatastoreLevel.LevelDatastore;
+export const LevelBlockstore = BlockstoreLevel.LevelBlockstore;
+export const unixfs = HeliaUnixfs.unixfs;
+export const CID = Multiformats.CID;
 
 //private vars
-var instances = {};
+const _cache = {};
 
 //export create node wrapper
-export function createNode(config={}) {
+export function createIpfsNode(config={}) {
 	//set detaults
 	config = Object.assign({
 		name: 'ipfs-helia',
 		persist: true
 	}, config || {});
 	//create instance?
-	if(!instances[config.name]) {
+	if(!_cache[config.name]) {
 		//helia config
 		var hc = {};
 		//persist?
@@ -34,7 +34,7 @@ export function createNode(config={}) {
 			hc = { datastore, blockstore, libp2pDefaults };
 		}
 		//create helia node
-		instances[config.name] = createHelia(hc).then(function(helia) {
+		_cache[config.name] = createHelia(hc).then(function(helia) {
 			//add unix filesystem
 			helia.fs = unixfs(helia);
 			//return
@@ -42,10 +42,5 @@ export function createNode(config={}) {
 		});
 	}
 	//return
-	return instances[config.name];
-}
-
-//set globals?
-if(globalThis.Fstage) {
-	Fstage.ipfs = createNode;
+	return _cache[config.name];
 }
