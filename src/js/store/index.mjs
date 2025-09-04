@@ -319,7 +319,7 @@ export function createStore(config={}) {
 			});
 			//copy value?
 			if(config.copyOnGet && opts.copy !== false) {
-				val = copy(val);
+				val = copy(val, true);
 			}
 			//get hash
 			var argsHash = hash(key, opts.query || {});
