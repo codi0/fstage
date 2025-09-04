@@ -160,30 +160,33 @@ export function createStore(config={}) {
 		//wrapper function
 		return function(regex, cb) {
 			//set vars
-			var processed = [];
+			var processed = new Set();
 			var length = regex.split('.').length;
+			var regexObj = null;
 			//format regex?
-			if(regex == '*') regex = '';
-			if(regex) regex = '^' + regex.replace('.', '\\.').replace('*', '(.*?)');
+			if(regex == '*') {
+				regexObj = null;
+			} else if(regex) {
+				regexObj = new RegExp('^' + regex.replace('.', '\\.').replace('*', '(.*?)'));
+			}
 			//loop through diff
 			for(var i=0; i < diff.length; i++) {
 				//set key
 				var key = diff[i].path;
 				//check regex?
-				if(regex) {
-					//is match?
-					if(!diff[i].path.match(regex)) {
-						continue;
-					}
-					//format key
+				if(regexObj && !regexObj.test(diff[i].path)) {
+					continue;
+				}
+				//format key
+				if(regexObj) {
 					key = key.split('.').slice(0, length).join('.');
 				}
 				//already processed?
-				if(processed.includes(key)) {
+				if(processed.has(key)) {
 					continue;
 				}
 				//mark processed
-				processed.push(key);
+				processed.add(key);
 				//get value
 				var val = api.get(key, { track: false }).data;
 				//get action
@@ -272,7 +275,7 @@ export function createStore(config={}) {
 	//Helper: run change hooks
 	const runChangeHooks = function(diff, src) {
 		//log parent paths
-		var parentPaths = [];
+		var parentPaths = new Set();
 		var diffQuery = createDiffQuery(diff);
 		//process diff
 		for(var i=0; i < diff.length; i++) {
@@ -280,25 +283,24 @@ export function createStore(config={}) {
 			updateChangeQueue(diff[i].path, diffQuery, src);
 			//log parents?
 			if(diff[i].path) {
-				//split path
-				var segs = diff[i].path.split('.');
-				//start loop
-				while(segs.length) {
-					//remove last
-					segs.pop();
-					//get parent path
-					var p = segs.join('.');
-					//add to array?
-					if(!parentPaths.includes(p)) {
-						parentPaths.push(p);
-					}
+				//use lastIndexOf for efficiency
+				var path = diff[i].path;
+				var lastDot = path.lastIndexOf('.');
+				while(lastDot > 0) {
+					path = path.substring(0, lastDot);
+					parentPaths.add(path);
+					lastDot = path.lastIndexOf('.');
+				}
+				//add root if exists
+				if(path) {
+					parentPaths.add('');
 				}
 			}
 		}
 		//process parents
-		for(var i=0; i < parentPaths.length; i++) {
-			updateChangeQueue(parentPaths[i], diffQuery, src);
-		}
+		parentPaths.forEach(function(p) {
+			updateChangeQueue(p, diffQuery, src);
+		});
 	};
 
 	//public api
