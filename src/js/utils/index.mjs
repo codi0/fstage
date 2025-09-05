@@ -29,27 +29,67 @@ export function extend(obj={}) {
 }
 
 //copy input
-export function copy(input, deep=false) {
-	//deep copy?
-	if(deep) {
-		if(globalThis.structuredClone) {
-			return structuredClone(input);
-		} else {
-			return JSON.parse(JSON.stringify(input));
+export function copy(input, deep = false, seen = null) {
+	//is primitive or function?
+	if(input === null || typeof input !== 'object') return input;
+	//is date?
+	if(input instanceof Date) return new Date(input);
+	//is regex?
+	if(input instanceof RegExp) return new RegExp(input);
+	//is typed array?
+	if(ArrayBuffer.isView(input)) return new input.constructor(input);
+	//is ArrayBuffer?
+	if(input instanceof ArrayBuffer) return input.slice(0);
+	//is DataView?
+	if(input instanceof DataView) return new DataView(input.buffer.slice(0));
+	//shallow mode?
+	if(!deep) {
+		if(Array.isArray(input)) return input.slice();
+		if(input instanceof Set) return new Set(input);
+		if(input instanceof Map) return new Map(input);
+		return { ...input };
+	}
+	//init weak map
+	seen = seen || new WeakMap();
+	//circular reference?
+	if(seen.has(input)) return seen.get(input);
+	//is set?
+	if(input instanceof Set) {
+		const clone = new Set();
+		seen.set(input, clone);
+		for(const v of input) {
+			clone.add(copy(v, deep, seen));
 		}
+		return clone;
 	}
-	//get type
-	var type = getType(input);
+	//is map?
+	if(input instanceof Map) {
+		const clone = new Map();
+		seen.set(input, clone);
+		for(const [k, v] of input) {
+			clone.set(copy(k, deep, seen), copy(v, deep, seen));
+		}
+		return clone;
+	}
 	//is array?
-	if(type === 'array') {
-		return input.slice();
+	if(Array.isArray(input)) {
+		const clone = new Array(input.length);
+		seen.set(input, clone);
+		for(let i = 0; i < input.length; i++) {
+			clone[i] = copy(input[i], deep, seen);
+		}
+		return clone;
 	}
-	//is object?
-	if(type === 'object') {
-		return Object.assign({}, input);
+	//preserve prototype
+	const proto = Object.getPrototypeOf(input);
+	const clone = Object.create(proto);
+	seen.set(input, clone);
+	//copy both string and symbol keys
+	for(const key of Reflect.ownKeys(input)) {
+		clone[key] = copy(input[key], deep, seen);
 	}
 	//return
-	return input;
+	return clone;
 }
 
 //loop through input
