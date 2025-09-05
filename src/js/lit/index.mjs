@@ -63,10 +63,11 @@ export class FsLitElement extends LitElement {
 				ctx: this
 			});
 		}
-		//call parent
-		super.performUpdate();
-		//stop tracking?
-		stop && stop();
+		try {
+			super.performUpdate();
+		} finally {
+			stop && stop();
+		}
 	}
 
 	update(changedProperties) {
