@@ -333,61 +333,84 @@ export function isEqual(a, b) {
 	if(a === b) {
 		return true;
 	}
-	//only one is empty?
-	if((a || b) && (a === undefined || b === undefined || a === null || b === null)) {
-		return false;
+	//is null?
+	if(a == null || b == null) {
+		return a === b;
 	}
-	//get types
+	//get type
 	var aType = getType(a);
-	var bType = getType(b);
-	//different types?
-	if(aType !== bType) {
+	//same type?
+	if(aType !== getType(b)) {
 		return false;
 	}
-	//check array?
+	//is date?
+	if(aType === 'date') {
+		return a.getTime() === b.getTime();
+	}
+	//is regexp?
+	if(aType === 'regexp') {
+		return a.toString() === b.toString();
+	}
+	//is Set?
+	if(aType === 'set') {
+		//different lengths?
+		if(a.size !== b.size) {
+			return false;
+		}
+		//check elements
+		for(var value of a) {
+			if(!b.has(value)) {
+				return false;
+			}
+		}
+		return true;
+	}
+	//is Map?
+	if(aType === 'map') {
+		//different lengths?
+		if(a.size !== b.size) {
+			return false;
+		}
+		//check elements
+		for(var [key, value] of a) {
+			if(!b.has(key) || !isEqual(value, b.get(key))) {
+				return false;
+			}
+		}
+		return true;
+	}
+	//is array?
 	if(aType === 'array') {
-		//same length?
+		//different lengths?
 		if(a.length !== b.length) {
 			return false;
 		}
-		//loop through array
-		for(var i=0; i < a.length; i++) {
+		//check elements
+		for(var i = 0; i < a.length; i++) {
 			if(!isEqual(a[i], b[i])) {
 				return false;
 			}
 		}
+		return true;
 	}
-	//check object?
+	//is object?
 	if(aType === 'object') {
-		//get keys
-		var aKeys = Object.keys(a);
-		var bKeys = Object.keys(b);
-		//same length?
-		if(aKeys.length !== bKeys.length) {
-			return false;
-		}
-		//loop through object
-		for(var i=0; i < aKeys.length; i++) {
-			var key = aKeys[i];
-			var type = getType(a[key]);
-			if(a[key] && b[key]) {
-				if(a[key] === b[key]) {
-					continue;
-				}
-				if(a[key] && (type === 'array' || type === 'object')) {
-					if(!isEqual(a[key], b[key])) {
-						return false;
-					}
-				} else if(a[key] !== b[key]) {
-					return false;
-				}
-			} else if((a[key] && !b[key]) || (!a[key] && b[key])) {
+		//check all keys in a exist in b with same values
+		for(var key in a) {
+			if(a.hasOwnProperty(key) && (!b.hasOwnProperty(key) || !isEqual(a[key], b[key]))) {
 				return false;
 			}
 		}
+		//check b doesn't have extra keys
+		for(var key in b) {
+			if(b.hasOwnProperty(key) && !a.hasOwnProperty(key)) {
+				return false;
+			}
+		}
+		return true;
 	}
-	//success
-	return true;
+	//anything else
+	return a === b;
 }
 
 //diff values
@@ -395,7 +418,7 @@ export 	function diffValues(oldVal, newVal, path='', processed=[]) {
 	//set vars
 	var changes = [];
 	//anything to diff?
-	if(oldVal === newVal) {
+	if(isEqual(oldVal, newVal)) {
 		return changes;
 	}
 	//check types
@@ -454,7 +477,7 @@ export 	function diffValues(oldVal, newVal, path='', processed=[]) {
 			continue;
 		}
 		//value updated?
-		if(oldVal[key] !== newVal[key]) {
+		if(!isEqual(oldVal[key], newVal[key])) {
 			changes.push({
 				action: 'update',
 				path: pathKey,

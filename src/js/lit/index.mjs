@@ -2,6 +2,7 @@ import { LitElement } from 'https://cdn.jsdelivr.net/npm/lit-element@4/+esm';
 export * from 'https://cdn.jsdelivr.net/npm/lit-element@4/+esm';
 
 import { getGlobalCss } from '../utils/index.mjs';
+import { createRegistry } from '../registry/index.mjs';
 import { createStore } from '../store/index.mjs';
 
 
@@ -13,6 +14,10 @@ export class FsLitElement extends LitElement {
     constructor() {
 		//call parent
 		super();
+		//attach registry?
+		if(this.registry === undefined) {
+			this.registry = createRegistry();
+		}
 		//attach store?
 		if(this.store === undefined) {
 			this.store = createStore();
