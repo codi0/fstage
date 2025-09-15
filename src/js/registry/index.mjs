@@ -18,9 +18,46 @@ export function createRegistry(config={}) {
 	const _data = {};
 
 	//create function
-	const api = function(key, val, isFactory = false) {
-		//set value?
-		if(arguments.length >= 2) {
+	const api = {
+	
+		name: function() {
+			return config.name;
+		},
+
+		has: function(key) {
+			return !!_data[key];
+		},
+
+		get: function(key) {
+			//set vars
+			var res = null;
+			//has value?
+			if(_data[key]) {
+				//is factory?
+				if(_data[key].isFactory) {
+					//get value
+					var val = _data[key].val();
+					//is promise?
+					if(val instanceof Promise) {
+						val = val.then(function(res) {
+							_data[key].val = res;
+							return res;
+						});
+					}
+					//update data
+					_data[key] = {
+						val: val,
+						isFactory: false
+					};
+				}
+				//set result
+				res = _data[key].val;
+			}
+			//return
+			return res;
+		},
+	
+		set: function(key, val, isFactory = false) {
 			//is factory function?
 			if(isFactory && typeof val !== 'function') {
 				throw new Error("Registry requires a function when factory=true");
@@ -30,31 +67,18 @@ export function createRegistry(config={}) {
 				val: val,
 				isFactory: !!isFactory
 			};
-			//stop
-			return;
-		}
-		//has value?
-		if(_data[key]) {
-			//is factory?
-			if(_data[key].isFactory) {
-				//get value
-				val = _data[key].val();
-				//is promise?
-				if(val instanceof Promise) {
-					val = val.then(function(res) {
-						_data[key].val = res;
-						return res;
-					});
-				}
-				//update data
-				_data[key] = {
-					val: val,
-					isFactory: false
-				};
+		},
+
+		setFactory: function(key, val) {
+			return api.set(key, val, true);
+		},
+
+		del: function(key) {
+			if(_data[key]) {
+				delete _data[key];
 			}
-			//return
-			return _data[key].val;
 		}
+		
 	};
 
 	//add to cache
