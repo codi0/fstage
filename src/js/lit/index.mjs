@@ -75,15 +75,6 @@ export class FsLitElement extends LitElement {
 		}
 	}
 
-	update(changedProperties) {
-		//query store?
-		if(this.queryStore) {
-			this.queryStore(this.store);
-		}
-		//return
-		return super.update(changedProperties);
-	}
-
 	_cssToString(styles) {
 		if('cssText' in styles) {
 			styles = styles.cssText;

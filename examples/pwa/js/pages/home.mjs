@@ -30,7 +30,7 @@ export class PwaHome extends FsLitElement {
 
 	/* LIFECYCLE */
 
-	queryStore() {
+	willUpdate(changedProps) {
 		this.tasks = this.store.get('tasks');
 	}
 
