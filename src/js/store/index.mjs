@@ -140,10 +140,11 @@ export function createStore(config={}) {
 							api[e.merge ? 'merge' : 'set'](k, e.val, {
 								src: 'get'
 							});
-							//update result?
-							if(key == k) {
-								opts.val = e.val;
-							}
+							//get remaining key
+							var re = new RegExp(`^${k}\\.`);
+							var rk = (key === k) ? '' : key.replace(re, '');
+							//update result
+							opts.val = rk ? nestedKey(e.val, rk) : e.val;
 						}
 					}
 				}
