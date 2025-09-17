@@ -534,13 +534,15 @@ export function getGlobalCss(useCache=true) {
 	//generate cache?
 	if(!useCache || !getGlobalCss.__$cache) {
 		getGlobalCss.__$cache = Array.from(document.styleSheets).map(function(s) {
-			var sheet = new CSSStyleSheet();
-			var css = Array.from(s.cssRules).map(function(rule) {
-				return rule.cssText;
-			}).join(' ');
-			sheet.replaceSync(css);
-			return sheet;
-		});
+			try {
+				var css = Array.from(s.cssRules).map(rule => rule.cssText).join(' ');
+				var sheet = new CSSStyleSheet();
+				sheet.replaceSync(css);
+				return sheet;
+			} catch (e) {
+				return null;
+			}
+		}).filter(Boolean);
 	}
 	//return
 	return getGlobalCss.__$cache;
