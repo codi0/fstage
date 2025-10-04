@@ -41,17 +41,15 @@ export function createStore(config={}) {
 		//set vars
 		var item = null;
 		//get latest item
-		for(var [i, j] of trackerCache) {
-			item = j;
+		for(var val of trackerCache.values()) {
+			item = val;
 		}
 		//add item?
 		if(item) {
 			//set key
 			trackerPaths[key] = trackerPaths[key] || new Map();
-			//add to map?
-			if(!trackerPaths[key].has(item.cb)) {
-				trackerPaths[key].set(item.cb, item);
-			}
+			//update map
+			trackerPaths[key].set(item.cb, item);
 		}
 	};
 
@@ -72,7 +70,7 @@ export function createStore(config={}) {
 					var v = opts.val;
 					//get value?
 					if(k != key) {
-						v = api.get(k, { track: false }).data;
+						v = api.get(k, { track: false });
 					}
 					//loop through items
 					for(var cb of accessHooks[k]) {
@@ -189,7 +187,7 @@ export function createStore(config={}) {
 				//mark processed
 				processed.add(key);
 				//get value
-				var val = api.get(key, { track: false }).data;
+				var val = api.get(key, { track: false });
 				//get action
 				var action = (key == diff[i].path) ? diff[i].action : 'update';
 				//closure
@@ -219,7 +217,7 @@ export function createStore(config={}) {
 		var hasWatchers = !!changeHooks[path] || !!changeHooks['*'];
 		//get value?
 		if(hasWatchers || hasTrackers) {
-			val = api.get(path, { track: false }).data;
+			val = api.get(path, { track: false });
 		}
 		//run watchers?
 		if(hasWatchers) {
@@ -312,7 +310,7 @@ export function createStore(config={}) {
 		},
 
 		has: function(key) {
-			return api.get(key).data !== undefined;
+			return api.get(key) !== undefined;
 		},
 
 		get: function(key, opts={}) {
@@ -347,14 +345,35 @@ export function createStore(config={}) {
 					cache: getCache[argsHash]
 				});
 			}
-			//return
-			return {
-				data: val,
-				error: getCache[argsHash].error || null,
-				loading: getCache[argsHash].loading || false
-			}
+			//direct
+			return val;
 		},
 
+		meta: function(key, query={}) {
+			//get hash
+			var argsHash = hash(key, query || {});
+			//get cache
+			var cache = getCache[argsHash] || {};
+			//return
+			return {
+				error: cache.error || null,
+				loading: cache.loading || false
+			}
+		},
+		
+		withMeta: function(key, opts={}) {
+			//must track
+			opts.track = true;
+			//get data first
+			var data = this.get(key, opts);
+			//then get meta
+			var meta = this.meta(key, opts.query || {});
+			//add data
+			meta.data = data;
+			//return
+			return meta;
+		},
+		
 		set: function(key, val, opts={}) {
 			//get current value
 			var curVal = nestedKey(config.state, key);
@@ -533,8 +552,8 @@ export function createStore(config={}) {
 		}
 
 	};
-
-	//add to cache
+	
+	//cache api
 	_cache[config.name] = api;
 
 	//return

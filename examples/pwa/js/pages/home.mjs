@@ -31,7 +31,7 @@ export class PwaHome extends FsLitElement {
 	/* LIFECYCLE */
 
 	willUpdate(changedProps) {
-		this.tasks = this.store.get('tasks');
+		this.tasks = this.store.withMeta('tasks');
 	}
 
 	firstUpdated() {
@@ -148,7 +148,6 @@ export class PwaHome extends FsLitElement {
 		var el = e.target.closest('[data-key]');
 		var localId = el ? el.getAttribute('data-key') : null;
 		var task = localId ? this.tasks.data.find((item) => item.__id == localId) : {};
-		console.log(task);
 		//get modal
 		var modal = this.renderRoot.querySelector('ion-modal');
 		//set modal fields

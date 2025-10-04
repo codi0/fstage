@@ -1,8 +1,7 @@
-import { LitElement, html, css } from 'https://cdn.jsdelivr.net/npm/lit-element@4/+esm';
+import { LitElement } from 'https://cdn.jsdelivr.net/npm/lit-element@4/+esm';
 export * from 'https://cdn.jsdelivr.net/npm/lit-element@4/+esm';
 
-import { getGlobalCss } from '../utils/index.mjs';
-import { createRegistry } from '../registry/index.mjs';
+import { getGlobalCss, stylesToString, callSuper } from '../utils/index.mjs';
 import { createStore } from '../store/index.mjs';
 
 
@@ -10,58 +9,29 @@ export class FsLitElement extends LitElement {
 
 	static shadowDom = true;
 	static globalCss = true;
-	static thisHtml = false;
 
 	constructor() {
 		//parent
 		super();
-		//call defaults?
-		if(typeof this.defaults === 'function') {
-			this.defaults();
+		//call willConstruct?
+		if(typeof this.willConstruct === 'function') {
+			this.willConstruct();
 		}
-		//attach registry?
-		if(this.registry === undefined) {
-			this.registry = createRegistry();
-		}
-		//attach store?
+		//create store?
 		if(this.store === undefined) {
-			if(this.registry) {
-				this.store = this.registry.get('store');
-			}
-			if(!this.store) {
-				this.store = createStore();
-			}
+			this.store = createStore();
 		}
-		//attach html and css?
-		if(this.constructor.thisHtml) {
-			this.html = this.html || html;
-			this.css = this.css || css;
-		}
-		//setup callback
-		this.__$storeCb = () => {
-			this.requestUpdate();
-			return this.updateComplete;
+		//use store?
+		if(this.store) {
+			//set callback
+			this.__$storeCb = () => {
+				return this.store.trackAccess(() => this.requestUpdate(), { ctx: this });
+			}
 		}
 		//call constructed?
 		if(typeof this.constructed === 'function') {
 			queueMicrotask(() => this.constructed());
 		}
-	}
-
-	super(method, args = [], instance = this) {
-		//get parent prototype
-		var proto = Object.getPrototypeOf(instance.constructor.prototype);
-		//walk up the prototype chain
-		while(proto && proto !== Object.prototype) {
-			//method found?
-			if(proto.hasOwnProperty(method)) {
-				return proto[method].apply(instance, args);
-			}
-			//next level
-			proto = Object.getPrototypeOf(proto);
-		}
-		//method not found
-		throw new Error(`Method ${method} not found in prototype chain`);
 	}
 
 	createRenderRoot() {
@@ -81,7 +51,7 @@ export class FsLitElement extends LitElement {
 			//get root
 			var root = this.getRootNode();
 			//create stylesheet
-			var styles = this._cssToString(this.constructor.styles);
+			var styles = stylesToString(this.constructor.styles);
 			const cssSheet = new CSSStyleSheet();
 			cssSheet.replace(styles);
 			//add stylesheet?
@@ -95,98 +65,77 @@ export class FsLitElement extends LitElement {
 
 	performUpdate() {
 		//set vars
-		var stop = null;
+		var stopTracker = null;
 		//store tracking?
-		if(this.store) {
-			//start tracking
-			stop = this.store.trackAccess(this.__$storeCb, {
-				ctx: this
-			});
+		if(this.__$storeCb) {
+			stopTracker = this.__$storeCb();
 		}
 		try {
 			super.performUpdate();
 		} finally {
-			stop && stop();
+			stopTracker && stopTracker();
 		}
 	}
 
-	_cssToString(styles) {
-		if('cssText' in styles) {
-			styles = styles.cssText;
-		} else if(Array.isArray(styles)) {
-			styles = styles.map(s => this._cssToString(s)).join('\n');
-		}
-		return (styles || '').trim();
+	callSuper(method, args = [], instance = this) {
+		return callSuper(instance, method, args);
 	}
 
 }
 
-export function createComponent(tagName, def = {}, baseClass = FsLitElement) {
+export function createComponent(tag, def, BaseClass = FsLitElement) {
 	//has tag name?
-	if(typeof tagName !== 'string') {
-		baseClass = (typeof def === 'function') ? def : baseClass;
-		def = tagName;
-		tagName = null;
+	if(typeof tag !== 'string') {
+		BaseClass = def || BaseClass;
+		def = tag;
+		tag = null;
 	}
 
-	//already registered?
-	if(tagName && customElements.get(tagName)) {
-		throw new Error(tagName + " already defined as a custom element");
+	//is tag registered?
+	if(tag && customElements.get(tag)) {
+		throw new Error(tag + " already defined as a custom element");
+	}
+	
+	//is class definition?
+	if(typeof def === 'function' && def.prototype && def.prototype.constructor === def) {
+		throw new Error("createComponent only accepts an object or function definition");
 	}
 
-	//separate static
-	var statics = {};
-	if(def.static) {
-		statics = def.static;
-		delete def.static;
-	}
+	//set vars
+	var constructor = null;
 
-	//define class
-	const newClass = class extends baseClass {
+	//create component
+	class Component extends BaseClass {
 		constructor() {
 			//parent
 			super();
-			//attach instance properties?
-			if(typeof def !== 'function') {
-				//loop through keys
-				for(const k in def) {
-					//is property?
-					if(typeof def[k] !== 'function') {
-						this[k] = def[k];
-					}
-				}
+			//call constructor?
+			if(constructor) {
+				constructor.call(this);
 			}
 		}
 	}
 
-	//attach static properties
-	for(const k of Object.keys(statics)) {
-		newClass[k] = statics[k];
-	}
-
-	//attach methods
+	//is function or object?
 	if(typeof def === 'function') {
-		//add render function
-		newClass.prototype.render = def;
+		//set render function
+		Component.prototype.render = def;
 	} else {
-		//loop through keys
-		for(const k of Object.keys(def)) {
-			//is function?
-			if(typeof def[k] === 'function') {
-				//block constructor?
-				if(k === 'constructor') {
-					throw new Error("Cannot override constructor. Please use constructed instead");
-				}
-				newClass.prototype[k] = def[k];
-			}
-		}
+		//separate static & instance
+		const { static: s, constructor: c, ...i } = def;
+		//cache constructor?
+		if(c) constructor = c;
+		//copy static?
+		if(s) Object.assign(Component, s);
+		//copy instance
+		Object.defineProperties(Component.prototype, Object.getOwnPropertyDescriptors(i));
 	}
-	
-	//register custom element?
-	if(tagName) {
-		customElements.define(tagName, newClass);
+
+	//register element?
+	if(tag && tag.length) {
+		customElements.define(tag, Component);
 	}
 
 	//return
-	return newClass;
+	return Component;
 }

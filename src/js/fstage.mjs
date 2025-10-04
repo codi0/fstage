@@ -5,15 +5,23 @@ var _swUpdate = localStorage.getItem('swUpdate') == 1;
 var _modules = [ 'diff', 'dom', 'env', 'form', 'hls', 'http', 'ipfs', 'lit', 'observe', 'pubsub', 'queue', 'registry', 'router', 'store', 'sync', 'utils', 'webpush', 'websocket' ];
 
 //Private: format path
-var _formatPath = function(path) {
+var _formatPath = function(path, removeFile=false) {
 	//remove hash
 	path = path.split('#')[0];
 	//remove query
 	path = path.split('?')[0];
 	//split into segments
 	var segs = path.split('/');
+	//remove file name?
+	if(removeFile && segs.length) {
+		if(segs[segs.length-1].indexOf('.') >= 0) {
+			segs.pop();
+		}
+	}
+	//update path
+	path = segs.join('/');
 	//add trailing slash?
-	if(segs[segs.length-1].indexOf('.') == -1) {
+	if(segs.length && segs[segs.length-1].indexOf('.') == -1) {
 		path = path.replace(/\/$/, '') + '/';
 	}
 	//return
@@ -229,7 +237,7 @@ var importMap = function(paths) {
 var config = Object.assign({
 	configPath: '',
 	scriptPath: _formatPath(import.meta.url),
-	basePath: _formatPath((document.querySelector('base') || {}).href || location.href)
+	basePath: _formatPath((document.querySelector('base') || {}).href || location.href, true)
 }, globalThis.FSCONFIG || {});
 
 //Public: wrapper

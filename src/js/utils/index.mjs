@@ -547,3 +547,30 @@ export function getGlobalCss(useCache=true) {
 	//return
 	return getGlobalCss.__$cache;
 }
+
+//styles to string
+export function stylesToString(styles) {
+	if('cssText' in styles) {
+		styles = styles.cssText;
+	} else if(Array.isArray(styles)) {
+		styles = styles.map(s => stylesToString(s)).join('\n');
+	}
+	return (styles || '').trim();
+}
+
+//emulate calling class 'super'
+export 	function callSuper(instance, method, args = []) {
+	//get parent prototype
+	var proto = Object.getPrototypeOf(instance.constructor.prototype);
+	//walk up the prototype chain
+	while(proto && proto !== Object.prototype) {
+		//method found?
+		if(proto.hasOwnProperty(method)) {
+			return proto[method].apply(instance, args);
+		}
+		//next level
+		proto = Object.getPrototypeOf(proto);
+	}
+	//method not found
+	throw new Error(`Method ${method} not found in prototype chain`);
+}
