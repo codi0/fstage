@@ -2,6 +2,7 @@ import { LitElement } from 'https://cdn.jsdelivr.net/npm/lit-element@4/+esm';
 export * from 'https://cdn.jsdelivr.net/npm/lit-element@4/+esm';
 
 import { getGlobalCss, stylesToString, callSuper } from '../utils/index.mjs';
+import { createRegistry } from '../registry/index.mjs';
 import { createStore } from '../store/index.mjs';
 
 
@@ -17,15 +18,49 @@ export class FsLitElement extends LitElement {
 		if(typeof this.willConstruct === 'function') {
 			this.willConstruct();
 		}
+		//create registry?
+		if(this.registry === undefined) {
+			this.registry = createRegistry();
+		}
 		//create store?
 		if(this.store === undefined) {
 			this.store = createStore();
 		}
-		//use store?
+		//cache store?
 		if(this.store) {
-			//set callback
-			this.__$storeCb = () => {
-				return this.store.trackAccess(() => this.requestUpdate(), { ctx: this });
+			this.__$storeCache = {
+				props: {},
+				cb: () => {
+					return this.store.trackAccess(() => this.requestUpdate(), { ctx: this });
+				}
+			};
+		}
+		//process inject?
+		if(this.constructor.inject) {
+			//loop through props
+			for(var i in this.constructor.inject) {
+				//prop already defined?
+				if(this[i] !== undefined) {
+					continue;
+				}
+				//split key into parts
+				var key = this.constructor.inject[i];
+				var parts = key.split(':');
+				//valid syntax?
+				if(parts.length > 1) {
+					//get prefix
+					var prefix = parts.shift();
+					//update key
+					key = parts.join(':');
+					//is registry?
+					if(this.registry && prefix === 'registry') {
+						this[i] = this.registry.get(key);
+					}
+					//is store?
+					if(this.store && prefix === 'store') {
+						this.__$storeCache.props[i] = key;
+					}
+				}
 			}
 		}
 		//call constructed?
@@ -66,9 +101,18 @@ export class FsLitElement extends LitElement {
 	performUpdate() {
 		//set vars
 		var stopTracker = null;
-		//store tracking?
-		if(this.__$storeCb) {
-			stopTracker = this.__$storeCb();
+		//has store cache?
+		if(this.__$storeCache) {
+			//start tracking
+			stopTracker = this.__$storeCache.cb();
+			//get props from store
+			for(var i in this.__$storeCache.props) {
+				//get store key
+				var key = this.__$storeCache.props[i];
+				//set props
+				this[i] = this.store.get(key);
+				this[i + 'Meta'] = this.store.meta(key);
+			}
 		}
 		try {
 			super.performUpdate();
@@ -123,9 +167,9 @@ export function createComponent(tag, def, BaseClass = FsLitElement) {
 	} else {
 		//separate static & instance
 		const { static: s, constructor: c, ...i } = def;
-		//cache constructor?
+		//cache constructor
 		if(c) constructor = c;
-		//copy static?
+		//copy static
 		if(s) Object.assign(Component, s);
 		//copy instance
 		Object.defineProperties(Component.prototype, Object.getOwnPropertyDescriptors(i));
