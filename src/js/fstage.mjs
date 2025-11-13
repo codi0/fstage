@@ -1,5 +1,7 @@
+//Globals: vars
+globalThis.FSCONFIG = globalThis.FSCONFIG || {};
+
 //Private: vars
-var _imports = {};
 var _name = 'fstage';
 var _swUpdate = localStorage.getItem('swUpdate') == 1;
 var _modules = [ 'diff', 'dom', 'env', 'form', 'hls', 'http', 'ipfs', 'lit', 'observe', 'pubsub', 'queue', 'registry', 'router', 'store', 'sync', 'utils', 'webpush', 'websocket' ];
@@ -177,60 +179,19 @@ var loadAsset = function(path, type='') {
 
 //Public: import map
 var importMap = function(paths) {
-	//set vars
-	var scope = '@' + _name;
-	var map = document.querySelector('script[type="importmap"]');
-	//check paths?
-	if(!paths) {
+	//use map?
+	if(!paths || !Object.keys(paths).length) {
 		return;
 	}
-	//create map?
-	if(!map) {
-		map = document.createElement('script');
-		map.type = 'importmap';
-		document.documentElement.firstChild.appendChild(map);
-	} else {
-		var content = JSON.parse(map.textContent) || {};
-		_imports = Object.assign(content.imports || {}, _imports);
-	}
-	//is modules array?
-	if(Array.isArray(paths)) {
-		var tmp = {};
-		for(var i=0; i < paths.length; i++) {
-			tmp[paths[i]] = paths[i];
-		}
-		paths = tmp;
-	}
-	//loop through paths
-	for(var name in (paths || {})) {
-		//skip property?
-		if(!paths.hasOwnProperty(name)) {
-			continue;
-		}
-		//get path
-		var path = paths[name];
-		//is module?
-		if(/^[a-zA-Z0-9\/]+$/.test(path)) {
-			//add scope to name?
-			if(name[0] != '@') {
-				name = scope + '/' + name;
-			}
-			//add to path?
-			if(path.indexOf('/') == -1) {
-				path += '/index';
-			}
-			//format path
-			path = config.scriptPath.replace('/' + _name + '.', '/' + path + '.').replace('.min.', '.');
-		}
-		//add to imports?
-		if(!_imports[name]) {
-			_imports[name] = path;
-		}
-	}
-	//update content
+	//create map
+	var map = document.createElement('script');
+	map.type = 'importmap';
+	//set content
 	map.textContent = JSON.stringify({
-		imports: _imports
+		imports: paths
 	});
+	//add to document
+	document.documentElement.firstChild.appendChild(map);
 };
 
 //Public: config
@@ -238,7 +199,7 @@ var config = Object.assign({
 	configPath: '',
 	scriptPath: _formatPath(import.meta.url),
 	basePath: _formatPath((document.querySelector('base') || {}).href || location.href, true)
-}, globalThis.FSCONFIG || {});
+}, globalThis.FSCONFIG);
 
 //Public: wrapper
 var fstage = {
@@ -263,21 +224,27 @@ if(typeof define == 'function' && define.amd) {
 //module export
 export { fstage, config, loadAsset, importMap };
 
-//set core import
-_imports['@' + _name + '/core'] = config.scriptPath;
+//create modules map
+var importModules = {};
+importModules['@' + _name + '/core'] = config.scriptPath;
+for(var i=0; i < _modules.length; i++) {
+	importModules['@' + _name + '/' + _modules[i]] = config.scriptPath.replace('/' + _name + '.', '/' + _modules[i] + '/index.').replace('.min.', '.');
+}
 
-//create import map
-importMap(_modules);
+//import maps
+importMap(importModules);
+importMap(globalThis.FSCONFIG.importMap);
+globalThis.FSCONFIG.importMap = {};
 
 //load config
 loadAsset(config.configPath).then(function() {
 	//merge config
-	config = Object.assign(config, globalThis.FSCONFIG || {});
+	config = Object.assign(config, globalThis.FSCONFIG);
 	globalThis.FSCONFIG = config;
-	//set base
-	loadAsset(config.basePath, 'base');
 	//import map
 	importMap(config.importMap);
+	//set base
+	loadAsset(config.basePath, 'base');
 	//load assets
 	loadAsset(config.loadAssets).then(function() {
 		//run ready callback?

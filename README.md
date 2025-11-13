@@ -1,4 +1,4 @@
-# fstage [ALPHA v0.5.0]
+# fstage [ALPHA v0.5.3]
 
 Fstage is a framework builder. Create a custom javascript framework using third-party libraries or your own code. No build steps.
 
