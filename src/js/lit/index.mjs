@@ -111,7 +111,7 @@ export class FsLitElement extends LitElement {
 				var key = this.__$storeCache.props[i];
 				//set props
 				this[i] = this.store.get(key);
-				this[i + 'Meta'] = this.store.meta(key);
+				this[i + 'Meta'] = this.store.meta(key) || {};
 			}
 		}
 		try {
