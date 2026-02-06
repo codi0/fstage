@@ -44,8 +44,8 @@ globalThis.FSCONFIG = {
 	],
 
 	loadFilters: function(e, fstage) {
-		//skip capacitor on non-web platform?
-		if(/@capacitor/.test(e.path) && fstage.env && fstage.env.isHybrid) {
+		//skip loading web capacitor packages when running in native hybrid environment
+		if(e.path.startsWith('@capacitor/') && fstage.env.getFact('platform.hybrid')) {
 			e.path = '';
 		}
 	},
