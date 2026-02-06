@@ -1,166 +1,247 @@
-//private vars
+// Private cache
 const _cache = {};
 
-//router wrapper
-export function createRouter(opts={}) {
-
-	//config opts
+// Router factory
+export function createRouter(opts = {}) {
+	
+	// Config with defaults
 	opts = Object.assign({
 		name: 'default',
 		state: {},
 		routes: {},
 		middleware: {},
 		histId: 0,
-		isBack: false,
 		def404: null,
 		defHome: null,
 		urlScheme: 'path',
 		basePath: '/'
 	}, opts);
 
-	//check cache?
-	if(_cache[opts.name]) {
+	// Return cached instance
+	if (_cache[opts.name]) {
 		return _cache[opts.name];
 	}
 
-	//set flags
-	var _started = false;
+	let _started = false;
+	let _listeners = [];
+	let _popstateFired = false;
+	let _backPending = false;
 
-	//public api
-	var api = {
+	// Normalize basePath helper
+	function normalizePath(path) {
+		path = path || '/';
+		if (path[0] !== '/') path = '/' + path;
+		if (path.length > 1 && path[path.length - 1] === '/') path = path.slice(0, -1);
+		return path;
+	}
 
-		instance: function(opts = {}) {
-			return new router(opts);
-		},
+	// Extract route from URL
+	function getCurrentRoute() {
+		const scheme = opts.urlScheme;
+		
+		if (scheme === 'hash') {
+			return location.hash.slice(1) || '';
+		}
+		
+		if (scheme === 'query') {
+			return new URL(location.href).searchParams.get('route') || '';
+		}
+		
+		// Path scheme (handle Capacitor schemes)
+		let path = location.pathname || '/';
+		const isHybrid = location.protocol === 'capacitor:' || location.protocol === 'file:';
+		
+		if (isHybrid) {
+			// Capacitor uses index.html path
+			path = path.replace(/\/index\.html.*$/, '/');
+		}
+		
+		// Strip basePath
+		if (path.startsWith(opts.basePath)) {
+			path = path.slice(opts.basePath.length);
+		}
+		
+		// Clean
+		return path.replace(/^\/+|\/+$/g, '') || '';
+	}
 
-		start: function(merge = {}) {
-			//set vars
-			var route = '';
-			//has started?
-			if(!_started) {
-				//update flag
-				_started = true;
-				//merge opts
-				opts = Object.assign(opts, merge);
-				//hash url?
-				if(opts.urlScheme === 'hash') {
-					route = location.hash.replace('#', '');
-				}
-				//query url?
-				if(opts.urlScheme === 'query') {
-					route = new URL(location.href).searchParams.get('route');
-				}
-				//path url?
-				if(opts.urlScheme === 'path') {
-					route = location.href.split('?')[0].replace(opts.basePath, '').replace(/^\/|\/$/g, '');
-				}
-				//listen for nav change
-				globalThis.addEventListener('popstate', function(e) {
-					//valid state?
-					if(!e.state || !e.state.name || !_started) {
-						opts.isBack = false;
-						return;
-					}
-					//already home?
-					if(opts.defHome === opts.state.name && e.state.name === opts.state.name) {
-						opts.isBack = false;
-						return;
-					}
-					//set vars
-					var goBack = (opts.isBack || opts.histId > e.state.id || (e.state.id - opts.histId) > 1);
-					var data = { id: e.state.id, params: e.state.params, isBack: goBack, scroll: e.state.scroll };
-					//reset cache
-					opts.isBack = false;
-					opts.histId = e.state.id;
-					//trigger route (no history)
-					api.trigger(e.state.name, data, null);
-				});
-				//listen for hash changes
-				globalThis.addEventListener('hashchange', function(e) {
-					//has started?
-					if(!_started) return;
-					//get current hash
-					var hash = location.hash.replace('#', '') || opts.defHome;
-					//trigger new route?
-					if(hash && hash !== opts.state.name && opts.urlScheme === 'hash') {
-						api.trigger(hash);
-					}
-				});
-				//listen for clicks
-				globalThis.addEventListener('click', function(e) {
-					//get target
-					var el = e.target.closest('[data-route]');
-					//valid route?
-					if(!el || !_started) return;
-					//get params
-					var name = el.getAttribute('data-route');
-					var mode = el.getAttribute('data-history') || 'push';
-					var params = (el.getAttribute('data-params') || '').split(';');
-					//go back?
-					if(name === 'back') {
-						return api.back();
-					}
-					//stop here?
-					if(!name) return;
-					//set data
-					var data = {
-						params: {}
-					};
-					//parse params
-					for(var i=0; i < params.length; i++) {
-						//split into key/value pair
-						var tmp = params[i].split(':', 2);
-						//valid pair?
-						if(tmp.length > 1) {
-							data.params[tmp[0].trim()] = tmp[1].trim();
-						}
-					}
-					//is form submit?
-					if(el.getAttribute('type') === 'submit') {
-						//check for form
-						var form = el.closest('form');
-						//form found?
-						if(form) {
-							//listen to form submit
-							return form.addEventListener('submit', function(e) {
-								//prevent default
-								e.preventDefault();
-								//trigger route
-								api.trigger(name, data, mode);
-							});
-						}
-					}
-					//prevent default
-					e.preventDefault();
-					//trigger route
-					api.trigger(name, data, mode);
-				});
-				//has route?
-				if(route || opts.defHome) {
-					api.trigger(route || opts.defHome, {
-						init: true
-					}, 'replace');
-				}
+	// API
+	const api = {
+
+		start(merge = {}) {
+			if (_started) return this;
+			_started = true;
+
+			// Merge options
+			opts = Object.assign(opts, merge);
+			opts.basePath = normalizePath(opts.basePath);
+
+			// Validate 404 route if specified
+			if (opts.def404 && !opts.routes[opts.def404]) {
+				console.warn(`Router: def404 route "${opts.def404}" not defined`);
+				opts.def404 = null;
 			}
-			//return
+
+			// Popstate handler
+			const onPopstate = e => {
+				if (!e.state?.name || !_started) return;
+
+				// Mark that popstate fired
+				_popstateFired = true;
+				_backPending = false;
+
+				// Same route? Skip
+				if (opts.defHome === opts.state.name && e.state.name === opts.state.name) {
+					return;
+				}
+
+				// Determine direction from ID
+				const direction = (typeof e.state.id === 'number' && e.state.id < opts.histId)
+					? 'back' : 'forward';
+
+				const data = {
+					id: e.state.id,
+					params: e.state.params,
+					isBack: direction === 'back',
+					scroll: e.state.scroll,
+					actionType: 'history',
+					direction
+				};
+
+				opts.histId = e.state.id ?? opts.histId;
+				api.trigger(e.state.name, data, null);
+			};
+
+			// Hash change handler
+			const onHashchange = () => {
+				if (!_started || opts.urlScheme !== 'hash') return;
+				const hash = location.hash.slice(1) || opts.defHome;
+				if (hash && hash !== opts.state.name) {
+					api.trigger(hash, { actionType: 'hash', direction: 'forward' }, null);
+				}
+			};
+
+			// Click handler
+			const onClick = e => {
+				if (e.defaultPrevented || !_started) return;
+				
+				const el = e.target.closest('[data-route]');
+				if (!el) return;
+
+				const name = el.getAttribute('data-route');
+				const mode = el.getAttribute('data-history') || 'push';
+				const params = (el.getAttribute('data-params') || '').split(';');
+
+				if (name === 'back') {
+					e.preventDefault();
+					return api.back();
+				}
+
+				if (!name) return;
+
+				const data = {
+					params: {},
+					actionType: 'click',
+					direction: mode === 'replace' ? 'replace' : 'forward'
+				};
+
+				// Parse params
+				params.forEach(p => {
+					const [k, v] = p.split(':', 2);
+					if (v !== undefined) {
+						data.params[k.trim()] = v.trim();
+					}
+				});
+
+				// Form submit?
+				if (el.type === 'submit') {
+					const form = el.closest('form');
+					if (form && !form.dataset.routerBound) {
+						form.dataset.routerBound = 'true';
+						form.addEventListener('submit', e => {
+							e.preventDefault();
+							// Re-read from button at submit time
+							const btn = e.submitter || el;
+							const submitName = btn.getAttribute('data-route');
+							const submitMode = btn.getAttribute('data-history') || 'push';
+							const submitParams = (btn.getAttribute('data-params') || '').split(';');
+							const submitData = { params: {}, actionType: 'submit', direction: submitMode === 'replace' ? 'replace' : 'forward' };
+							submitParams.forEach(p => {
+								const [k, v] = p.split(':', 2);
+								if (v !== undefined) submitData.params[k.trim()] = v.trim();
+							});
+							api.trigger(submitName, submitData, submitMode);
+						});
+						return;
+					}
+				}
+
+				e.preventDefault();
+				api.trigger(name, data, mode);
+			};
+
+			// Register listeners
+			addEventListener('popstate', onPopstate);
+			addEventListener('hashchange', onHashchange);
+			addEventListener('click', onClick);
+
+			_listeners.push(
+				{ type: 'popstate', fn: onPopstate },
+				{ type: 'hashchange', fn: onHashchange },
+				{ type: 'click', fn: onClick }
+			);
+
+			// Capacitor native back button
+			if (globalThis.Capacitor?.Plugins?.App) {
+				const backHandler = () => api.back();
+				Capacitor.Plugins.App.addListener('backButton', backHandler);
+				_listeners.push({ 
+					type: 'capacitor', 
+					fn: backHandler,
+					cleanup: () => Capacitor.Plugins.App.removeListener('backButton', backHandler)
+				});
+			}
+
+			// Initial route
+			const route = getCurrentRoute() || opts.defHome;
+			if (route) {
+				api.trigger(route, {
+					init: true,
+					actionType: 'init',
+					direction: 'replace'
+				}, 'replace');
+			}
+
 			return this;
 		},
 
-		is: function(route) {
+		destroy() {
+			_started = false;
+			_listeners.forEach(l => {
+				if (l.cleanup) {
+					l.cleanup();
+				} else {
+					removeEventListener(l.type, l.fn);
+				}
+			});
+			_listeners = [];
+			delete _cache[opts.name];
+		},
+
+		is(route) {
 			return opts.state.name === route;
 		},
 
-		has: function(name) {
-			return (name in opts.routes);
+		has(name) {
+			return name in opts.routes;
 		},
 
-		current: function(key = null) {
-			return key ? (opts.state[key] || null) : Object.assign({}, opts.state);
+		current(key = null) {
+			return key ? (opts.state[key] ?? null) : { ...opts.state };
 		},
 
-		on: function(route, fn) {
-			//is middleware?
-			if(route && route[0] === ':') {
+		on(route, fn) {
+			if (route?.[0] === ':') {
 				opts.middleware[route] = opts.middleware[route] || [];
 				opts.middleware[route].push(fn);
 			} else {
@@ -168,152 +249,163 @@ export function createRouter(opts={}) {
 			}
 		},
 
-		trigger: function(name, data = {}, mode = 'push') {
-			//create route
-			var route = Object.assign({
-				name: name,
+		trigger(name, data = {}, mode = 'push') {
+			// Normalize mode
+			if (mode !== 'push' && mode !== 'replace' && mode !== null) {
+				mode = 'replace';
+			}
+
+			// Build route (merge data first)
+			const route = {
+				...data,
+				name,
 				orig: name,
-				params: {},
-				mode: mode,
+				params: data.params || {},
+				mode,
+				actionType: data.actionType || 'trigger',
+				direction: data?.direction || (data?.isBack ? 'back' : (mode === 'replace' ? 'replace' : 'forward')),
 				action: opts.routes[name],
 				last: opts.state.name || null,
 				lastParams: opts.state.params || null,
 				is404: !this.has(name)
-			}, data);
-			//is 404?
-			if(route.is404) {
-				//update name
+			};
+
+			// Handle 404
+			if (route.is404) {
 				route.name = opts.def404;
-				//stop here?
-				if(!this.has(route.name)) {
-					return false;
-				}
+				if (!this.has(route.name)) return false;
+				route.action = opts.routes[route.name];
 			}
-			//set vars
-			var last = opts.state.name;
-			var cycles = [ ':before', ':all', name, ':after' ];
-			//loop through cycles
-			for(var i=0; i < cycles.length; i++) {
-				//set vars
-				var id = cycles[i];
-				var listeners = (id === name) ? [ route.action ] : (opts.middleware[id] || []);
-				//loop through listeners
-				for(var j=0; j < listeners.length; j++) {
-					//get listener
-					var fn = listeners[j];
-					//is function?
-					if(typeof fn !== 'function') {
-						continue;
-					}
-					//call listener
-					var tmp = fn(route);
-					//break early?
-					if(tmp === false || last !== opts.state.name) {
+
+			const last = opts.state.name;
+			let routeName = route.name;
+			const cycles = [':before', ':all', routeName, ':after'];
+
+			// Execute middleware pipeline
+			for (let i = 0; i < cycles.length; i++) {
+				const id = cycles[i];
+				const listeners = (id === routeName) 
+					? [route.action] 
+					: (opts.middleware[id] || []);
+
+				for (let j = 0; j < listeners.length; j++) {
+					const fn = listeners[j];
+					if (typeof fn !== 'function') continue;
+
+					const result = fn(route);
+
+					// Break early
+					if (result === false || last !== opts.state.name) {
 						return false;
 					}
-					//count runs?
-					if(i === 2) {
-						fn.runs = fn.runs || 0;
-						fn.runs++;
+
+					// Track runs
+					if (i === 2) {
+						fn.runs = (fn.runs || 0) + 1;
 					}
-					//update route?
-					if(tmp && tmp.name && i < 3) {
-						route = tmp;
-						cycles[2] = tmp.name;
+
+					// Route redirect
+					if (result?.name && i < 3) {
+						route.name = result.name;
+						routeName = result.name;
+						cycles[2] = routeName;
+						route.action = result.action || opts.routes[routeName];
+						Object.assign(route, result);
 					}
 				}
 			}
-			//update state
-			return this.setState(route, mode, true);
+
+			// Update state
+			return this.setState(route, mode);
 		},
 
-		redirect: function(name, data = {}) {
+		redirect(name, data = {}) {
+			data.actionType = data.actionType || 'redirect';
+			data.direction = data.direction || 'replace';
 			return this.trigger(name, data, 'replace');
 		},
 
-		refresh: function() {
-			//can refresh?
-			if(opts.state.name) {
-				return this.trigger(opts.state.name, {}, null);
+		refresh() {
+			if (opts.state.name) {
+				return this.trigger(opts.state.name, { actionType: 'refresh' }, null);
 			}
 		},
 
-		back: function() {
-			//set vars
-			var that = this;
-			opts.isBack = true;
-			//try history
+		back() {
+			// Prevent rapid back() spam
+			if (_backPending) return;
+			
+			_backPending = true;
+			_popstateFired = false;
 			history.back();
-			//set fallback
-			setTimeout(function() {
-				//stop here?
-				if(!opts.isBack) return;
-				//trigger back
-				that.trigger(opts.state.name || opts.defHome, {
-					isBack: true,
-					params: opts.state.params || {}
-				}, null);
-			}, 400);
+			
+			// Fallback if popstate doesn't fire (50ms = industry standard for hybrid)
+			setTimeout(() => {
+				if (!_popstateFired) {
+					// Popstate didn't fire, just refresh current route
+					this.refresh();
+				}
+				_popstateFired = false;
+				_backPending = false;
+			}, 50);
 		},
 
-		setState: function(state, mode = 'replace', reset = false) {
-			//set ID
-			if(mode === 'push') {
-				state.id = (++opts.histId);
+		setState(state, mode = 'replace') {
+			// Set ID
+			if (mode === 'push') {
+				state.id = ++opts.histId;
+			} else if (mode === 'replace') {
+				state.id = state.id ?? opts.state.id ?? ++opts.histId;
 			} else {
-				state.id = state.id || opts.state.id || (++opts.histId);
+				// null mode = no history change (refresh/manual trigger)
+				state.id = state.id ?? opts.state.id ?? opts.histId;
 			}
-			//cache scroll position
-			state.scroll = ('scroll' in state) ? (state.scroll || 0) : globalThis.pageYOffset;
-			//reset?
-			if(reset) {
-				opts.state = {};
-			}
-			//update props
-			for(var i in state) {
-				if(state.hasOwnProperty(i)) {
-					opts.state[i] = state[i];
-				}
-			}
-			//update history?
-			if(globalThis.history && mode && history[mode + 'State']) {
-				//set vars
-				var url = '';
-				var name = opts.state.name;
-				var title = opts.state.title || '';
-				//is 404?
-				if(state.is404 && state.orig) {
+
+			// Cache scroll
+			state.scroll = state.scroll ?? (globalThis.pageYOffset || 0);
+
+			// Merge state (preserve existing properties)
+			opts.state = { ...opts.state, ...state };
+
+			// Update browser history
+			if (mode && history[mode + 'State']) {
+				let url = '';
+				let name = opts.state.name;
+				let title = opts.state.title || document.title || '';
+
+				if (state.is404 && state.orig) {
 					name = state.orig;
 				}
-				//hash url?
-				if(opts.urlScheme === 'hash') {
-					url = new URL(location.href);
-					url.hash = (name == opts.defHome) ? '' : name;
-					url = url.toString();
-				}
-				//query url?
-				if(opts.urlScheme === 'query') {
-					url = new URL(location.href);
-					url.searchParams[name == opts.defHome ? 'delete' : 'set']('route', name);
-					url = url.toString();
-				}
-				//path url?
-				if(opts.urlScheme === 'path') {
-					url = opts.basePath + (name == opts.defHome ? '' : name);
-				}
-				//update history
-				history[mode + 'State'](opts.state, title, url);
-			}
-			//return
-			return this.current();
-		},
 
+				if (opts.urlScheme === 'hash') {
+					url = new URL(location.href);
+					url.hash = (name === opts.defHome) ? '' : name;
+					url = url.toString();
+				} else if (opts.urlScheme === 'query') {
+					url = new URL(location.href);
+					if (name === opts.defHome) {
+						url.searchParams.delete('route');
+					} else {
+						url.searchParams.set('route', name);
+					}
+					url = url.toString();
+				} else if (opts.urlScheme === 'path') {
+					url = opts.basePath + (name === opts.defHome ? '' : '/' + name);
+				}
+				
+				if (url) {
+					url = url.replace(/([^:]\/)\/+/g, '$1');
+				}
+
+				history[mode + 'State'](opts.state, title, url);
+				document.title = title;
+			}
+
+			return this.current();
+		}
 	};
-	
-	//add to cache
+
 	_cache[opts.name] = api;
 
-	//return
 	return api;
-
-};
+}
