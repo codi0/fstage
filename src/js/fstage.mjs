@@ -4,7 +4,7 @@ globalThis.FSCONFIG = globalThis.FSCONFIG || {};
 //Private: vars
 var _name = 'fstage';
 var _swUpdate = localStorage.getItem('swUpdate') == 1;
-var _modules = [ 'diff', 'dom', 'env', 'form', 'hls', 'http', 'ipfs', 'lit', 'observe', 'pubsub', 'queue', 'registry', 'router', 'store', 'sync', 'utils', 'webpush', 'websocket' ];
+var _modules = [ 'diff', 'dom', 'env', 'form', 'hls', 'http', 'ipfs', 'interaction', 'lit', 'observe', 'pubsub', 'queue', 'registry', 'router', 'store', 'sync', 'utils', 'webpush', 'websocket' ];
 
 //Private: format path
 var _formatPath = function(path, removeFile=false) {

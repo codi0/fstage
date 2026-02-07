@@ -13,7 +13,7 @@ export function createRouter(opts = {}) {
 		histId: 0,
 		def404: null,
 		defHome: null,
-		urlScheme: 'path',
+		urlScheme: 'hash',
 		basePath: '/'
 	}, opts);
 
@@ -120,24 +120,29 @@ export function createRouter(opts = {}) {
 					api.trigger(hash, { actionType: 'hash', direction: 'forward' }, null);
 				}
 			};
+			
+			const getRouteName = (el) => {
+				let url = el.getAttribute('data-route') || el.getAttribute('data-href') || el.getAttribute('href');
+				return url;
+			};
 
 			// Click handler
 			const onClick = e => {
 				if (e.defaultPrevented || !_started) return;
 				
-				const el = e.target.closest('[data-route]');
+				const el = e.target.closest('[data-route], [data-href], [href]');
 				if (!el) return;
 
-				const name = el.getAttribute('data-route');
+				const name = getRouteName(el);
 				const mode = el.getAttribute('data-history') || 'push';
 				const params = (el.getAttribute('data-params') || '').split(';');
+				
+				if (!name) return;
 
 				if (name === 'back') {
 					e.preventDefault();
 					return api.back();
 				}
-
-				if (!name) return;
 
 				const data = {
 					params: {},
@@ -162,7 +167,7 @@ export function createRouter(opts = {}) {
 							e.preventDefault();
 							// Re-read from button at submit time
 							const btn = e.submitter || el;
-							const submitName = btn.getAttribute('data-route');
+							const submitName = getRouteName(btn);
 							const submitMode = btn.getAttribute('data-history') || 'push';
 							const submitParams = (btn.getAttribute('data-params') || '').split(';');
 							const submitData = { params: {}, actionType: 'submit', direction: submitMode === 'replace' ? 'replace' : 'forward' };
@@ -250,11 +255,6 @@ export function createRouter(opts = {}) {
 		},
 
 		trigger(name, data = {}, mode = 'push') {
-			// Normalize mode
-			if (mode !== 'push' && mode !== 'replace' && mode !== null) {
-				mode = 'replace';
-			}
-
 			// Build route (merge data first)
 			const route = {
 				...data,
