@@ -1,16 +1,8 @@
-//private vars
-const _cache = {};
-
 //create websocket
 export function createWebsocket(url, opts={}) {
 
 	//format url
 	url = url.replace(/^http/i, 'ws');
-	
-	//check cache?
-	if(_cache[url]) {
-		return _cache[url];
-	}
 
 	//format opts
 	opts = Object.assign({
@@ -227,9 +219,6 @@ export function createWebsocket(url, opts={}) {
 	globalThis.addEventListener('beforeunload', function(e) {
 		api.close();
 	});
-	
-	//add to cache
-	_cache[url] = api;
 
 	//return
 	return api;

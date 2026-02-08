@@ -363,4 +363,4 @@ function buildEnv() {
 	return env;
 }
 
-export var env = buildEnv();
+export const env = buildEnv();

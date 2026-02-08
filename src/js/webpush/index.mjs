@@ -4,16 +4,6 @@ const _cache = {};
 //webpush wrapper
 export function createWebpush(config={}) {
 
-	//set config
-	config = Object.assign({
-		name: 'default'
-	}, config);
-
-	//check cache?
-	if(_cache[config.name]) {
-		return _cache[config.name];
-	}
-
 	//internal vars
 	var _url = null;
 	var _reg = null;
@@ -184,9 +174,6 @@ export function createWebpush(config={}) {
 		}
 
 	};
-
-	//add to cache
-	_cache[config.name] = api;
 
 	//return
 	return api;

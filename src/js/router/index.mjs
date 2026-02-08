@@ -1,12 +1,8 @@
-// Private cache
-const _cache = {};
-
-// Router factory
+//router factory
 export function createRouter(opts = {}) {
 	
 	// Config with defaults
 	opts = Object.assign({
-		name: 'default',
 		state: {},
 		routes: {},
 		middleware: {},
@@ -16,11 +12,6 @@ export function createRouter(opts = {}) {
 		urlScheme: 'hash',
 		basePath: '/'
 	}, opts);
-
-	// Return cached instance
-	if (_cache[opts.name]) {
-		return _cache[opts.name];
-	}
 
 	let _started = false;
 	let _listeners = [];
@@ -230,7 +221,6 @@ export function createRouter(opts = {}) {
 				}
 			});
 			_listeners = [];
-			delete _cache[opts.name];
 		},
 
 		is(route) {
@@ -279,6 +269,8 @@ export function createRouter(opts = {}) {
 
 			const last = opts.state.name;
 			let routeName = route.name;
+			if (last === routeName) return false;
+			
 			const cycles = [':before', ':all', routeName, ':after'];
 
 			// Execute middleware pipeline
@@ -404,8 +396,6 @@ export function createRouter(opts = {}) {
 			return this.current();
 		}
 	};
-
-	_cache[opts.name] = api;
 
 	return api;
 }

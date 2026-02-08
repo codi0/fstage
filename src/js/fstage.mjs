@@ -1,10 +1,8 @@
-//Globals: vars
-globalThis.FSCONFIG = globalThis.FSCONFIG || {};
-
 //Private: vars
+var _exports = {};
 var _name = 'fstage';
 var _swUpdate = localStorage.getItem('swUpdate') == 1;
-var _modules = [ 'diff', 'dom', 'env', 'form', 'hls', 'http', 'ipfs', 'interaction', 'lit', 'observe', 'pubsub', 'queue', 'registry', 'router', 'store', 'sync', 'utils', 'webpush', 'websocket' ];
+var _modules = [ 'animator', 'diff', 'dom', 'env', 'form', 'hls', 'http', 'ipfs', 'interaction', 'lit', 'observe', 'pubsub', 'queue', 'registry', 'router', 'store', 'sync', 'utils', 'webpush', 'websocket' ];
 
 //Private: format path
 var _formatPath = function(path, removeFile=false) {
@@ -30,47 +28,108 @@ var _formatPath = function(path, removeFile=false) {
 	return path;
 };
 
-//Private: run filters
-var _runFilters = function(type, e) {
-	//get filters
-	var arr = config[type + 'Filters'] || [];
-	//convert to array?
-	if(arr && !Array.isArray(arr)) {
-		arr = [ arr ];
+//Private: config
+var _config = _exports['config'] = Object.assign({
+	configPath: '',
+	scriptPath: _formatPath(import.meta.url),
+	basePath: _formatPath((document.querySelector('base') || {}).href || location.href, true),
+	importMap: {}
+}, globalThis.FSCONFIG || {});
+
+//Private: safe callback
+var _cb = function(fn, args, ctx=null) {
+	try {
+		return fn ? fn.apply(ctx, args) : null;
+	} catch (err) {
+		console.error(err);
+		throw err;
 	}
-	//set update flag
-	e.swUpdate = _swUpdate;
+}
+
+//Public: get helper
+var get = function(path, args=null) {
+  //set vars
+  var t = null;
+  var res = _exports;
+  var arr = path ? path.split('.') : [];
 	//loop through array
-	arr.forEach(function(fn) {
-		fn(e, fstage);
-	});
+  for(var i = 0; i < arr.length; i++) {
+		//stop here?
+    if(!res || !Object.prototype.hasOwnProperty.call(res, arr[i])) {
+			return null;
+		}
+    //update result
+    res = res[arr[i]];
+    //set this?
+    if(i < (arr.length-1)) {
+			if(res && res.prototype && res.prototype.constructor === res) {
+				t = res;
+			}
+    }
+  }
+	//has args?
+	if(Array.isArray(args)) {
+		res = _cb(res, args, t);
+	}
+	//return
+	return res;
 };
 
-//Public: load asset
-var loadAsset = function(path, type='') {
+//Public: load helper
+var load = function(path, type='') {
 	//set vars
 	var name = '';
-	var proms = [];
 	var scope = '@' + _name;
+	//Helper: is object
+	var isObject = function(input) {
+		return input && input.constructor === Object;
+	};
+	//Helper: format input
+	var formatInput = function(input) {
+		//is array or object?
+		if(Array.isArray(input)) {
+			var obj = input.length ? {} : null;
+			for(var i=0; i < input.length; i++) obj[i] = formatInput(input[i]);
+			return obj;
+		} else if(isObject(input)) {
+			for(var i in input) {
+				input[i] = formatInput(input[i]);
+			}
+		}
+		//return
+		return input;
+	};
+	//format input
+	path = formatInput(path);
 	//check path
-	if(path == '@all') {
+	if(path === '@all') {
 		path = _modules;
 	} else if(!path) {
 		return Promise.resolve();
 	}
-	//is array?
-	if(Array.isArray(path)) {
-		//nested array?
-		if(Array.isArray(path[0])) {
-			//load first array, then wait
-			return loadAsset(path.shift()).then(function() {
-				return loadAsset(path);
-			});
+	//is object?
+	if(isObject(path)) {
+		//set vars
+		var proms = [];
+		//loop through props
+		for(var i in path) {
+			//is nested?
+			if(isObject(path[i])) {
+				//load first group
+				return load(path[i]).then(function(res) {
+					//get group name
+					var group = i[0].toUpperCase() + i.slice(1);
+					//group loaded hook
+					_cb(_config['afterLoad' + group], [ res ], fstage);
+					//delete property
+					delete path[i];
+					//load next
+					return load(path);
+				});
+			}
+			//add to array
+			proms.push(load(path[i]));
 		}
-		//add promises
-		path.forEach(function(p) {
-			proms.push(loadAsset(p));
-		});
 		//wait for load
 		return Promise.all(proms);
 	}
@@ -82,8 +141,8 @@ var loadAsset = function(path, type='') {
 		if(_modules.includes(e.path)) {
 			e.path = scope + '/' + e.path;
 		}
-		//run load filters
-		_runFilters('load', e);
+		//before load hook
+		_cb(_config['beforeLoad'], [ e ], fstage);
 		//valid path?
 		if(!e.path) {
 			return resolve();
@@ -104,8 +163,8 @@ var loadAsset = function(path, type='') {
 		//is module?
 		if(e.type == 'module') {
 			//add base path?
-			if(e.path.indexOf(config.basePath) == -1 && e.path.indexOf('://') == -1 && e.path.indexOf('.') >= 0) {
-				e.path = config.basePath + e.path;
+			if(e.path.indexOf(_config.basePath) == -1 && e.path.indexOf('://') == -1 && e.path.indexOf('.') >= 0) {
+				e.path = _config.basePath + e.path;
 			}
 			//dynamic import
 			return import(e.path).then(function(exports) {
@@ -115,22 +174,22 @@ var loadAsset = function(path, type='') {
 				//process exports?
 				if(e.exports) {
 					//is fstage module?
-					if(!fstage[e.name] && _modules.includes(e.name)) {
+					if(!_exports[e.name] && _modules.includes(e.name)) {
 						//set default?
 						if(e.exports.default || e.exports[e.name]) {
-							fstage[e.name] = e.exports.default || e.exports[e.name];
+							_exports[e.name] = e.exports.default || e.exports[e.name];
 						} else {
-							fstage[e.name] = {};
+							_exports[e.name] = {};
 						}
 						//loop through exports
 						for(var i in e.exports) {
 							if(i !== 'default' && i != e.name) {
-								fstage[e.name][i] = e.exports[i];
+								_exports[e.name][i] = e.exports[i];
 							}
 						}
 					}
-					//run export filters
-					_runFilters('export', e);
+					//after load hook
+					_cb(_config['afterLoad'], [ e ], fstage);
 				}
 				//resolve
 				resolve(e.exports);
@@ -178,7 +237,7 @@ var loadAsset = function(path, type='') {
 };
 
 //Public: import map
-var importMap = function(paths) {
+var map = function(paths) {
 	//use map?
 	if(!paths || !Object.keys(paths).length) {
 		return;
@@ -194,18 +253,11 @@ var importMap = function(paths) {
 	document.documentElement.firstChild.appendChild(map);
 };
 
-//Public: config
-var config = Object.assign({
-	configPath: '',
-	scriptPath: _formatPath(import.meta.url),
-	basePath: _formatPath((document.querySelector('base') || {}).href || location.href, true)
-}, globalThis.FSCONFIG);
-
 //Public: wrapper
 var fstage = {
-	config: config,
-	load: loadAsset,
-	importMap: importMap
+	get: get,
+	load: load,
+	map: map
 };
 
 //global export
@@ -222,35 +274,31 @@ if(typeof define == 'function' && define.amd) {
 }
 
 //module export
-export { fstage, config, loadAsset, importMap };
+export { get, load, map };
 
 //create modules map
 var importModules = {};
-importModules['@' + _name + '/core'] = config.scriptPath;
+importModules['@' + _name + '/core'] = _config.scriptPath;
 for(var i=0; i < _modules.length; i++) {
-	importModules['@' + _name + '/' + _modules[i]] = config.scriptPath.replace('/' + _name + '.', '/' + _modules[i] + '/index.').replace('.min.', '.');
+	importModules['@' + _name + '/' + _modules[i]] = _config.scriptPath.replace('/' + _name + '.', '/' + _modules[i] + '/index.').replace('.min.', '.');
 }
 
 //import maps
-importMap(importModules);
-importMap(globalThis.FSCONFIG.importMap);
-globalThis.FSCONFIG.importMap = {};
+map(importModules);
+map(_config.importMap);
+_config.importMap = {};
 
 //load config
-loadAsset(config.configPath).then(function() {
+load(_config.configPath).then(function() {
 	//merge config
-	config = Object.assign(config, globalThis.FSCONFIG);
-	globalThis.FSCONFIG = config;
+	_config = Object.assign(_config, globalThis.FSCONFIG || {});
+	globalThis.FSCONFIG = _config;
 	//import map
-	importMap(config.importMap);
+	map(_config.importMap);
 	//set base
-	loadAsset(config.basePath, 'base');
+	load(_config.basePath, 'base');
 	//load assets
-	loadAsset(config.loadAssets).then(function() {
-		//run ready callback?
-		if(typeof config.readyCb == 'function') {
-			config.readyCb(fstage);
-		}
+	load(_config.loadAssets).then(function() {
 		//notify ready
 		globalThis.dispatchEvent(new CustomEvent('fstage.ready'));
 	}).catch(function(err) {

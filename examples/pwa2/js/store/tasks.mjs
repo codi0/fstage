@@ -1,12 +1,11 @@
-import { createStore } from '@fstage/store';
-import { createSyncManager } from '@fstage/sync';
+import { defaultRegistry } from '@fstage/registry';
 
-//get default store
-const store = createStore();
+//get registry
+const registry = defaultRegistry();
 
-//get default sync manager
-const syncManager = createSyncManager();
-
+//get shared objects
+const store = registry.get('store');
+const syncManager = registry.get('syncManager');
 
 //on tasks access
 store.onAccess('tasks', function(e) {

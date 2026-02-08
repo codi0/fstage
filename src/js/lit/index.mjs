@@ -2,30 +2,98 @@ import { LitElement } from 'https://cdn.jsdelivr.net/npm/lit-element@4/+esm';
 export * from 'https://cdn.jsdelivr.net/npm/lit-element@4/+esm';
 
 import { getGlobalCss, stylesToString, callSuper } from '../utils/index.mjs';
-import { createRegistry } from '../registry/index.mjs';
-import { createStore } from '../store/index.mjs';
 
 
 export class FsLitElement extends LitElement {
 
+	static counter = 0;
+	static defaults = {};
+
 	static shadowDom = true;
 	static globalCss = true;
+	
+	static bindDefaults(obj) {
+		Object.assign(this.defaults || {}, obj || {});
+	}
 
 	constructor() {
 		//parent
 		super();
+		//set ID
+		this.__$id = (++FsLitElement.counter);
 		//call willConstruct?
 		if(typeof this.willConstruct === 'function') {
 			this.willConstruct();
 		}
-		//create registry?
-		if(this.registry === undefined) {
-			this.registry = createRegistry();
+		//set defaults
+		for(var i in this.constructor.defaults) {
+			if(this[i] === undefined) {
+				this[i] = this.constructor.defaults[i];
+			}
 		}
-		//create store?
-		if(this.store === undefined) {
-			this.store = createStore();
+		//prepare methods
+		this.prepareTracker();
+		this.prepareInject();
+		//call constructed?
+		if(typeof this.constructed === 'function') {
+			queueMicrotask(() => this.constructed());
 		}
+	}
+
+  connectedCallback() {
+    super.connectedCallback();
+    this.activateInteractions();
+  }
+
+  disconnectedCallback() {
+    this.deactivateInteractions();
+    super.disconnectedCallback();
+  }
+
+	createRenderRoot() {
+		//use shadow dom?
+		if(this.constructor.shadowDom) {
+			//create root
+			var root = super.createRenderRoot();
+			//attach global styles?
+			if(this.constructor.globalCss) {
+				this.attachGlobalStyles(root, getGlobalCss());
+			}
+			//return
+			return root;
+		}
+		//attach local styles?
+		if(this.constructor.styles) {
+			this.attachLocalStyles(this.getRootNode(), this.constructor.styles);
+		}
+		//no shadow
+		return this;
+	}
+
+	performUpdate() {
+		//set vars
+		var stopTracker = null;
+		//has store cache?
+		if(this.__$storeCache) {
+			//start tracking
+			stopTracker = this.__$storeCache.cb();
+			//get props from store
+			for(var i in this.__$storeCache.props) {
+				//get store key
+				var key = this.__$storeCache.props[i];
+				//set props
+				this[i] = this.store.get(key);
+				this[i + 'Meta'] = this.store.meta(key) || {};
+			}
+		}
+		try {
+			super.performUpdate();
+		} finally {
+			stopTracker && stopTracker();
+		}
+	}
+
+	prepareTracker() {
 		//cache store?
 		if(this.store) {
 			this.__$storeCache = {
@@ -35,6 +103,9 @@ export class FsLitElement extends LitElement {
 				}
 			};
 		}
+	}
+	
+	prepareInject() {
 		//process inject?
 		if(this.constructor.inject) {
 			//loop through props
@@ -63,61 +134,57 @@ export class FsLitElement extends LitElement {
 				}
 			}
 		}
-		//call constructed?
-		if(typeof this.constructed === 'function') {
-			queueMicrotask(() => this.constructed());
+	}
+	
+	activateInteractions() {
+		//process interactions?
+		if(this.createInteraction && this.constructor.interactions && !this.__$stopInteractions) {
+			//set vars
+			const key = 'interactions.' + this.__$id;
+			const config = this.constructor.interactions;
+			const container = this.shadowRoot || this
+			//setup interaction observer
+			this.__$stopInteractions = this.createInteraction(key, {
+				store: this.store,
+				executor: function(spec, behaviors) {
+					const behaviorFn = behaviors[spec.name];
+					if (behaviorFn) {
+						var target = spec.target ? container.querySelector(spec.target) : container;
+						return behaviorFn(target, spec);
+					}
+				}
+			});
 		}
 	}
+	
+	deactivateInteractions() {
+		var cb = this.__$stopInteractions;
+		cb && cb();
+		this.__$stopInteractions = undefined;
+	}
 
-	createRenderRoot() {
-		//use shadow dom?
-		if(this.constructor.shadowDom) {
-			//create root
-			var root = super.createRenderRoot();
-			//attach global styles?
-			if(this.constructor.globalCss && root.adoptedStyleSheets) {
-				root.adoptedStyleSheets.push(...getGlobalCss());
-			}
-			//return
-			return root;
-		}
-		//attach local styles?
-		if(this.constructor.styles) {
-			//get root
-			var root = this.getRootNode();
-			//create stylesheet
-			var styles = stylesToString(this.constructor.styles);
-			const cssSheet = new CSSStyleSheet();
-			cssSheet.replace(styles);
+	attachGlobalStyles(root, styles) {
+		//stop here?
+		if(!styles) return;
+		//loop through styles
+		for(var sheet of styles) {
 			//add stylesheet?
-			if(root.adoptedStyleSheets && !root.adoptedStyleSheets.includes(cssSheet)) {
-				root.adoptedStyleSheets.push(cssSheet)
+			if(root.adoptedStyleSheets && !root.adoptedStyleSheets.includes(sheet)) {
+				root.adoptedStyleSheets.push(sheet);
 			}
 		}
-		//no shadow
-		return this;
 	}
 
-	performUpdate() {
-		//set vars
-		var stopTracker = null;
-		//has store cache?
-		if(this.__$storeCache) {
-			//start tracking
-			stopTracker = this.__$storeCache.cb();
-			//get props from store
-			for(var i in this.__$storeCache.props) {
-				//get store key
-				var key = this.__$storeCache.props[i];
-				//set props
-				this[i] = this.store.get(key);
-				this[i + 'Meta'] = this.store.meta(key) || {};
-			}
-		}
-		try {
-			super.performUpdate();
-		} finally {
-			stopTracker && stopTracker();
+	attachLocalStyles(root, styles) {
+		//stop here?
+		if(!styles) return;
+		//create stylesheet
+		var s = stylesToString(styles);
+		const cssSheet = new CSSStyleSheet();
+		cssSheet.replace(s);
+		//add stylesheet?
+		if(root.adoptedStyleSheets && !root.adoptedStyleSheets.includes(cssSheet)) {
+			root.adoptedStyleSheets.push(cssSheet);
 		}
 	}
 

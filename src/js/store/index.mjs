@@ -2,15 +2,11 @@
 import { createQueue } from '../queue/index.mjs';
 import { getType, copy, hash, nestedKey, diffValues } from '../utils/index.mjs';
 
-//private vars
-const _cache = {};
-
 //create store helper
 export function createStore(config={}) {
 	
 	//config defaults
 	config = Object.assign({
-		name: 'default',
 		state: {},
 		copyOnGet: true,
 		schedulers: Object.assign({
@@ -20,11 +16,6 @@ export function createStore(config={}) {
 			trackAccess: 'macro',
 		}, config.schedulers || {})
 	}, config);
-
-	//check cache?
-	if(_cache[config.name]) {
-		return _cache[config.name];
-	}
 
 	//local vars
 	const getCache = {};
@@ -305,10 +296,6 @@ export function createStore(config={}) {
 	//public api
 	const api = {
 
-		name: function() {
-			return config.name;
-		},
-
 		has: function(key) {
 			return api.get(key) !== undefined;
 		},
@@ -552,9 +539,6 @@ export function createStore(config={}) {
 		}
 
 	};
-	
-	//cache api
-	_cache[config.name] = api;
 
 	//return
 	return api;

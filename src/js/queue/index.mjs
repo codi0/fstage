@@ -7,16 +7,6 @@ const _cache = {};
 //create queue helper
 export function createQueue(config={}) {
 
-	//config defaults
-	config = Object.assign({
-		name: 'default',
-	}, config);
-
-	//check cache?
-	if(_cache[config.name]) {
-		return _cache[config.name];
-	}
-
 	//public api
 	const api = {
 
@@ -77,9 +67,6 @@ export function createQueue(config={}) {
 		}
 
 	};
-
-	//add to cache
-	_cache[config.name] = api;
 
 	//return
 	return api;

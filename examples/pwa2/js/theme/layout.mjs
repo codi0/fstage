@@ -1,5 +1,7 @@
-import { config } from '@fstage/core';
+import { get } from '@fstage/core';
 import { FsLitElement, html, css } from '@fstage/lit';
+
+const config = get('config');
 
 export class PwaLayout extends FsLitElement {
 

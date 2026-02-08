@@ -2,9 +2,6 @@
 import { nestedKey } from '../utils/index.mjs';
 import { fetchHttp, formatUrl } from '../http/index.mjs';
 
-//private vars
-const _cache = {};
-
 //is default helper
 function isDefault(val) {
 	return val === null || val === undefined;
@@ -34,15 +31,9 @@ export function createSyncManager(config={}) {
 
 	//config defaults
 	config = Object.assign({
-		name: 'default',
 		queueKey: 'remoteQueue',
 		interval: 30000
 	}, config);
-
-	//check cache?
-	if(_cache[config.name]) {
-		return _cache[config.name];
-	}
 
 	//create queue
 	var queue = {};
@@ -320,9 +311,6 @@ export function createSyncManager(config={}) {
 		}
 
 	};
-
-	//add to cache
-	_cache[name] = api;
 
 	//load queue
 	api.local.read(config.queueKey).then(function(res) {

@@ -1,19 +1,8 @@
 //private vars
-var _cache = {};
 var _counter = 0;
 
-//pubsub wrapper
+//create pubsub
 export function createPubsub(config={}) {
-
-	//set config
-	config = Object.assign({
-		name: 'default'
-	}, config);
-
-	//check cache?
-	if(_cache[config.name]) {
-		return _cache[config.name];
-	}
 
 	//local vars
 	var _cbs = {};
@@ -168,9 +157,6 @@ export function createPubsub(config={}) {
 		}
 	
 	};
-	
-	//save to cache
-	_cache[config.name] = api;
 
 	//return
 	return api;

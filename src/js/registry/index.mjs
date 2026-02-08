@@ -1,28 +1,11 @@
-//private vars
-const _cache = {};
-
-//create registry helper
-export function createRegistry(config={}) {
-	
-	//config defaults
-	config = Object.assign({
-		name: 'default',
-	}, config);
-
-	//check cache?
-	if(_cache[config.name]) {
-		return _cache[config.name];
-	}
+//create registry factory
+export function createRegistry() {
 	
 	//data bag
 	const _data = {};
 
 	//create function
 	const api = {
-	
-		name: function() {
-			return config.name;
-		},
 
 		has: function(key) {
 			return !!_data[key];
@@ -81,10 +64,13 @@ export function createRegistry(config={}) {
 		
 	};
 
-	//add to cache
-	_cache[config.name] = api;
-
 	//return
 	return api;
 
+}
+
+//default registry singleton
+export function defaultRegistry() {
+	defaultRegistry.__$cache = defaultRegistry.__$cache || createRegistry();
+	return defaultRegistry.__$cache;
 }

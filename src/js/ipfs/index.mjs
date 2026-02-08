@@ -13,9 +13,6 @@ export const LevelBlockstore = BlockstoreLevel.LevelBlockstore;
 export const unixfs = HeliaUnixfs.unixfs;
 export const CID = Multiformats.CID;
 
-//private vars
-const _cache = {};
-
 //export create node wrapper
 export function createIpfsNode(config={}) {
 	//set detaults
@@ -23,24 +20,19 @@ export function createIpfsNode(config={}) {
 		name: 'ipfs-helia',
 		persist: true
 	}, config || {});
-	//create instance?
-	if(!_cache[config.name]) {
-		//helia config
-		var hc = {};
-		//persist?
-		if(config.persist) {
-			var datastore = new LevelDatastore(config.name);
-			var blockstore = new LevelBlockstore(config.name);
-			hc = { datastore, blockstore, libp2pDefaults };
-		}
-		//create helia node
-		_cache[config.name] = createHelia(hc).then(function(helia) {
-			//add unix filesystem
-			helia.fs = unixfs(helia);
-			//return
-			return helia;
-		});
+	//helia config
+	var hc = {};
+	//use persist?
+	if(config.persist) {
+		var datastore = new LevelDatastore(config.name);
+		var blockstore = new LevelBlockstore(config.name);
+		hc = { datastore, blockstore, libp2pDefaults };
 	}
-	//return
-	return _cache[config.name];
+	//create helia node
+	return createHelia(hc).then(function(helia) {
+		//add unix filesystem
+		helia.fs = unixfs(helia);
+		//return
+		return helia;
+	});
 }
