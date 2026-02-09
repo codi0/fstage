@@ -57,10 +57,19 @@ export class PwaItemDetail extends FsLitElement {
     }
   `;
 
-  constructor() {
-    super();
+  connectedCallback() {
+    super.connectedCallback();
+    // get task by ID
     this.id = this._readIdFromHash();
     this.task = getTaskById(this.id);
+    // In case of in-place hash changes, keep it simple.
+    this._hashHandler = () => this._refresh();
+    globalThis.addEventListener('hashchange', this._hashHandler);
+  }
+
+  disconnectedCallback() {
+    globalThis.removeEventListener('hashchange', this._hashHandler);
+    super.disconnectedCallback();
   }
 
   _readIdFromHash() {
@@ -75,18 +84,6 @@ export class PwaItemDetail extends FsLitElement {
     this.id = this._readIdFromHash();
     this.task = getTaskById(this.id);
     this.requestUpdate();
-  }
-
-  connectedCallback() {
-    super.connectedCallback();
-    // In case of in-place hash changes, keep it simple.
-    this._hashHandler = () => this._refresh();
-    globalThis.addEventListener('hashchange', this._hashHandler);
-  }
-
-  disconnectedCallback() {
-    globalThis.removeEventListener('hashchange', this._hashHandler);
-    super.disconnectedCallback();
   }
 
   _priorityVariant(priority) {

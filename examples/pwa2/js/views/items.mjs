@@ -158,7 +158,7 @@ export class PwaItems extends FsLitElement {
       </div>
 
       <div class="footer">
-        Tip: this is deliberately “baseline web” — no gesture/animation layer yet.
+        Tip: this is deliberately "baseline web" - no gesture/animation layer yet.
       </div>
     `;
   }

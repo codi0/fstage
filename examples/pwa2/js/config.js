@@ -166,12 +166,19 @@ globalThis.FSCONFIG = {
 			}
 		]);
 
-		router.on(':after', function(route) {
+		let currentView = null;
+		router.on(':after', function(route) {;
 			//get route config
 			const component = get('config.routes.' + route.name + '.component');
-			//render component
-			const el = document.createElement(component);
-			el && rootEl.appendChild(el);
+			//create next view
+			const nextView = document.createElement(component);
+			//remove current view?
+			if(currentView) {
+				currentView.remove();
+			}
+			//update view
+			rootEl.appendChild(nextView);
+			currentView = nextView;
 			//update state
 			store.set(storeKey, route);
 		});

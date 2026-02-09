@@ -26,6 +26,53 @@ export function createRouter(opts = {}) {
 		return path;
 	}
 
+	// Parse route pattern to regex
+	function parsePattern(pattern) {
+		const paramNames = [];
+		const regexPattern = pattern
+			.split('/')
+			.map(segment => {
+				if (segment.startsWith(':')) {
+					const paramName = segment.slice(1);
+					paramNames.push(paramName);
+					return '([^/]+)';
+				}
+				return segment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+			})
+			.join('\\/');
+		
+		return {
+			regex: new RegExp(`^${regexPattern}$`),
+			paramNames
+		};
+	}
+
+	// Match route and extract params
+	function matchRoute(path) {
+		// Exact match first
+		if (path in opts.routes) {
+			return { name: path, params: {} };
+		}
+		
+		// Pattern match
+		for (const pattern in opts.routes) {
+			if (!pattern.includes(':')) continue;
+			
+			const { regex, paramNames } = parsePattern(pattern);
+			const match = path.match(regex);
+			
+			if (match) {
+				const params = {};
+				paramNames.forEach((name, i) => {
+					params[name] = match[i + 1];
+				});
+				return { name: pattern, params };
+			}
+		}
+		
+		return null;
+	}
+
 	// Extract route from URL
 	function getCurrentRoute() {
 		const scheme = opts.urlScheme;
@@ -151,7 +198,14 @@ export function createRouter(opts = {}) {
 
 				// Form submit?
 				if (el.type === 'submit') {
-					const form = el.closest('form');
+					// Find form via composed path or closest
+					let form = null;
+					if (e.composedPath) {
+						form = e.composedPath().find(node => node.tagName === 'FORM');
+					} else {
+						form = el.closest('form');
+					}
+					
 					if (form && !form.dataset.routerBound) {
 						form.dataset.routerBound = 'true';
 						form.addEventListener('submit', e => {
@@ -219,6 +273,11 @@ export function createRouter(opts = {}) {
 				}
 			});
 			_listeners = [];
+			
+			// Clear form binding flags
+			document.querySelectorAll('form[data-router-bound]').forEach(f => {
+				delete f.dataset.routerBound;
+			});
 		},
 
 		is(route) {
@@ -239,19 +298,22 @@ export function createRouter(opts = {}) {
 		},
 
 		trigger(name, data = {}, mode = 'push') {
+			// Match route pattern
+			const matched = matchRoute(name);
+			
 			// Build route (merge data first)
 			const route = {
 				...data,
 				mode: mode,
 				orig: name,
-				name: name,
-				params: data.params || {},
+				name: matched?.name || name,
+				params: { ...(matched?.params || {}), ...(data.params || {}) },
 				lastName: opts.state.name || null,
 				lastParams: opts.state.params || {},
-				is404: !this.has(name),
+				is404: !matched && !this.has(name),
 				isBack: !!data.isBack,
 				action: data.action || 'trigger',
-				title: opts.routes[name].title || ''
+				title: data.title || opts.routes[matched?.name || name]?.title || ''
 			};
 
 			// Handle 404
@@ -262,7 +324,7 @@ export function createRouter(opts = {}) {
 
 			const last = opts.state.name;
 			let routeName = route.name;
-			if (last === routeName) return false;
+			if (last === routeName && JSON.stringify(route.params) === JSON.stringify(route.lastParams)) return false;
 			
 			const cycles = [':before', ':all', routeName, ':after'];
 
@@ -298,7 +360,14 @@ export function createRouter(opts = {}) {
 			}
 
 			// Update state
-			return this.setState(route, mode);
+			const result = this.setState(route, mode);
+			
+			// Restore scroll position on back navigation
+			if (route.isBack && route.scroll !== undefined) {
+				requestAnimationFrame(() => window.scrollTo(0, route.scroll));
+			}
+			
+			return result;
 		},
 
 		redirect(name, data = {}) {
@@ -308,7 +377,10 @@ export function createRouter(opts = {}) {
 
 		refresh() {
 			if (opts.state.name) {
-				return this.trigger(opts.state.name, { action: 'refresh' }, null);
+				return this.trigger(opts.state.orig || opts.state.name, { 
+					action: 'refresh',
+					params: opts.state.params || {}
+				}, null);
 			}
 		},
 
@@ -323,11 +395,10 @@ export function createRouter(opts = {}) {
 			// Fallback if popstate doesn't fire (50ms = industry standard for hybrid)
 			setTimeout(() => {
 				if (!_popstateFired) {
-					// Popstate didn't fire, just refresh current route
-					this.refresh();
+					// Popstate didn't fire - already at history start, do nothing (standard browser behavior)
+					_backPending = false;
 				}
 				_popstateFired = false;
-				_backPending = false;
 			}, 50);
 		},
 
@@ -351,12 +422,8 @@ export function createRouter(opts = {}) {
 			// Update browser history
 			if (mode && history[mode + 'State']) {
 				let url = '';
-				let name = opts.state.name;
-				let title = opts.state.title || document.title || '';
-
-				if (state.is404 && state.orig) {
-					name = state.orig;
-				}
+				let name = state.orig || opts.state.name;
+				let title = state.title || document.title || '';
 
 				if (opts.urlScheme === 'hash') {
 					url = new URL(location.href);

@@ -76,7 +76,7 @@ export class PwaSettings extends FsLitElement {
               Dark mode
             </sl-switch>
             <div class="hint">
-              This doesn’t actually change the theme yet — on purpose.
+              This doesn't actually change the theme yet - on purpose.
             </div>
           </div>
 
