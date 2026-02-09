@@ -67,12 +67,6 @@ export function createRouter(opts = {}) {
 			opts = Object.assign(opts, merge);
 			opts.basePath = normalizePath(opts.basePath);
 
-			// Validate 404 route if specified
-			if (opts.def404 && !opts.routes[opts.def404]) {
-				console.warn(`Router: def404 route "${opts.def404}" not defined`);
-				opts.def404 = null;
-			}
-
 			// Popstate handler
 			const onPopstate = e => {
 				if (!e.state?.name || !_started) return;
@@ -86,17 +80,12 @@ export function createRouter(opts = {}) {
 					return;
 				}
 
-				// Determine direction from ID
-				const direction = (typeof e.state.id === 'number' && e.state.id < opts.histId)
-					? 'back' : 'forward';
-
 				const data = {
 					id: e.state.id,
+					action: 'history',
 					params: e.state.params,
-					isBack: direction === 'back',
 					scroll: e.state.scroll,
-					actionType: 'history',
-					direction
+					isBack: e.state.id && e.state.id < opts.histId
 				};
 
 				opts.histId = e.state.id ?? opts.histId;
@@ -108,7 +97,7 @@ export function createRouter(opts = {}) {
 				if (!_started || opts.urlScheme !== 'hash') return;
 				const hash = location.hash.slice(1) || opts.defHome;
 				if (hash && hash !== opts.state.name) {
-					api.trigger(hash, { actionType: 'hash', direction: 'forward' }, null);
+					api.trigger(hash, { action: 'hash' }, null);
 				}
 			};
 			
@@ -121,7 +110,19 @@ export function createRouter(opts = {}) {
 			const onClick = e => {
 				if (e.defaultPrevented || !_started) return;
 				
-				const el = e.target.closest('[data-route], [data-href], [href]');
+				let el = null;
+				const selector = '[data-route], [data-href], [href]';
+
+				if(e.composedPath) {
+					const path = e.composedPath();
+					if (!path) return;
+					el = path.find(function(node) {
+						return (node instanceof Element) && node.matches(selector);
+					});
+				} else if (e.target instanceof Element) {
+					el = e.target.closest(selector);
+				}
+				
 				if (!el) return;
 
 				const name = getRouteName(el);
@@ -137,8 +138,7 @@ export function createRouter(opts = {}) {
 
 				const data = {
 					params: {},
-					actionType: 'click',
-					direction: mode === 'replace' ? 'replace' : 'forward'
+					action: 'click'
 				};
 
 				// Parse params
@@ -161,7 +161,7 @@ export function createRouter(opts = {}) {
 							const submitName = getRouteName(btn);
 							const submitMode = btn.getAttribute('data-history') || 'push';
 							const submitParams = (btn.getAttribute('data-params') || '').split(';');
-							const submitData = { params: {}, actionType: 'submit', direction: submitMode === 'replace' ? 'replace' : 'forward' };
+							const submitData = { params: {}, action: 'submit' };
 							submitParams.forEach(p => {
 								const [k, v] = p.split(':', 2);
 								if (v !== undefined) submitData.params[k.trim()] = v.trim();
@@ -202,9 +202,7 @@ export function createRouter(opts = {}) {
 			const route = getCurrentRoute() || opts.defHome;
 			if (route) {
 				api.trigger(route, {
-					init: true,
-					actionType: 'init',
-					direction: 'replace'
+					action: 'init'
 				}, 'replace');
 			}
 
@@ -236,35 +234,30 @@ export function createRouter(opts = {}) {
 		},
 
 		on(route, fn) {
-			if (route?.[0] === ':') {
-				opts.middleware[route] = opts.middleware[route] || [];
-				opts.middleware[route].push(fn);
-			} else {
-				opts.routes[route] = fn;
-			}
+			opts.middleware[route] = opts.middleware[route] || [];
+			opts.middleware[route].push(fn);
 		},
 
 		trigger(name, data = {}, mode = 'push') {
 			// Build route (merge data first)
 			const route = {
 				...data,
-				name,
+				mode: mode,
 				orig: name,
+				name: name,
 				params: data.params || {},
-				mode,
-				actionType: data.actionType || 'trigger',
-				direction: data?.direction || (data?.isBack ? 'back' : (mode === 'replace' ? 'replace' : 'forward')),
-				action: opts.routes[name],
-				last: opts.state.name || null,
-				lastParams: opts.state.params || null,
-				is404: !this.has(name)
+				lastName: opts.state.name || null,
+				lastParams: opts.state.params || {},
+				is404: !this.has(name),
+				isBack: !!data.isBack,
+				action: data.action || 'trigger',
+				title: opts.routes[name].title || ''
 			};
 
 			// Handle 404
 			if (route.is404) {
 				route.name = opts.def404;
 				if (!this.has(route.name)) return false;
-				route.action = opts.routes[route.name];
 			}
 
 			const last = opts.state.name;
@@ -276,9 +269,7 @@ export function createRouter(opts = {}) {
 			// Execute middleware pipeline
 			for (let i = 0; i < cycles.length; i++) {
 				const id = cycles[i];
-				const listeners = (id === routeName) 
-					? [route.action] 
-					: (opts.middleware[id] || []);
+				const listeners = (opts.middleware[id] || []);
 
 				for (let j = 0; j < listeners.length; j++) {
 					const fn = listeners[j];
@@ -301,7 +292,6 @@ export function createRouter(opts = {}) {
 						route.name = result.name;
 						routeName = result.name;
 						cycles[2] = routeName;
-						route.action = result.action || opts.routes[routeName];
 						Object.assign(route, result);
 					}
 				}
@@ -312,14 +302,13 @@ export function createRouter(opts = {}) {
 		},
 
 		redirect(name, data = {}) {
-			data.actionType = data.actionType || 'redirect';
-			data.direction = data.direction || 'replace';
+			data.action = data.action || 'redirect';
 			return this.trigger(name, data, 'replace');
 		},
 
 		refresh() {
 			if (opts.state.name) {
-				return this.trigger(opts.state.name, { actionType: 'refresh' }, null);
+				return this.trigger(opts.state.name, { action: 'refresh' }, null);
 			}
 		},
 

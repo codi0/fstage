@@ -137,13 +137,13 @@
 			</div>
 		</div>
 	</div>
-	<pwa-layout></pwa-layout>
+	<pwa-app></pwa-app>
 	<script>
 	(function() {
 
 		//set config
 		window.FSCONFIG = {
-			rootEl: 'pwa-layout',
+			rootEl: 'pwa-app',
 			loadScreen: 'spinner',
 			swPath: 'sw.js',
 			configPath: 'js/config.js',
@@ -180,6 +180,9 @@
 			},
 			swInstalling: function() {
 				return tests.swCan() && !tests.swHas() && FSCONFIG.swPath;
+			},
+			isDev: function() {
+				return [ '', 'localhost' ].includes(location.hostname);
 			},
 			online: function() {
 				return !window.navigator || navigator.onLine !== false;
@@ -273,8 +276,6 @@
 
 		//load failed helper
 		var loadFailed = function() {
-			return;
-
 			//is online?
 			if(!tests.online()) {
 				return;
@@ -283,10 +284,12 @@
 			splash.show({
 				message: 'App installation failed... re-trying in 5 seconds'
 			});
-			//timeout
-			setTimeout(function() {
-				location.reload();
-			}, 5000);		
+			//timeout?
+			if(!tests.isDev()) {
+				setTimeout(function() {
+					location.reload();
+				}, 5000);
+			}	
 		};
 
 		//show splash

@@ -12,7 +12,7 @@ export function detectIntent(prev, next) {
 			from: prev ? prev.name : null,
 			to: next.name,
 			direction: next.direction || 'forward',
-			actionType: next.actionType || 'trigger'
+			action: next.action || 'trigger'
 		};
 	}
 

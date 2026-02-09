@@ -21,8 +21,8 @@ globalThis.FSCONFIG = {
 			'@fstage/sync',
 			'@fstage/lit',
 			'@fstage/router',
-			'@fstage/animator',
-			'@fstage/interaction',
+			//'@fstage/animator',
+			//'@fstage/interaction',
 			//shoelace
 			'https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.20.1/cdn/themes/light.css',
 			'https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.20.1/cdn/shoelace-autoloader.js?esm',
@@ -32,14 +32,15 @@ globalThis.FSCONFIG = {
 			//'@capacitor/camera',
 		],
 		app: [
-			//store
-			'js/store/tasks.mjs',
-			//theme
-			'js/theme/layout.mjs',
-			'js/theme/header.mjs',
-			//pages
-			'js/pages/home.mjs',
-			'js/pages/about.mjs',
+			//layout
+			'js/layout/app.mjs',
+			'js/layout/header.mjs',
+			//views
+			'js/views/home.mjs',
+			'js/views/about.mjs',
+			'js/views/settings.mjs',
+			'js/views/items.mjs',
+			'js/views/item-detail.mjs',
 			//misc
 			'css/style.css',
 			'manifest.json',
@@ -48,8 +49,6 @@ globalThis.FSCONFIG = {
 	},
 
 	beforeLoad: function(e) {
-		//console.log('beforeLoad', e);
-
 		const env = this.get('env');
 	
 		//skip loading web capacitor packages when running in native hybrid environment
@@ -59,48 +58,41 @@ globalThis.FSCONFIG = {
 	},
 	
 	afterLoad: function(e) {
-		//console.log('afterLoad', e);
+		//no-op
 	},
 
 	afterLoadLibs: function(e) {
-		console.log('afterLoadLibs', this);
+		const { get } = this;
 
-		const registry = this.get('registry.defaultRegistry', []);
-		const env = this.get('env');
+		const registry = get('registry.defaultRegistry', []);
+		const env = get('env');
 		
-		const store = this.get('store.createStore', []);
-		const syncManager = this.get('sync.createSyncManager', []);
-		const router = this.get('router.createRouter', [ { defHome: '/', routes: this.get('config.routes') } ]);
+		const store = get('store.createStore', []);
+		const syncManager = get('sync.createSyncManager', []);
+		const router = get('router.createRouter', [ { defHome: '/', routes: get('config.routes') } ]);
 				
 		registry.set('env', env);
 		registry.set('store', store);
-		registry.set('syncManager', syncManager);
 		registry.set('router', router);
+		registry.set('syncManager', syncManager);
 	},
 	
 	afterLoadApp: function(e) {
-		console.log('afterLoadApp', this);
-		
-		const registry = this.get('registry.defaultRegistry', []);
+		const { get } = this;
+	
+		const registry = get('registry.defaultRegistry', []);
 		const rootEl = document.querySelector('#main-content');
 		const storeKey = 'route';
 			
 		const env = registry.get('env');
 		const store = registry.get('store');
 		const router = registry.get('router');
-		const animator = this.get('animator.createAnimator', [ rootEl ]);
 
-		const createInteraction = this.get('interaction.createInteraction');
-		const createExecutor = this.get('interaction.createExecutor');
-		const createGestureHandler = this.get('gesture.createGestureHandler');
-			
-		this.get('lit.FsLitElement.bindDefaults', [
-			{
-				store: store,
-				registry: registry,
-				createInteraction: createInteraction
-			}
-		]);
+		/*
+		const animator = get('animator.createAnimator', [ rootEl ]);
+		const createInteraction = get('interaction.createInteraction');
+		const createExecutor = get('interaction.createExecutor');
+		const createGestureHandler = get('gesture.createGestureHandler');
 
 		if(createInteraction) {
 			createInteraction(storeKey, {
@@ -119,10 +111,20 @@ globalThis.FSCONFIG = {
 				animator: animator
 			});
 		}
+		*/
+
+		get('lit.FsLitElement.bindDefaults', [
+			{
+				store: store,
+				registry: registry
+			}
+		]);
 
 		router.on(':after', function(route) {
+			//get route config
+			const component = get('config.routes.' + route.name + '.component');
 			//render component
-			const el = document.createElement(route.action.component);
+			const el = document.createElement(component);
 			el && rootEl.appendChild(el);
 			//update state
 			store.set(storeKey, route);
@@ -132,8 +134,35 @@ globalThis.FSCONFIG = {
 	},
 
 	routes: {
-		'/': { component: 'pwa-home', title: 'Home', menu: 1 },
-		'/about': { component: 'pwa-about', title: 'About', menu: 1 }
+		'/': {
+			component: 'pwa-home',
+			title: 'Home',
+			menu: 1
+		},
+
+		'/items': {
+			component: 'pwa-items',
+			title: 'Items',
+			menu: 1
+		},
+
+		'/items/:id': {
+			component: 'pwa-item-detail',
+			title: 'Item',
+			menu: 0
+		},
+
+		'/settings': {
+			component: 'pwa-settings',
+			title: 'Settings',
+			menu: 1
+		},
+
+		'/about': {
+			component: 'pwa-about',
+			title: 'About',
+			menu: 1
+		}
 	},
 
 	swPreCache: [
