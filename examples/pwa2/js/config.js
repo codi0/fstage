@@ -5,9 +5,8 @@ globalThis.FSCONFIG = {
 	name: 'Fstage Tasks',
 	
 	importMap: {
-		'@capacitor/core': 'https://cdn.jsdelivr.net/npm/@capacitor/core@7/+esm',
-		'@capacitor/camera': 'https://cdn.jsdelivr.net/npm/@capacitor/camera@7/+esm',
-		'@capacitor/splash-screen': 'https://cdn.jsdelivr.net/npm/@capacitor/splash-screen@7/+esm'
+		'@shoelace-style/': 'https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2/cdn/',
+		'@capacitor/': 'https://cdn.jsdelivr.net/npm/@capacitor/'
 	},
 
 	loadAssets: {
@@ -24,12 +23,19 @@ globalThis.FSCONFIG = {
 			//'@fstage/animator',
 			//'@fstage/interaction',
 			//shoelace
-			'https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.20.1/cdn/themes/light.css',
-			'https://cdn.jsdelivr.net/npm/@shoelace-style/shoelace@2.20.1/cdn/shoelace-autoloader.js?esm',
+			'@shoelace-style/themes/light.css',
+			'@shoelace-style/components/alert/alert.js?esm',
+			'@shoelace-style/components/badge/badge.js?esm',
+			'@shoelace-style/components/button/button.js?esm',
+			'@shoelace-style/components/card/card.js?esm',
+			'@shoelace-style/components/checkbox/checkbox.js?esm',
+			'@shoelace-style/components/input/input.js?esm',
+			'@shoelace-style/components/option/option.js?esm',
+			'@shoelace-style/components/switch/switch.js?esm'
 			//capacitor
-			//'@capacitor/core',
-			//'@capacitor/splash-screen',
-			//'@capacitor/camera',
+			//'@capacitor/core@7/+esm',
+			//'@capacitor/camera@7/+esm',
+			//'@capacitor/splash-screen@7/+esm'
 		],
 		app: [
 			//layout
@@ -46,6 +52,46 @@ globalThis.FSCONFIG = {
 			'manifest.json',
 			'favicon.png'
 		]
+	},
+
+	routes: {
+		'/': {
+			component: 'pwa-home',
+			title: 'Home',
+			menu: 1
+		},
+
+		'/items': {
+			component: 'pwa-items',
+			title: 'Items',
+			menu: 1
+		},
+
+		'/items/:id': {
+			component: 'pwa-item-detail',
+			title: 'Item',
+			menu: 0
+		},
+
+		'/settings': {
+			component: 'pwa-settings',
+			title: 'Settings',
+			menu: 1
+		},
+
+		'/about': {
+			component: 'pwa-about',
+			title: 'About',
+			menu: 1
+		}
+	},
+
+	swPreCache: [
+		'./'
+	],
+
+	swCachePolicies: {
+		'https://cdn.jsdelivr.net': 'cors'
 	},
 
 	beforeLoad: function(e) {
@@ -131,46 +177,6 @@ globalThis.FSCONFIG = {
 		});
 
 		router.start();
-	},
-
-	routes: {
-		'/': {
-			component: 'pwa-home',
-			title: 'Home',
-			menu: 1
-		},
-
-		'/items': {
-			component: 'pwa-items',
-			title: 'Items',
-			menu: 1
-		},
-
-		'/items/:id': {
-			component: 'pwa-item-detail',
-			title: 'Item',
-			menu: 0
-		},
-
-		'/settings': {
-			component: 'pwa-settings',
-			title: 'Settings',
-			menu: 1
-		},
-
-		'/about': {
-			component: 'pwa-about',
-			title: 'About',
-			menu: 1
-		}
-	},
-
-	swPreCache: [
-		'./'
-	],
-
-	swCachePolicies: {
-		'https://cdn.jsdelivr.net': 'cors'
 	}
 
 };

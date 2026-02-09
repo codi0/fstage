@@ -1,10 +1,33 @@
-//Private: vars
-var _exports = {};
+/**
+ * A javascript module loader and registry, to support building composable frameworks
+**/
+
+//config vars
 var _name = 'fstage';
-var _swUpdate = localStorage.getItem('swUpdate') == 1;
+var _confName = 'FSCONFIG';
 var _modules = [ 'animator', 'diff', 'dom', 'env', 'form', 'hls', 'http', 'ipfs', 'interaction', 'lit', 'observe', 'pubsub', 'queue', 'registry', 'router', 'store', 'sync', 'utils', 'webpush', 'websocket' ];
 
-//Private: format path
+//misc vars
+var _global = {};
+var _config = {};
+var _exports = {};
+var _uri = import.meta.url;
+var _swUpdate = localStorage.getItem('swUpdate') == 1;
+
+//invoke callback helper
+var _cb = function(fn, args, ctx) {
+	if(ctx === undefined) {
+		ctx = _global;
+	}
+	try {
+		return fn ? fn.apply(ctx, args || []) : null;
+	} catch (err) {
+		console.error(err);
+		throw err;
+	}
+};
+
+//format path helper
 var _formatPath = function(path, removeFile=false) {
 	//remove hash
 	path = path.split('#')[0];
@@ -28,25 +51,52 @@ var _formatPath = function(path, removeFile=false) {
 	return path;
 };
 
-//Private: config
-var _config = _exports['config'] = Object.assign({
-	configPath: '',
-	scriptPath: _formatPath(import.meta.url),
-	basePath: _formatPath((document.querySelector('base') || {}).href || location.href, true),
-	importMap: {}
-}, globalThis.FSCONFIG || {});
+//deep merge helper
+var _merge = function(target, source) {
+	//loop through source
+  for(var key in source) {
+    if(source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
+      target[key] = _merge(target[key] || {}, source[key]);
+    } else {
+      target[key] = source[key];
+    }
+  }
+	//return
+  return target;
+};
 
-//Private: safe callback
-var _cb = function(fn, args, ctx=null) {
-	try {
-		return fn ? fn.apply(ctx, args) : null;
-	} catch (err) {
-		console.error(err);
-		throw err;
+//build import map helper
+var _buildMap = function(paths) {
+	//use map?
+	if(!paths || !Object.keys(paths).length) {
+		return;
 	}
-}
+	//create map
+	var map = document.createElement('script');
+	map.type = 'importmap';
+	//set content
+	map.textContent = JSON.stringify({
+		imports: paths
+	});
+	//add to document
+	document.documentElement.firstChild.appendChild(map);
+};
 
-//Public: get helper
+//query import map helper
+var _queryMap = function() {
+	//set vars
+	var res = {};
+	var importMaps = document.querySelectorAll('script[type="importmap"]');
+	//loop through maps
+	importMaps.forEach(function(s) {
+		var m = JSON.parse(s.textContent);
+		Object.assign(res, m.imports || {});
+	});
+	//return
+	return res;
+};
+
+//get path helper
 var get = function(path, args=null) {
   //set vars
   var t = null;
@@ -75,10 +125,9 @@ var get = function(path, args=null) {
 	return res;
 };
 
-//Public: load helper
+//load path helper
 var load = function(path, type='') {
 	//set vars
-	var name = '';
 	var scope = '@' + _name;
 	//Helper: is object
 	var isObject = function(input) {
@@ -120,7 +169,7 @@ var load = function(path, type='') {
 					//get group name
 					var group = i[0].toUpperCase() + i.slice(1);
 					//group loaded hook
-					_cb(_config['afterLoad' + group], [ res ], fstage);
+					_cb(_config['afterLoad' + group], [ res ]);
 					//delete property
 					delete path[i];
 					//load next
@@ -136,20 +185,29 @@ var load = function(path, type='') {
 	//create promise
 	return new Promise(function(resolve, reject) {
 		//create event
-		var e = { path: path, type: type };
-		//is module?
+		var e = {
+			type: type,
+			path: path.replace(scope + '/', '')
+		};
+		//is cached?
+		if(_exports[e.path]) {
+			resolve(_exports[e.path]);
+			return;
+		}
+		//set default scope?
 		if(_modules.includes(e.path)) {
 			e.path = scope + '/' + e.path;
 		}
 		//before load hook
-		_cb(_config['beforeLoad'], [ e ], fstage);
+		_cb(_config['beforeLoad'], [ e ]);
 		//valid path?
 		if(!e.path) {
 			return resolve();
 		}
 		//set vars
-		var isBase = (e.type == 'base');
+		var isBase = (e.type === 'base');
 		var isScript = /(\+esm|\.m?js)(\#|\?|$)/.test(e.path);
+		var name = path.replace(scope + '/', '');
 		//guess type?
 		if(!e.type) {
 			if(/^[a-zA-Z0-9\/\-\_\@]+$/.test(e.path) || /(\.|\?|\+)(mjs|esm|es6)/.test(e.path)) {
@@ -160,36 +218,48 @@ var load = function(path, type='') {
 				e.type = 'icon';
 			}
 		}
-		//is module?
-		if(e.type == 'module') {
-			//add base path?
-			if(e.path.indexOf(_config.basePath) == -1 && e.path.indexOf('://') == -1 && e.path.indexOf('.') >= 0) {
-				e.path = _config.basePath + e.path;
+		//resolve import map?
+		if(_config.importMap[e.path]) {
+			e.path = _config.importMap[e.path];
+		} else {
+			var bestMatch = Object.keys(_config.importMap).filter(function(key) {
+				return e.path.startsWith(key);
+			}).sort(function(a, b) {
+				return b.length - a.length;
+			})[0];
+			if (bestMatch) {
+				e.path = _config.importMap[bestMatch] + e.path.slice(bestMatch.length);
 			}
+		}
+		//add base path?
+		if(e.path.indexOf(_config.basePath) == -1 && e.path.indexOf('://') == -1 && e.path.indexOf('.') >= 0) {
+			e.path = _config.basePath + e.path;
+		}
+		//is module?
+		if(e.type === 'module') {
 			//dynamic import
 			return import(e.path).then(function(exports) {
 				//add to event
 				e.exports = exports;
-				e.name = e.path.replace(scope + '/', '');
 				//process exports?
 				if(e.exports) {
-					//is fstage module?
-					if(!_exports[e.name] && _modules.includes(e.name)) {
+					//is core module?
+					if(!_exports[name] && _modules.includes(name)) {
 						//set default?
-						if(e.exports.default || e.exports[e.name]) {
-							_exports[e.name] = e.exports.default || e.exports[e.name];
+						if(e.exports.default || e.exports[name]) {
+							_exports[name] = e.exports.default || e.exports[name];
 						} else {
-							_exports[e.name] = {};
+							_exports[name] = {};
 						}
 						//loop through exports
 						for(var i in e.exports) {
-							if(i !== 'default' && i != e.name) {
-								_exports[e.name][i] = e.exports[i];
+							if(i !== 'default' && i !== name) {
+								_exports[name][i] = e.exports[i];
 							}
 						}
 					}
 					//after load hook
-					_cb(_config['afterLoad'], [ e ], fstage);
+					_cb(_config['afterLoad'], [ e ]);
 				}
 				//resolve
 				resolve(e.exports);
@@ -199,7 +269,7 @@ var load = function(path, type='') {
 			});
 		}
 		//update existing link?
-		if(e.type == 'icon' || e.type == 'manifest') {
+		if(e.type === 'icon' || e.type === 'manifest') {
 			var i = document.querySelector('link[rel="' + e.type + '"]');
 			if(i) { i.href = e.path; return resolve(); }
 		}
@@ -217,11 +287,11 @@ var load = function(path, type='') {
 			}
 		}
 		//use listeners?
-		if(isScript || el.rel == 'stylesheet') {
+		if(isScript || el.rel === 'stylesheet') {
 			el.setAttribute('crossorigin', 'anonymous');
 			[ 'load', 'error' ].forEach(function(k) {
 				el.addEventListener(k, function() {	
-					if(k == 'load') {
+					if(k === 'load') {
 						resolve();
 					} else {
 						reject();
@@ -236,76 +306,68 @@ var load = function(path, type='') {
 	});
 };
 
-//Public: import map
-var map = function(paths) {
-	//use map?
-	if(!paths || !Object.keys(paths).length) {
-		return;
-	}
-	//create map
-	var map = document.createElement('script');
-	map.type = 'importmap';
-	//set content
-	map.textContent = JSON.stringify({
-		imports: paths
-	});
-	//add to document
-	document.documentElement.firstChild.appendChild(map);
-};
 
-//Public: wrapper
-var fstage = {
-	get: get,
-	load: load,
-	map: map
-};
+/* INIT */
 
-//global export
-globalThis.Fstage = fstage;
+//setup config object
+_config = _exports['config'] = Object.assign({
+	configPath: '',
+	scriptPath: _formatPath(import.meta.url, true),
+	basePath: _formatPath((document.querySelector('base') || {}).href || location.href, true),
+	importMap: {}
+}, globalThis[_confName] || {});
 
-//cjs export?
-if(typeof module == 'object' && module.exports) {
-	module.exports = fstage;
-}
+//add core mappings
+_config.importMap['@' + _name + '/'] = _config.scriptPath;
+_config.importMap['@' + _name + '/core'] = _uri;
 
-//amd export?
-if(typeof define == 'function' && define.amd) {
-	define(_name, [], function() { return fstage; });
-}
-
-//module export
-export { get, load, map };
-
-//create modules map
-var importModules = {};
-importModules['@' + _name + '/core'] = _config.scriptPath;
+//loop through defined modules
 for(var i=0; i < _modules.length; i++) {
-	importModules['@' + _name + '/' + _modules[i]] = _config.scriptPath.replace('/' + _name + '.', '/' + _modules[i] + '/index.').replace('.min.', '.');
+	_config.importMap['@' + _name + '/' + _modules[i]] = _config.scriptPath + _modules[i] + '/index.mjs';
 }
-
-//import maps
-map(importModules);
-map(_config.importMap);
-_config.importMap = {};
 
 //load config
 load(_config.configPath).then(function() {
 	//merge config
-	_config = Object.assign(_config, globalThis.FSCONFIG || {});
-	globalThis.FSCONFIG = _config;
+	globalThis[_confName] = _config = _merge(_config, globalThis[_confName] || {});
 	//import map
-	map(_config.importMap);
+	_buildMap(_config.importMap);
+	//find all import maps
+	_config.importMap = _queryMap();
 	//set base
 	load(_config.basePath, 'base');
 	//load assets
 	load(_config.loadAssets).then(function() {
 		//notify ready
-		globalThis.dispatchEvent(new CustomEvent('fstage.ready'));
+		globalThis.dispatchEvent(new CustomEvent(_name + '.ready'));
 	}).catch(function(err) {
 		//notify failed
-		globalThis.dispatchEvent(new Event('fstage.failed'));
+		globalThis.dispatchEvent(new Event(_name + '.failed'));
 	});
 }).catch(function(err) {
 	//notify failed
-	globalThis.dispatchEvent(new Event('fstage.failed'));
+	globalThis.dispatchEvent(new Event(_name + '.failed'));
 });
+
+
+/* EXPORTS */
+
+//public API
+_global = { get: get, load: load };
+
+//set globals
+globalThis[_name] = _global;
+globalThis[_confName] = {};
+
+//cjs export?
+if(typeof module === 'object' && module.exports) {
+	module.exports = _global;
+}
+
+//amd export?
+if(typeof define === 'function' && define.amd) {
+	define(_name, [], function() { return _global; });
+}
+
+//module export
+export { get, load };
