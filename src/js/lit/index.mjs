@@ -3,7 +3,7 @@ export * from 'https://cdn.jsdelivr.net/npm/lit-element@4/+esm';
 
 import { getGlobalCss, stylesToString, callSuper } from '../utils/index.mjs';
 
-
+//lit base class extension
 export class FsLitElement extends LitElement {
 
 	static counter = 0;
@@ -137,30 +137,11 @@ export class FsLitElement extends LitElement {
 	}
 	
 	activateInteractions() {
-		//process interactions?
-		if(this.createInteraction && this.constructor.interactions && !this.__$stopInteractions) {
-			//set vars
-			const key = 'interactions.' + this.__$id;
-			const config = this.constructor.interactions;
-			const container = this.shadowRoot || this
-			//setup interaction observer
-			this.__$stopInteractions = this.createInteraction(key, {
-				store: this.store,
-				executor: function(spec, behaviors) {
-					const behaviorFn = behaviors[spec.name];
-					if (behaviorFn) {
-						var target = spec.target ? container.querySelector(spec.target) : container;
-						return behaviorFn(target, spec);
-					}
-				}
-			});
-		}
+		//TO-DO
 	}
 	
 	deactivateInteractions() {
-		var cb = this.__$stopInteractions;
-		cb && cb();
-		this.__$stopInteractions = undefined;
+		//TO-DO
 	}
 
 	attachGlobalStyles(root, styles) {
@@ -203,6 +184,7 @@ export class FsLitElement extends LitElement {
 
 }
 
+//create component wrapper
 export function createComponent(tag, def, BaseClass = FsLitElement) {
 	//has tag name?
 	if(typeof tag !== 'string') {

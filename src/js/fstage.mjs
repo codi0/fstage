@@ -232,8 +232,8 @@ var load = function(path, type='') {
 			}
 		}
 		//add base path?
-		if(e.path.indexOf(_config.basePath) == -1 && e.path.indexOf('://') == -1 && e.path.indexOf('.') >= 0) {
-			e.path = _config.basePath + e.path;
+		if(e.path.indexOf(_config.baseDir) == -1 && e.path.indexOf('://') == -1 && e.path.indexOf('.') >= 0) {
+			e.path = _config.baseDir + e.path;
 		}
 		//is module?
 		if(e.type === 'module') {
@@ -312,18 +312,18 @@ var load = function(path, type='') {
 //setup config object
 _config = _exports['config'] = Object.assign({
 	configPath: '',
-	scriptPath: _formatPath(import.meta.url, true),
-	basePath: _formatPath((document.querySelector('base') || {}).href || location.href, true),
+	scriptDir: _formatPath(import.meta.url, true),
+	baseDir: _formatPath((document.querySelector('base') || {}).href || location.href, true),
 	importMap: {}
 }, globalThis[_confName] || {});
 
 //add core mappings
-_config.importMap['@' + _name + '/'] = _config.scriptPath;
+_config.importMap['@' + _name + '/'] = _config.scriptDir;
 _config.importMap['@' + _name + '/core'] = _uri;
 
 //loop through defined modules
 for(var i=0; i < _modules.length; i++) {
-	_config.importMap['@' + _name + '/' + _modules[i]] = _config.scriptPath + _modules[i] + '/index.mjs';
+	_config.importMap['@' + _name + '/' + _modules[i]] = _config.scriptDir + _modules[i] + '/index.mjs';
 }
 
 //load config
@@ -335,7 +335,7 @@ load(_config.configPath).then(function() {
 	//find all import maps
 	_config.importMap = _queryMap();
 	//set base
-	load(_config.basePath, 'base');
+	load(_config.baseDir, 'base');
 	//load assets
 	load(_config.loadAssets).then(function() {
 		//notify ready

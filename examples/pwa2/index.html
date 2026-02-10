@@ -147,9 +147,7 @@
 			loadScreen: 'spinner',
 			swPath: 'sw.js',
 			configPath: 'js/config.js',
-			setupPath: '../../src/js/fstage.mjs', //CDN: https://cdn.jsdelivr.net/gh/codi0/fstage@latest/src/js/fstage.min.mjs
-			tests: tests,
-			splash: splash
+			scriptPath: '../../src/js/fstage.mjs' //CDN: https://cdn.jsdelivr.net/gh/codi0/fstage@latest/src/js/fstage.min.mjs
 		};
 
 		//tests helper
@@ -299,14 +297,17 @@
 		if(!tests.es6Can() || !tests.lsCan()) {
 			return;
 		}
-		
+
+		//cache splash
+		window.FSCONFIG.splash = splash;
+
 		//load pwa
 		window.addEventListener('load', function(e) {
 			//init helper
 			var init = function() {
 				//create script
 				var s = document.createElement('script');
-				s.src = FSCONFIG.setupPath;
+				s.src = FSCONFIG.scriptPath;
 				s.type = 'module';
 				document.documentElement.firstChild.appendChild(s);
 				//log timer

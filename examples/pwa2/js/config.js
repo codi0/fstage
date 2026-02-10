@@ -134,31 +134,6 @@ globalThis.FSCONFIG = {
 		const router = get('router.createRouter', [ { defHome: '/', routes: get('config.routes'), scroller: rootEl } ]);
 		registry.set('router', router);
 
-		/*
-		const animator = get('animator.createAnimator', [ rootEl ]);
-		const createInteraction = get('interaction.createInteraction');
-		const createExecutor = get('interaction.createExecutor');
-		const createGestureHandler = get('gesture.createGestureHandler');
-
-		if(createInteraction) {
-			createInteraction(storeKey, {
-				store: store,
-				env: env,
-				animator: animator,
-				executor: createExecutor(rootEl)
-			});
-		}
-
-		if(createGestureHandler) {
-			createGestureHandler(storeKey, {
-				container: rootEl,
-				store: store,
-				env: env,
-				animator: animator
-			});
-		}
-		*/
-
 		get('lit.FsLitElement.bindDefaults', [
 			{
 				store: store,
@@ -167,6 +142,7 @@ globalThis.FSCONFIG = {
 		]);
 
 		let currentView = null;
+
 		router.on(':after', function(route) {
 			//set vars
 			const appName = get('config.name');
