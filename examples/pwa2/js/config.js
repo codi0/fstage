@@ -115,11 +115,9 @@ globalThis.FSCONFIG = {
 		
 		const store = get('store.createStore', []);
 		const syncManager = get('sync.createSyncManager', []);
-		const router = get('router.createRouter', [ { defHome: '/', routes: get('config.routes') } ]);
 				
 		registry.set('env', env);
 		registry.set('store', store);
-		registry.set('router', router);
 		registry.set('syncManager', syncManager);
 	},
 	
@@ -132,7 +130,9 @@ globalThis.FSCONFIG = {
 			
 		const env = registry.get('env');
 		const store = registry.get('store');
-		const router = registry.get('router');
+		
+		const router = get('router.createRouter', [ { defHome: '/', routes: get('config.routes'), scroller: rootEl } ]);
+		registry.set('router', router);
 
 		/*
 		const animator = get('animator.createAnimator', [ rootEl ]);
@@ -167,11 +167,12 @@ globalThis.FSCONFIG = {
 		]);
 
 		let currentView = null;
-		router.on(':after', function(route) {;
-			//get route config
-			const component = get('config.routes.' + route.name + '.component');
+		router.on(':after', function(route) {
+			//set vars
+			const appName = get('config.name');
+			const routeConf = get('config.routes.' + route.name);
 			//create next view
-			const nextView = document.createElement(component);
+			const nextView = document.createElement(routeConf.component);
 			//remove current view?
 			if(currentView) {
 				currentView.remove();
@@ -179,6 +180,14 @@ globalThis.FSCONFIG = {
 			//update view
 			rootEl.appendChild(nextView);
 			currentView = nextView;
+			//update title?
+			if(routeConf.title) {
+				document.title = routeConf.title + (appName ? ' | ' + appName : '');
+			}
+			//restore scroll position
+			requestAnimationFrame(function() {
+				rootEl.scrollTop = route.scroll;
+			});
 			//update state
 			store.set(storeKey, route);
 		});

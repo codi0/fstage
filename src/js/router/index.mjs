@@ -6,11 +6,12 @@ export function createRouter(opts = {}) {
 		state: {},
 		routes: {},
 		middleware: {},
+		basePath: '/',
+		urlScheme: 'hash',
 		histId: 0,
 		def404: null,
 		defHome: null,
-		urlScheme: 'hash',
-		basePath: '/'
+		scroller: null
 	}, opts);
 
 	let _started = false;
@@ -113,40 +114,6 @@ export function createRouter(opts = {}) {
 			// Merge options
 			opts = Object.assign(opts, merge);
 			opts.basePath = normalizePath(opts.basePath);
-
-			// Popstate handler
-			const onPopstate = e => {
-				if (!e.state?.name || !_started) return;
-
-				// Mark that popstate fired
-				_popstateFired = true;
-				_backPending = false;
-
-				// Same route? Skip
-				if (opts.defHome === opts.state.name && e.state.name === opts.state.name) {
-					return;
-				}
-
-				const data = {
-					id: e.state.id,
-					action: 'history',
-					params: e.state.params,
-					scroll: e.state.scroll,
-					isBack: e.state.id && e.state.id < opts.histId
-				};
-
-				opts.histId = e.state.id ?? opts.histId;
-				api.trigger(e.state.name, data, null);
-			};
-
-			// Hash change handler
-			const onHashchange = () => {
-				if (!_started || opts.urlScheme !== 'hash') return;
-				const hash = location.hash.slice(1) || opts.defHome;
-				if (hash && hash !== opts.state.name) {
-					api.trigger(hash, { action: 'hash' }, null);
-				}
-			};
 			
 			const getRouteName = (el) => {
 				let url = el.getAttribute('data-route') || el.getAttribute('data-href') || el.getAttribute('href');
@@ -230,34 +197,63 @@ export function createRouter(opts = {}) {
 				api.trigger(name, data, mode);
 			};
 
-			// Register listeners
-			addEventListener('popstate', onPopstate);
-			addEventListener('hashchange', onHashchange);
-			addEventListener('click', onClick);
+			// Popstate handler
+			const onPopstate = e => {
+				if (!_started || !e.state || !e.state.id || !e.state.name) return;
 
-			_listeners.push(
-				{ type: 'popstate', fn: onPopstate },
-				{ type: 'hashchange', fn: onHashchange },
-				{ type: 'click', fn: onClick }
-			);
+				// Mark that popstate fired
+				_popstateFired = true;
+				_backPending = false;
+
+				const data = {
+					id: e.state.id,
+					action: 'history',
+					params: e.state.params,
+					scroll: e.state.scroll || 0,
+					isBack: e.state.id < opts.histId
+				};
+
+				opts.histId = e.state.id;
+
+				api.trigger(e.state.name, data, null);
+			};
+			
+			// Scroll handler
+			const onScroll = e => {
+				const target = e.composedPath ? e.composedPath()[0] : e.target;
+				if (onScroll._tid) clearTimeout(onScroll._tid);
+				onScroll._tid = setTimeout(function() {
+					opts.state.scroll = target.scrollTop || 0;
+					history.replaceState(opts.state, '', location.href);
+				}, 100);
+			};
+
+			// Click listener
+			document.addEventListener('click', onClick);
+			_listeners.push(() => document.removeEventListener('click', onClick));
+			
+			// Popstate listener
+			globalThis.addEventListener('popstate', onPopstate);
+			_listeners.push(() => globalThis.removeEventListener('popstate', onPopstate));
+			
+			// Scroll listener
+			if (opts.scroller) {
+				opts.scroller.addEventListener('scroll', onScroll);
+				_listeners.push(() => opts.scroller.removeEventListener('scroll', onScroll));
+			}
 
 			// Capacitor native back button
 			if (globalThis.Capacitor?.Plugins?.App) {
 				const backHandler = () => api.back();
 				Capacitor.Plugins.App.addListener('backButton', backHandler);
-				_listeners.push({ 
-					type: 'capacitor', 
-					fn: backHandler,
-					cleanup: () => Capacitor.Plugins.App.removeListener('backButton', backHandler)
-				});
+				_listeners.push(() => Capacitor.Plugins.App.removeListener('backButton', backHandler));
 			}
 
 			// Initial route
 			const route = getCurrentRoute() || opts.defHome;
 			if (route) {
-				api.trigger(route, {
-					action: 'init'
-				}, 'replace');
+				const data = { action: 'init' };
+				api.trigger(route, data, 'replace');
 			}
 
 			return this;
@@ -265,12 +261,8 @@ export function createRouter(opts = {}) {
 
 		destroy() {
 			_started = false;
-			_listeners.forEach(l => {
-				if (l.cleanup) {
-					l.cleanup();
-				} else {
-					removeEventListener(l.type, l.fn);
-				}
+			_listeners.forEach(fn => {
+				fn();
 			});
 			_listeners = [];
 			
@@ -312,8 +304,7 @@ export function createRouter(opts = {}) {
 				lastParams: opts.state.params || {},
 				is404: !matched && !this.has(name),
 				isBack: !!data.isBack,
-				action: data.action || 'trigger',
-				title: data.title || opts.routes[matched?.name || name]?.title || ''
+				action: data.action || 'trigger'
 			};
 
 			// Handle 404
@@ -322,51 +313,54 @@ export function createRouter(opts = {}) {
 				if (!this.has(route.name)) return false;
 			}
 
-			const last = opts.state.name;
+			let result = false;
 			let routeName = route.name;
-			if (last === routeName && JSON.stringify(route.params) === JSON.stringify(route.lastParams)) return false;
-			
-			const cycles = [':before', ':all', routeName, ':after'];
+			const last = opts.state.name;
+			const cycles = [ ':before', ':after' ];
+
+			if (last === routeName) {
+				return result;
+			}
 
 			// Execute middleware pipeline
 			for (let i = 0; i < cycles.length; i++) {
 				const id = cycles[i];
-				const listeners = (opts.middleware[id] || []);
+				const listeners = opts.middleware[id] || [];
+				
+				if (id === ':after') {
+					result = this.setState(route, mode);
+					console.log(result);
+					if (opts.middleware[routeName]) {
+						listeners.push(...opts.middleware[routeName]);
+					}
+				}
 
 				for (let j = 0; j < listeners.length; j++) {
 					const fn = listeners[j];
 					if (typeof fn !== 'function') continue;
 
-					const result = fn(route);
+					const tmp = fn(route);
 
 					// Break early
-					if (result === false || last !== opts.state.name) {
+					if (tmp === false || last !== opts.state.name) {
 						return false;
 					}
 
 					// Track runs
-					if (i === 2) {
-						fn.runs = (fn.runs || 0) + 1;
-					}
+					fn.runs = (fn.runs || 0) + 1;
 
-					// Route redirect
-					if (result?.name && i < 3) {
-						route.name = result.name;
-						routeName = result.name;
-						cycles[2] = routeName;
-						Object.assign(route, result);
+					// Route redirect?
+					if (result === false) {
+						if (tmp && tmp.name) {
+							route.name = tmp.name;
+							routeName = tmp.name;
+							Object.assign(route, tmp);
+						}
 					}
 				}
 			}
 
 			// Update state
-			const result = this.setState(route, mode);
-			
-			// Restore scroll position on back navigation
-			if (route.isBack && route.scroll !== undefined) {
-				requestAnimationFrame(() => window.scrollTo(0, route.scroll));
-			}
-			
 			return result;
 		},
 
@@ -377,10 +371,8 @@ export function createRouter(opts = {}) {
 
 		refresh() {
 			if (opts.state.name) {
-				return this.trigger(opts.state.orig || opts.state.name, { 
-					action: 'refresh',
-					params: opts.state.params || {}
-				}, null);
+				const data = { action: 'refresh', params: opts.state.params || {} };
+				return this.trigger(opts.state.orig || opts.state.name, data, null);
 			}
 		},
 
@@ -413,9 +405,6 @@ export function createRouter(opts = {}) {
 				state.id = state.id ?? opts.state.id ?? opts.histId;
 			}
 
-			// Cache scroll
-			state.scroll = state.scroll ?? (globalThis.pageYOffset || 0);
-
 			// Merge state (preserve existing properties)
 			opts.state = { ...opts.state, ...state };
 
@@ -423,7 +412,6 @@ export function createRouter(opts = {}) {
 			if (mode && history[mode + 'State']) {
 				let url = '';
 				let name = state.orig || opts.state.name;
-				let title = state.title || document.title || '';
 
 				if (opts.urlScheme === 'hash') {
 					url = new URL(location.href);
@@ -445,8 +433,7 @@ export function createRouter(opts = {}) {
 					url = url.replace(/([^:]\/)\/+/g, '$1');
 				}
 
-				history[mode + 'State'](opts.state, title, url);
-				document.title = title;
+				history[mode + 'State'](opts.state, '', url);
 			}
 
 			return this.current();

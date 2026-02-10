@@ -178,10 +178,19 @@ export class FsLitElement extends LitElement {
 	attachLocalStyles(root, styles) {
 		//stop here?
 		if(!styles) return;
-		//create stylesheet
+		//create css cache?
+		if(!root.__$cssCache) {
+			root.__$cssCache = new Map();
+		}
+		//convert styles to string
 		var s = stylesToString(styles);
-		const cssSheet = new CSSStyleSheet();
-		cssSheet.replace(s);
+		var cssSheet = root.__$cssCache.get(s);
+		//create new sheet?
+		if(!cssSheet) {
+			cssSheet = new CSSStyleSheet();
+			cssSheet.replaceSync(s);
+			root.__$cssCache.set(s, cssSheet);
+		}
 		//add stylesheet?
 		if(root.adoptedStyleSheets && !root.adoptedStyleSheets.includes(cssSheet)) {
 			root.adoptedStyleSheets.push(cssSheet);
