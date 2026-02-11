@@ -1,469 +1,437 @@
-//router factory
-export function createRouter(opts = {}) {
-	
-	// Config with defaults
-	opts = Object.assign({
-		state: {},
-		routes: {},
-		middleware: {},
-		basePath: '/',
-		urlScheme: 'hash',
-		histId: 0,
-		defHome: '/',
-		def404: '/',
-		scroller: null
-	}, opts);
+// @fstage/route
+//
+// Responsibilities:
+// - Deterministic path matching
+// - Param extraction
+// - Nested-ready structure
+//
+// Child route paths are treated as relative to parent.
+// All paths are normalized internally.
 
-	let _started = false;
-	let _popstateFired = false;
-	let _backPending = false;
+function normalize(path) {
+	path = path || '/';
 
-	// Normalize basePath helper
-	function normalizePath(path) {
-		path = path || '/';
-		if (path[0] !== '/') path = '/' + path;
-		if (path.length > 1 && path[path.length - 1] === '/') path = path.slice(0, -1);
-		return path;
+	if (path[0] !== '/') path = '/' + path;
+
+	if (path.length > 1 && path[path.length - 1] === '/') {
+		path = path.slice(0, -1);
 	}
 
-	// Normalize route to slash-prefixed format (industry standard)
-	function normalizeRoute(route, def = '/') {
-		route = (route || '').trim();
+	return path;
+}
 
-		// Ensure leading slash
-		if (route && route[0] !== '/') {
-			route = '/' + route;
-		}
-		
-		// Remove trailing slash
-		if (route && route[route.length - 1] === '/') {
-			route = route.slice(0, -1);
-		}
-		
-		return route ? route : def;
+function split(path) {
+	var p = normalize(path);
+
+	// Explicit root handling
+	if (p === '/') return [];
+
+	return p.split('/').slice(1);
+}
+
+function join(parent, child) {
+	parent = parent || '';
+	child = child || '';
+
+	// Child paths are treated as relative
+	if (child[0] === '/') {
+		child = child.slice(1);
 	}
 
-	// Parse route pattern to regex
-	function parsePattern(pattern) {
-		const paramNames = [];
-		const regexPattern = pattern.split('/').map(function(segment) {
-			if (segment.startsWith(':')) {
-				const paramName = segment.slice(1);
-				paramNames.push(paramName);
-				return '([^/]+)';
-			}
-			return segment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-		}).join('\\/');
-		
-		return {
-			regex: new RegExp(`^${regexPattern}$`),
-			paramNames
-		};
-	}
+	return normalize(parent + '/' + child);
+}
 
-	// Match route and extract params
-	function matchRoute(path) {
-		// Exact match first
-		if (path in opts.routes) {
-			return { name: path, params: {} };
-		}
-		
-		// Pattern match
-		for (const pattern in opts.routes) {
-			if (!pattern.includes(':')) continue;
-			
-			const { regex, paramNames } = parsePattern(pattern);
-			const match = path.match(regex);
-			
-			if (match) {
-				const params = {};
-				paramNames.forEach(function(name, i) {
-					params[name] = match[i + 1];
-				});
-				return { name: pattern, params };
-			}
-		}
-		
-		return null;
-	}
+function computeScore(pattern) {
+	var parts = split(pattern);
+	var score = 0;
 
-	// Get route from URL (raw extraction, no normalization)
-	function getRouteFromUrl() {
-		let route = null;
-
-		const scheme = opts.urlScheme;
-		const isHybrid = location.protocol === 'capacitor:' || location.protocol === 'file:';
-		
-		if (scheme === 'hash') {
-			route = location.hash.slice(1) || '';
-		} else if (scheme === 'query') {
-			route = new URL(location.href).searchParams.get('route') || '';
+	for (var i = 0; i < parts.length; i++) {
+		if (parts[i][0] === ':') {
+			score += 1;    // param
 		} else {
-			route = location.pathname || '/';
-			
-			if (isHybrid) {
-				route = route.replace(/\/index\.html.*$/, '/');
+			score += 10;   // static
+		}
+	}
+
+	// Longer patterns rank higher
+	return score + (parts.length * 100);
+}
+
+function match(pattern, path) {
+	var patParts = split(pattern);
+	var pathParts = split(path);
+
+	if (patParts.length !== pathParts.length) return null;
+
+	var params = {};
+
+	for (var i = 0; i < patParts.length; i++) {
+		var p = patParts[i];
+		var v = pathParts[i];
+
+		if (p[0] === ':') {
+			params[p.slice(1)] = decodeURIComponent(v);
+		} else if (p !== v) {
+			return null;
+		}
+	}
+
+	return params;
+}
+
+function flatten(routes, parentPath, out) {
+	parentPath = parentPath || '';
+	out = out || [];
+
+	for (var i = 0; i < routes.length; i++) {
+		var r = routes[i];
+
+		var fullPattern = join(parentPath, r.path || '');
+
+		out.push({
+			id: r.id || fullPattern,
+			pattern: fullPattern,
+			meta: r.meta || null
+		});
+
+		if (r.children && r.children.length) {
+			flatten(r.children, fullPattern, out);
+		}
+	}
+
+	return out;
+}
+
+function resolveEl(el) {
+	if (typeof el === 'string') {
+		el = document.querySelector(el);
+	}
+	return el;
+}
+
+
+//EXPORTS
+
+export function createRouteMatcher(options) {
+	options = options || {};
+
+	var routes = options.routes || [];
+	var flat = flatten(routes);
+
+	// Deterministic precedence
+	flat.sort(function(a, b) {
+		return computeScore(b.pattern) - computeScore(a.pattern);
+	});
+
+	return {
+		resolve: function(path) {
+			path = normalize(path);
+
+			for (var i = 0; i < flat.length; i++) {
+				var route = flat[i];
+				var params = match(route.pattern, path);
+
+				if (params) {
+					return [{
+						id: route.id,
+						pattern: route.pattern,
+						path: path,
+						params: params,
+						meta: route.meta
+					}];
+				}
 			}
-			
-			if (route.startsWith(opts.basePath)) {
-				route = route.slice(opts.basePath.length);
+
+			return [];
+		}
+	};
+}
+
+export function createNavigationHandler(options) {
+
+	options = options || {};
+
+	var boundForms = [];
+	var history = options.history;
+	var navigate = options.navigate;
+	var rootEl = options.rootEl;
+	var linkAttrs = options.linkAttrs || [ 'data-route', 'data-href', 'href' ];
+	var replaceAttr = options.replaceAttr || 'data-replace';
+	var paramsAttr = options.paramsAttr || 'data-params';
+
+	if (!history) throw new Error('NavigationHandler requires history');
+	if (!navigate) throw new Error('NavigationHandler requires navigate()');
+
+	function getRouteFromEl(el) {
+		var name = null;
+		
+		for (var i = 0; i < linkAttrs.length; i++) {
+			name = el.getAttribute(linkAttrs[i]);
+			if (name) break;
+		}
+		
+		if (!name) return null;
+
+		var mode = el.hasAttribute(replaceAttr) ? 'replace' : 'push';
+		var paramsValue = el.getAttribute(paramsAttr);
+		var params = {};
+
+		if (paramsValue) {
+			var pairs = paramsValue.split(';');
+			for (var i = 0; i < pairs.length; i++) {
+				var parts = pairs[i].split(':');
+				if (parts.length === 2) {
+					params[parts[0]] = parts[1];
+				}
 			}
 		}
 
-		// Return raw route or default - trigger() will normalize
-		return route || opts.defHome || '/';
-	}
-
-	// Get route from el
-	function getRouteFromEl(el) {
 		return {
-			name: el.getAttribute('data-route') || el.getAttribute('data-href') || el.getAttribute('href'),
-			mode: el.hasAttribute('data-replace') ? 'replace' : 'push',
-			params: el.getAttribute('data-params') ? el.getAttribute('data-params').split(';') : []
+			name: name,
+			mode: mode,
+			params: params
 		};
 	}
 
-	// Click handler
-	function onClick(e) {
-		let el = null;
-		const selector = '[data-route], [data-href], [href]';
+	function bindFormOnce(form, submitter) {
 
-		if(e.composedPath) {
-			const path = e.composedPath();
-			if (!path) return;
-			el = path.find(function(node) {
-				return (node instanceof Element) && node.matches(selector);
-			});
-		} else if (e.target instanceof Element) {
-			el = e.target.closest(selector);
+		for (var i = 0; i < boundForms.length; i++) {
+			if (boundForms[i].form === form) return;
 		}
-				
+
+		function onSubmit(e) {
+
+			e.preventDefault();
+
+			var btn = e.submitter || submitter;
+			if (!btn) return;
+
+			var route = getRouteFromEl(btn);
+			if (!route) return;
+
+			if (route.name === 'back') {
+				history.back();
+				return;
+			}
+
+			navigate(route.name, {
+				replace: route.mode === 'replace',
+				params: route.params
+			});
+		}
+
+		form.addEventListener('submit', onSubmit);
+
+		boundForms.push({
+			form: form,
+			handler: onSubmit
+		});
+	}
+
+	function onClick(e) {
+
+		if (e.defaultPrevented) return;
+		if (e.button !== 0) return;
+		if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+
+		var el = null;
+
+		var linkSel = [];
+		for (var i=0; i < linkAttrs.length; i++) {
+			linkSel.push('[' + linkAttrs[i] + ']');
+		}
+		linkSel = linkSel.join(', ');
+
+		if (typeof e.composedPath === 'function') {
+			var path = e.composedPath();
+			for (var i = 0; i < path.length; i++) {
+				var candidate = path[i];
+				if (!candidate || !candidate.matches) continue;
+
+				if (candidate.matches(linkSel)) {
+					el = candidate;
+					break;
+				}
+			}
+		} else {
+			el = e.target.closest(linkSel);
+		}
+
 		if (!el) return;
 
-		const route = getRouteFromEl(el);
-		const data = { params: {}, action: 'click' };
+		var route = getRouteFromEl(el);
+		if (!route) return;
+
+		// external absolute URLs
+		if (/^(https?:)?\/\//.test(route.name)) return;
+
+		// hash-only
+		if (route.name[0] === '#') return;
+
+		e.preventDefault();
 
 		if (route.name === 'back') {
-			e.preventDefault();
-			return history.back();
-		} else if (!route.name) {
+			history.back();
 			return;
 		}
 
-		// Parse params
-		route.params.forEach(function(p) {
-			const [k, v] = p.split(':', 2);
-			if (v !== undefined) {
-				data.params[k.trim()] = v.trim();
-			}
-		});
-
-		// Form submit?
+		// submit button handling
 		if (el.type === 'submit') {
-			// Find form
-			let form = null;
-			if (e.composedPath) {
-				form = e.composedPath().find(function(node) {
-					return node.tagName === 'FORM';
-				});
-			} else {
-				form = el.closest('form');
-			}
-			// Bind form to router
-			if (form && !form.dataset.routerBound) {
-				form.dataset.routerBound = 'true';
-				form.addEventListener('submit', function(e) {
-					e.preventDefault();
-					// Re-read from button at submit time
-					const btn = e.submitter || el;
-					const submit = getRouteFromEl(btn);
-					const submitData = { params: {}, action: 'submit' };
-					if(submit.name) {
-						submit.params.forEach(function(p) {
-							const [k, v] = p.split(':', 2);
-							if (v !== undefined) {
-								submitData.params[k.trim()] = v.trim();
-							}
-						});
-						api.trigger(submit.name, submitData, submit.mode);
-					}
-				});
+			var form = el.form;
+			if (form) {
+				bindFormOnce(form, el);
+				form.requestSubmit(el);
 				return;
 			}
 		}
 
-		e.preventDefault();
-		api.trigger(route.name, data, route.mode);
+		navigate(route.name, {
+			replace: route.mode === 'replace',
+			params: route.params
+		});
 	}
 
-	// Popstate handler
-	function onPopstate(e) {
-		if (!e.state || !e.state.id || !e.state.name) return;
-
-		// Mark that popstate fired
-		_popstateFired = true;
-		_backPending = false;
-
-		const data = {
-			id: e.state.id,
-			action: 'history',
-			params: e.state.params,
-			scroll: e.state.scroll || 0,
-			isBack: e.state.id < opts.histId
-		};
-
-		opts.histId = e.state.id;
-
-		api.trigger(e.state.name, data, null);
-	}
-			
-	// Scroll handler
 	function onScroll(e) {
-		const target = e.composedPath ? e.composedPath()[0] : e.target;
 
-		if (onScroll._tid) clearTimeout(onScroll._tid);
+		if (!rootEl) return;
+		if (onScroll.__tid) clearTimeout(onScroll.__tid);
 
-		onScroll._tid = setTimeout(function() {
-			opts.state.scroll = target.scrollTop || 0;
-			history.replaceState(opts.state, '', location.href);
+		onScroll.__tid = setTimeout(function() {
+			var loc = history.location();
+			var state = loc.state || {};
+			
+			if (!loc || !loc.route) return;
+
+			state.scroll = rootEl.scrollTop || 0;
+
+			history.replace(loc.route, state, { silent: true });
 		}, 100);
 	}
 
-	// API
-	const api = {
+	return {
 
-		start(merge = {}) {
-			if (_started) return;
-			_started = true;
-
-			// Merge options
-			opts = Object.assign(opts, merge);
-			
-			// Normalize paths
-			opts.basePath = normalizePath(opts.basePath);
-			opts.defHome = normalizeRoute(opts.defHome);
-			opts.def404 = normalizeRoute(opts.def404);
-
-			// Click listener
+		start: function(el) {
+			rootEl = resolveEl(el || rootEl);
 			document.addEventListener('click', onClick);
-			
-			// Popstate listener
-			globalThis.addEventListener('popstate', onPopstate);
-			
-			// Scroll listener
-			if (opts.scroller) {
-				opts.scroller.addEventListener('scroll', onScroll);
-			}
-
-			// get Route name
-			const route = getRouteFromUrl();
-			console.log(route);
-			
-			//Trigger?
-			if (route) {
-				const data = { action: 'init' };
-				api.trigger(route, data, 'replace');
-			}
+			if(rootEl) rootEl.addEventListener('scroll', onScroll);
 		},
 
-		destroy() {
-			_started = false;
-
-			// Click listener
+		stop: function() {
 			document.removeEventListener('click', onClick);
-			
-			// Popstate listener
-			globalThis.removeEventListener('popstate', onPopstate);
-			
-			// Scroll listener
-			if (opts.scroller) {
-				opts.scroller.removeEventListener('scroll', onScroll);
-			}
-			
-			// Clear form binding flags
-			document.querySelectorAll('form[data-router-bound]').forEach(function(f) {
-				delete f.dataset.routerBound;
-			});
-		},
+			if(rootEl) rootEl.removeEventListener('scroll', onScroll);
 
-		is(route) {
-			return opts.state.name === route;
-		},
-
-		has(name) {
-			return name in opts.routes;
-		},
-
-		current(key = null) {
-			return key ? (opts.state[key] ?? null) : { ...opts.state };
-		},
-
-		on(route, fn) {
-			opts.middleware[route] = opts.middleware[route] || [];
-			opts.middleware[route].push(fn);
-		},
-
-		trigger(name, data = {}, mode = 'push') {
-			// Normalize the incoming route name (SINGLE normalization point)
-			name = normalizeRoute(name);
-			
-			// Match route pattern
-			const matched = matchRoute(name);
-			
-			// Build route (merge data first)
-			const route = {
-				...data,
-				mode: mode,
-				path: name,  // The actual path that was navigated to
-				name: matched?.name || name,  // The route pattern or exact match
-				params: { ...(matched?.params || {}), ...(data.params || {}) },
-				lastName: opts.state.name || null,
-				lastParams: opts.state.params || {},
-				is404: !matched && !this.has(name),
-				isBack: !!data.isBack,
-				action: data.action || 'trigger'
-			};
-
-			// Handle 404
-			if (route.is404) {
-				route.name = opts.def404;
-
-				if (!this.has(route.name)) {
-					return false;
-				}
+			for (var i = 0; i < boundForms.length; i++) {
+				boundForms[i].form.removeEventListener('submit', boundForms[i].handler);
 			}
 
-			let result = false;
-			let routeName = route.name;
-			const last = opts.state.name;
-			const cycles = [ ':before', ':after' ];
-
-			// Don't re-trigger same route
-			if (last === routeName) {
-				return result;
-			}
-
-			// Execute middleware pipeline
-			for (let i = 0; i < cycles.length; i++) {
-				const id = cycles[i];
-				const listeners = opts.middleware[id] || [];
-				
-				if (id === ':after') {
-					result = this.setState(route, mode);
-					if (opts.middleware[routeName]) {
-						listeners.push(...opts.middleware[routeName]);
-					}
-				}
-
-				for (let j = 0; j < listeners.length; j++) {
-					const fn = listeners[j];
-					if (typeof fn !== 'function') continue;
-
-					const tmp = fn(route);
-
-					// Break early
-					if (tmp === false || last !== opts.state.name) {
-						return false;
-					}
-
-					// Track runs
-					fn.runs = (fn.runs || 0) + 1;
-
-					// Route redirect?
-					if (result === false) {
-						if (tmp && tmp.name) {
-							route.name = normalizeRoute(tmp.name);
-							routeName = route.name;
-							Object.assign(route, tmp);
-						}
-					}
-				}
-			}
-
-			// Update state
-			return result;
-		},
-
-		redirect(name, data = {}) {
-			data.action = data.action || 'redirect';
-			return this.trigger(name, data, 'replace');
-		},
-
-		refresh() {
-			if (opts.state.name) {
-				const data = { action: 'refresh', params: opts.state.params || {} };
-				return this.trigger(opts.state.path || opts.state.name, data, null);
-			}
-		},
-
-		back() {
-			// Prevent rapid back() spam
-			if (_backPending) return;
-			
-			_backPending = true;
-			_popstateFired = false;
-			history.back();
-			
-			// Fallback if popstate doesn't fire (50ms = industry standard for hybrid)
-			setTimeout(function() {
-				if (!_popstateFired) {
-					// Popstate didn't fire - already at history start, do nothing (standard browser behavior)
-					_backPending = false;
-				}
-				_popstateFired = false;
-			}, 50);
-		},
-
-		setState(state, mode = 'replace') {
-			// Set ID
-			if (mode === 'push') {
-				state.id = ++opts.histId;
-			} else if (mode === 'replace') {
-				state.id = state.id ?? opts.state.id ?? ++opts.histId;
-			} else {
-				// null mode = no history change (refresh/manual trigger)
-				state.id = state.id ?? opts.state.id ?? opts.histId;
-			}
-
-			// Replace state completely (no merge)
-			opts.state = state;
-
-			// Update browser history
-			if (mode && history[mode + 'State']) {
-				let url = '';
-				let path = state.path || state.name;
-
-				if (opts.urlScheme === 'hash') {
-					// Hash mode: path is already "/users", set hash to "/users" ? #/users
-					url = new URL(location.href);
-					url.hash = (path === opts.defHome) ? '' : path;
-					url = url.toString();
-				} else if (opts.urlScheme === 'query') {
-					// Query mode: keep slash in query param ? ?route=/users
-					url = new URL(location.href);
-					if (path === opts.defHome) {
-						url.searchParams.delete('route');
-					} else {
-						url.searchParams.set('route', path);
-					}
-					url = url.toString();
-				} else if (opts.urlScheme === 'path') {
-					// Path mode: basePath + path (path already has leading slash)
-					// e.g., "/app" + "/users" = "/app/users"
-					url = opts.basePath + (path === opts.defHome ? '' : path);
-				}
-				
-				// Clean up any accidental double slashes (but preserve protocol://)
-				if (url) {
-					url = url.replace(/([^:]\/)\/+/g, '$1');
-				}
-
-				history[mode + 'State'](opts.state, '', url);
-			}
-
-			return this.current();
+			boundForms = [];
 		}
 	};
+}
 
-	return api;
+export function createRouter(options) {
+
+	options = options || {};
+
+	var history = options.history;
+	var routes = options.routes || [];
+	var rootEl = options.rootEl;
+	var def404 = options.def404 || null;
+
+	if (!history) throw new Error('Router requires history');
+
+	var beforeHooks = [];
+	var afterHooks = [];
+	var currentRoute = null;
+	var matcher = createRouteMatcher({ routes: routes });
+
+	function runBefore(match, location) {
+		for (var i = 0; i < beforeHooks.length; i++) {
+			if (beforeHooks[i](match, location) === false) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	function runAfter(match, location) {
+		for (var i = 0; i < afterHooks.length; i++) {
+			afterHooks[i](match, location);
+		}
+	}
+
+	function commit(path, opts) {
+		opts = opts || {};
+
+		if (path === currentRoute) return;
+
+		var matches = matcher.resolve(path);
+		if (!matches.length) {
+			if (def404 && path !== def404) {
+				commit(def404, { replace: true });
+			}
+			return false;
+		}
+
+		if (runBefore(matches[0], history.location()) === false) {
+			return false;
+		}
+
+		history[opts.replace ? 'replace' : 'push'](path);
+		
+		return true;
+	}
+
+	function onHistory(e) {
+		var path = e.location.route;
+		if (path === currentRoute) return;
+
+		var matches = matcher.resolve(path);
+		if (!matches.length) {
+			if (def404 && path !== def404) {
+				commit(def404, { replace: true });
+			}
+			return;
+		}
+		
+		currentRoute = path;
+		runAfter(matches[0], e.location);
+	}
+
+	var navigation = createNavigationHandler({
+		history: history,
+		rootEl: rootEl,
+		navigate: function(path, opts) {
+			commit(path, opts);
+		}
+	});
+
+	return {
+
+		start: function(el) {
+			rootEl = resolveEl(el || rootEl);
+
+			history.on(onHistory);
+			navigation.start(rootEl);
+
+			onHistory({ action: 'init', location: history.location() });
+		},
+		
+		stop: function() {
+			navigation.stop();
+			history.off(onHistory);
+		},
+
+		navigate: function(path, opts) {
+			commit(path, opts);
+		},
+
+		before: function(fn) {
+			if (typeof fn === 'function') beforeHooks.push(fn);
+		},
+
+		after: function(fn) {
+			if (typeof fn === 'function') afterHooks.push(fn);
+		}
+	};
 }

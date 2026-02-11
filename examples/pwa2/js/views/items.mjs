@@ -1,7 +1,7 @@
-import { FsLitElement, html, css } from '@fstage/lit';
+import { FsComponent, html, css } from '@fstage/component';
 import { getTasks, toggleTask } from '../data/tasks.mjs';
 
-export class PwaItems extends FsLitElement {
+export class PwaItems extends FsComponent {
 
   static styles = css`
     :host {

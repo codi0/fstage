@@ -1,7 +1,6 @@
 globalThis.FSCONFIG = {
 
 	debug: true,
-	routerHash: true,
 	name: 'Fstage Tasks',
 	
 	importMap: {
@@ -16,12 +15,12 @@ globalThis.FSCONFIG = {
 		],
 		libs: [
 			//fstage
+			'@fstage/history',
+			'@fstage/router',
+			'@fstage/interaction',
 			'@fstage/store',
 			'@fstage/sync',
-			'@fstage/lit',
-			'@fstage/router',
-			//'@fstage/animator',
-			//'@fstage/interaction',
+			'@fstage/component',
 			//shoelace
 			'@shoelace-style/themes/light.css',
 			'@shoelace-style/components/alert/alert.js?esm',
@@ -54,36 +53,58 @@ globalThis.FSCONFIG = {
 		]
 	},
 
-	routes: {
-		'/': {
-			component: 'pwa-home',
-			title: 'Home',
-			menu: 1
-		},
-
-		'/items': {
-			component: 'pwa-items',
-			title: 'Items',
-			menu: 1
-		},
-
-		'/items/:id': {
-			component: 'pwa-item-detail',
-			title: 'Item',
-			menu: 0
-		},
-
-		'/settings': {
-			component: 'pwa-settings',
-			title: 'Settings',
-			menu: 1
-		},
-
-		'/about': {
-			component: 'pwa-about',
-			title: 'About',
-			menu: 1
-		}
+	router: {
+		urlScheme: 'hash',
+		basePath: '/',
+		defHome: '/',
+		def404: '/',
+		routes: [
+			{
+				id: '/',
+				path: '/',
+				meta: {
+					component: 'pwa-home',
+					title: 'Home',
+					menu: 1
+				}
+			},
+			{
+				id: '/items',
+				path: '/items',
+				meta: {
+					component: 'pwa-items',
+					title: 'Items',
+					menu: 1
+				}
+			},
+			{
+				id: '/items/:id',
+				path: '/items/:id',
+				meta: {
+					component: 'pwa-item-detail',
+					title: 'Item',
+					menu: 0
+				}
+			},
+			{
+				id: '/settings',
+				path: '/settings',
+				meta: {
+					component: 'pwa-settings',
+					title: 'Settings',
+					menu: 1
+				}
+			},
+			{
+				id: '/about',
+				path: '/about',
+				meta: {
+					component: 'pwa-about',
+					title: 'About',
+					menu: 1
+				}
+			}
+		]
 	},
 
 	swPreCache: [
@@ -115,10 +136,17 @@ globalThis.FSCONFIG = {
 		
 		const store = get('store.createStore', []);
 		const syncManager = get('sync.createSyncManager', []);
-				
+		const history = get('history.createBrowserHistory', [ get('config.router') ]);
+		
+		const routerOpts = get('config.router');
+		routerOpts.history = history;
+		const router = get('router.createRouter', [ routerOpts ]);
+
 		registry.set('env', env);
 		registry.set('store', store);
 		registry.set('syncManager', syncManager);
+		registry.set('history', history);
+		registry.set('router', router);
 	},
 	
 	afterLoadApp: function(e) {
@@ -130,9 +158,7 @@ globalThis.FSCONFIG = {
 			
 		const env = registry.get('env');
 		const store = registry.get('store');
-		
-		const router = get('router.createRouter', [ { defHome: '/', routes: get('config.routes'), scroller: rootEl } ]);
-		registry.set('router', router);
+		const router = registry.get('router');
 
 		get('lit.FsLitElement.bindDefaults', [
 			{
@@ -141,34 +167,34 @@ globalThis.FSCONFIG = {
 			}
 		]);
 
+		//const interaction = get('interaction.createInteraction', []);
+		//console.log(interaction);
+		
 		let currentView = null;
 
-		router.on(':after', function(route) {
-			//set vars
+		router.after(function(match, location) {
+			const routeConf = match.meta;
 			const appName = get('config.name');
-			const routeConf = get('config.routes.' + route.name);
-			//create next view
+
 			const nextView = document.createElement(routeConf.component);
-			//remove current view?
-			if(currentView) {
+
+			if (currentView) {
 				currentView.remove();
 			}
-			//update view
+
 			rootEl.appendChild(nextView);
 			currentView = nextView;
-			//update title?
-			if(routeConf.title) {
+
+			if (routeConf.title) {
 				document.title = routeConf.title + (appName ? ' | ' + appName : '');
 			}
-			//restore scroll position
+
 			requestAnimationFrame(function() {
-				rootEl.scrollTop = route.scroll;
+				rootEl.scrollTop = location.state.scroll || 0;
 			});
-			//update state
-			store.set(storeKey, route);
 		});
 
-		router.start();
+		router.start(rootEl);
 	}
 
 };

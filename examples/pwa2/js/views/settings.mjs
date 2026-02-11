@@ -1,6 +1,6 @@
-import { FsLitElement, html, css } from '@fstage/lit';
+import { FsComponent, html, css } from '@fstage/component';
 
-export class PwaSettings extends FsLitElement {
+export class PwaSettings extends FsComponent {
 
   static styles = css`
     :host {

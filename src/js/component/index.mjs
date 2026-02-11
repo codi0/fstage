@@ -4,7 +4,7 @@ export * from 'https://cdn.jsdelivr.net/npm/lit-element@4/+esm';
 import { getGlobalCss, stylesToString, callSuper } from '../utils/index.mjs';
 
 //lit base class extension
-export class FsLitElement extends LitElement {
+export class FsComponent extends LitElement {
 
 	static counter = 0;
 	static defaults = {};
@@ -20,7 +20,7 @@ export class FsLitElement extends LitElement {
 		//parent
 		super();
 		//set ID
-		this.__$id = (++FsLitElement.counter);
+		this.__$id = (++FsComponent.counter);
 		//call willConstruct?
 		if(typeof this.willConstruct === 'function') {
 			this.willConstruct();
@@ -185,7 +185,7 @@ export class FsLitElement extends LitElement {
 }
 
 //create component wrapper
-export function createComponent(tag, def, BaseClass = FsLitElement) {
+export function createComponent(tag, def, BaseClass = FsComponent) {
 	//has tag name?
 	if(typeof tag !== 'string') {
 		BaseClass = def || BaseClass;
