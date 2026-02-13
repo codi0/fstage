@@ -1,152 +1,180 @@
-//imports
-import { createQueue } from '../queue/index.mjs';
 import { getType, copy, hash, nestedKey, diffValues } from '../utils/index.mjs';
 
-//create store helper
-export function createStore(config={}) {
+export function createStore(config) {
+	config = config || {};
 	
-	//config defaults
 	config = Object.assign({
 		state: {},
 		copyOnGet: true,
-		schedulers: Object.assign({
+		diffQuery: true,
+		schedulers: {
 			onChange: 'sync',
 			computed: 'sync',
-			effect: 'afterMacro',
-			trackAccess: 'macro',
-		}, config.schedulers || {})
+			effect: 'micro',
+			trackAccess: 'micro'
+		}
 	}, config);
 
-	//local vars
 	const getCache = {};
 	const changeHooks = {};
 	const accessHooks = {};
+	const parentPathCache = new Map();
 	const trackerPaths = {};
-	const trackerCache = new Map();
+	const trackerItems = new Map();
+	const trackerStack = [];
 
-	//Helper: queue
-	const queue = createQueue();
+	var batchDepth = 0;
+	var batchSeq = 0;
+	var batchDiffList = null;
+	var cycleId = 0;
 
-	//Helper: log access
-	const logAccess = function(key) {
-		//set vars
-		var item = null;
-		//get latest item
-		for(var val of trackerCache.values()) {
-			item = val;
-		}
-		//add item?
-		if(item) {
-			//set key
-			trackerPaths[key] = trackerPaths[key] || new Map();
-			//update map
-			trackerPaths[key].set(item.cb, item);
-		}
+	const queued = {};
+	const flushing = {};
+	const schedulers = {
+		sync: function(fn) { fn(); },
+		micro: function(fn) { Promise.resolve().then(fn); },
+		macro: function(fn) { setTimeout(fn, 0); }
 	};
 
-	//Helper: run access hooks
-	const runAccessHooks = function(key, opts={}) {
-		//set vars
-		var arr = key ? key.split('.') : [];
-		//check segments
-		while(arr.length > 0) {
-			//get key
-			var k = arr.join('.');
-			//closure
+	function schedule(fn, scheduler) {
+		if (scheduler === 'sync') return fn();
+		
+		queued[scheduler] = queued[scheduler] || new Set();
+		if (queued[scheduler].has(fn)) return;
+		queued[scheduler].add(fn);
+		
+		if (flushing[scheduler]) return;
+		flushing[scheduler] = true;
+		
+		schedulers[scheduler](function() {
+			const fns = Array.from(queued[scheduler]);
+			queued[scheduler].clear();
+			flushing[scheduler] = false;
+			fns.forEach(function(f) { f(); });
+		});
+	}
+
+	function getParentPaths(path) {
+		if (parentPathCache.has(path)) return parentPathCache.get(path);
+		
+		const parents = [];
+		var idx = path.lastIndexOf('.');
+		while (idx > 0) {
+			path = path.substring(0, idx);
+			parents.push(path);
+			idx = path.lastIndexOf('.');
+		}
+		if (path) parents.push('');
+		
+		parentPathCache.set(path, parents);
+		return parents;
+	}
+
+	function detachTracker(item) {
+		if (!item || !item.deps) return;
+		for (const path of item.deps) {
+			const m = trackerPaths[path];
+			if (m) {
+				m.delete(item.cb);
+				if (!m.size) delete trackerPaths[path];
+			}
+		}
+		item.deps.clear();
+	}
+
+	function logAccess(path) {
+		if (!trackerStack.length) return;
+		const item = trackerStack[trackerStack.length - 1];
+		if (!item) return;
+		item.depsRun.add(path);
+		if (!trackerPaths[path]) trackerPaths[path] = new Map();
+		trackerPaths[path].set(item.cb, item);
+	}
+
+	function runAccessHooks(key, opts) {
+		if (!Object.keys(accessHooks).length) return opts.val;
+		
+		const segments = key ? key.split('.') : [];
+
+		while (segments.length) {
+			const k = segments.join('.');
+			
 			(function(k) {
-				//key exists?
-				if(accessHooks[k]) {
-					//set vars
-					var e = null;
-					var v = opts.val;
-					//get value?
-					if(k != key) {
-						v = api.get(k, { track: false });
-					}
-					//loop through items
-					for(var cb of accessHooks[k]) {
-						//setup
-						e = e || {
-							key: k,
-							val: v,
-							merge: false,
-							refresh: opts.refresh,
-							lastRefresh: opts.cache.lastRefresh,
-							query: opts.query || {}
-						};
-						//run callback?
-						if(opts.refresh || !opts.cache.run) {
-							cb(e);
-						}
-					}
-					//continue?
-					if(e) {
-						//mark as run
-						opts.cache.run = true;
-						//set last refresh?
-						if(opts.refresh) {
-							opts.cache.lastRefresh = Date.now();
-						}
-						//is promise?
-						if(e.val instanceof Promise) {
-							//is loading?
-							if(k == key) {
-								opts.cache.loading = (opts.val === undefined);
+				if (!accessHooks[k]) return;
+
+				var e = null;
+				var v = opts.val;
+
+				if (k !== key) {
+					v = api.get(k, { track: false });
+				}
+
+				for (const cb of accessHooks[k]) {
+					e = e || {
+						key: k,
+						val: v,
+						merge: false,
+						refresh: opts.refresh,
+						lastRefresh: opts.cache.lastRefresh,
+						query: opts.query || {}
+					};
+
+					if (opts.refresh || !opts.cache.run) cb(e);
+				}
+
+				if (!e) return;
+
+				opts.cache.run = true;
+				if (opts.refresh) opts.cache.lastRefresh = Date.now();
+
+				const reqId = (opts.cache.reqId || 0) + 1;
+				opts.cache.reqId = reqId;
+
+				if (e.val instanceof Promise) {
+					if (k === key) opts.cache.loading = (opts.val === undefined);
+
+					e.val.then(function(res) {
+						if (opts.cache.reqId !== reqId) return;
+
+						const onSuccess = function(v2) {
+							if (k === key) {
+								opts.cache.error = null;
+								opts.cache.loading = false;
 							}
-							//success or failure?
-							e.val.then(function(v) {
-								//success wrapper
-								var onSuccess = function(v) {
-									//reset cache?
-									if(k == key) {
-										opts.cache.error = null;
-										opts.cache.loading = false;
-									}
-									//update value
-									api[e.merge ? 'merge' : 'set'](k, v, {
-										src: 'get'
-									});
-								};
-								//local
-								onSuccess(v);
-								//check next?
-								if(e.val.next) {
-									e.val.next.then(function(v) {
-										onSuccess(v);
-									});
-								}
-							}).catch(function(err) {
-								//update cache?
-								if(k == key) {
-									opts.cache.error = err;
-									opts.cache.loading = false;
-								}
-								//show console error
-								console.error('onAccess', k, err);
+							api[e.merge ? 'merge' : 'set'](k, v2, { src: 'get' });
+						};
+
+						onSuccess(res);
+
+						if (e.val.next) {
+							e.val.next.then(function(nextRes) {
+								if (opts.cache.reqId !== reqId) return;
+								onSuccess(nextRes);
 							});
-						} else {
-							//instant update
-							api[e.merge ? 'merge' : 'set'](k, e.val, {
-								src: 'get'
-							});
-							//get remaining key
-							var re = new RegExp(`^${k}\\.`);
-							var rk = (key === k) ? '' : key.replace(re, '');
-							//update result
-							opts.val = rk ? nestedKey(e.val, rk) : e.val;
 						}
-					}
+					}).catch(function(err) {
+						if (opts.cache.reqId !== reqId) return;
+						if (k === key) {
+							opts.cache.error = err;
+							opts.cache.loading = false;
+						}
+						console.error('onAccess', k, err);
+					});
+				} else {
+					api[e.merge ? 'merge' : 'set'](k, e.val, { src: 'get' });
+					const re = new RegExp('^' + k.replace(/\./g, '\\.') + '\\.');
+					const rk = (key === k) ? '' : key.replace(re, '');
+					opts.val = rk ? nestedKey(e.val, rk) : e.val;
 				}
 			})(k);
-			//next
-			arr.pop();
+			
+			segments.pop();
 		}
-		//return
-		return opts.val;
-	};
 
-	//Helper: create diff query
-	const createDiffQuery = function(diff=[]) {
+		return opts.val;
+	}
+
+	function createDiffQuery(diff=[]) {
 		//wrapper function
 		return function(regex, cb) {
 			//set vars
@@ -198,133 +226,108 @@ export function createStore(config={}) {
 				})(key, val, action);
 			}
 		}
-	};
+	}
 
-	//Helper: update change queue
-	const updateChangeQueue = function(path, diff, src) {
-		//set vars
-		var val;
-		var hasTrackers = !!trackerPaths[path];
-		var hasWatchers = !!changeHooks[path] || !!changeHooks['*'];
-		//get value?
-		if(hasWatchers || hasTrackers) {
-			val = api.get(path, { track: false });
-		}
-		//run watchers?
-		if(hasWatchers) {
-			//get paths
-			var pathArr = [ path, '*' ];
-			//loop through paths
-			for(var i=0; i < pathArr.length; i++) {
-				//get iterable
-				var p = pathArr[i];
-				var iterable = changeHooks[p] || new Map();
-				//loop through items
-				for(var [j, item] of iterable) {
-					//event data
-					var e = {
-						key: path,
-						val: val,
-						diff: diff,
-						loading: (src == 'get'),
-						abort: item.abort
-					};
-					//add to queue
-					queue.add(item.cb, [ e ], item.scheduler);
+	function updateChangeQueue(path, src, diffRes) {
+		const hasTrackers = !!trackerPaths[path];
+		const hasWatchers = !!changeHooks[path] || !!changeHooks['*'];
+
+		if (!hasWatchers && !hasTrackers) return;
+
+		const val = api.get(path, { track: false });
+
+		if (hasWatchers) {
+			for (const p of [path, '*']) {
+				const hooks = changeHooks[p];
+				if (!hooks) continue;
+
+				for (const item of hooks.values()) {
+					const e = { key: path, val: val, loading: (src === 'get'), abort: item.abort };
+					if (diffRes) e.diff = diffRes;
+					schedule(function() { item.cb(e); }, item.scheduler);
 				}
 			}
 		}
-		//run trackers?
-		if(hasTrackers) {
-			//get iterable
-			var iterable = trackerPaths[path] || new Map();
-			//loop through trackers
-			for(var [j, item] of iterable) {
-				//skip callback?
-				if(item.ctx && item.ctx.isUpdatePending) {
-					continue;
-				}
-				//skip dupe?
-				if(queue.has(item.cb, item.scheduler)) {
-					continue;
-				}
-				//event data
-				var e = {
-					key: path,
-					val: val,
-					diff: diff,
-					loading: (src == 'get'),
-					ctx: item.ctx
-				};
-				//add to queue
-				queue.add(item.cb, [ e ], item.scheduler);
+
+		if (hasTrackers) {
+			const trackers = trackerPaths[path];
+			if (!trackers) return;
+
+			for (const item of trackers.values()) {
+				if (item._cycleId === cycleId) continue;
+				item._cycleId = cycleId;
+
+				if (item.ctx && item.ctx.isUpdatePending) continue;
+
+				const e = { key: path, val: val, loading: (src === 'get'), ctx: item.ctx };
+				schedule(function() { item.cb(e); }, item.scheduler);
 			}
 		}
-	};
+	}
 
-	//Helper: run change hooks
-	const runChangeHooks = function(diff, src) {
-		//log parent paths
-		var parentPaths = new Set();
-		var diffQuery = createDiffQuery(diff);
-		//process diff
-		for(var i=0; i < diff.length; i++) {
-			//add item
-			updateChangeQueue(diff[i].path, diffQuery, src);
-			//log parents?
-			if(diff[i].path) {
-				//use lastIndexOf for efficiency
-				var path = diff[i].path;
-				var lastDot = path.lastIndexOf('.');
-				while(lastDot > 0) {
-					path = path.substring(0, lastDot);
-					parentPaths.add(path);
-					lastDot = path.lastIndexOf('.');
-				}
-				//add root if exists
-				if(path) {
-					parentPaths.add('');
-				}
+	function runChangeHooks(diff, src) {
+		if (!Object.keys(changeHooks).length && !Object.keys(trackerPaths).length) return;
+		
+		cycleId++;
+
+		const parentPaths = new Set();
+		const diffQuery = config.diffQuery ? createDiffQuery(diff) : null;
+
+		for (const entry of diff) {
+			updateChangeQueue(entry.path, src, diffQuery);
+
+			if (entry.path) {
+				const parents = getParentPaths(entry.path);
+				parents.forEach(function(p) { parentPaths.add(p); });
 			}
 		}
-		//process parents
-		parentPaths.forEach(function(p) {
-			updateChangeQueue(p, diffQuery, src);
-		});
-	};
 
-	//public api
+		parentPaths.forEach(function(p) { updateChangeQueue(p, src, diffQuery); });
+	}
+
+	function commitBatch() {
+		if (!batchDiffList || !batchDiffList.length) {
+			batchDiffList = null;
+			return;
+		}
+
+		const map = new Map();
+		for (const it of batchDiffList) {
+			map.set(it.entry.path, it);
+		}
+
+		const arr = Array.from(map.values()).sort(function(a, b) { return a.seq - b.seq; });
+		const diff = arr.map(function(it) { return it.entry; });
+
+		batchDiffList = null;
+		runChangeHooks(diff, 'set');
+	}
+
 	const api = {
 
 		has: function(key) {
 			return api.get(key) !== undefined;
 		},
 
-		get: function(key, opts={}) {
-			//get value
-			var val = nestedKey(config.state, key, {
-				default: opts.default
-			});
-			//copy value?
-			if(config.copyOnGet && opts.copy !== false) {
+		get: function(key, opts) {
+			opts = opts || {};
+			
+			var val = nestedKey(config.state, key, { default: opts.default });
+			
+			if (config.copyOnGet && opts.copy !== false) {
 				val = copy(val, true);
 			}
-			//get hash
-			var argsHash = hash(key, opts.query || {});
-			//in cache?
-			if(!getCache[argsHash]) {
-				//add hash
-				getCache[argsHash] = {};
-				//mark as refresh?
-				if(opts.refresh === undefined) {
-					opts.refresh = true;
+
+			if (opts.track !== false && (trackerStack.length || Object.keys(accessHooks).length)) {
+				const hasQuery = opts.query && Object.keys(opts.query).length;
+				const argsHash = hasQuery ? hash(key, opts.query) : key;
+
+				if (!getCache[argsHash]) {
+					getCache[argsHash] = {};
+					if (opts.refresh === undefined) opts.refresh = true;
 				}
-			}
-			//can track?
-			if(opts.track !== false) {
-				//log access
+
 				logAccess(key);
-				//run access hooks
 				val = runAccessHooks(key, {
 					val: val,
 					query: opts.query,
@@ -332,215 +335,252 @@ export function createStore(config={}) {
 					cache: getCache[argsHash]
 				});
 			}
-			//direct
+
 			return val;
 		},
 
-		meta: function(key, query={}) {
-			//get hash
-			var argsHash = hash(key, query || {});
-			//get cache
-			var cache = getCache[argsHash] || {};
-			//return
-			return {
-				error: cache.error || null,
-				loading: cache.loading || false
-			}
-		},
-		
-		withMeta: function(key, opts={}) {
-			//must track
-			opts.track = true;
-			//get data first
-			var data = this.get(key, opts);
-			//then get meta
-			var meta = this.meta(key, opts.query || {});
-			//add data
-			meta.data = data;
-			//return
-			return meta;
-		},
-		
-		set: function(key, val, opts={}) {
-			//get current value
+		set: function(key, val, opts) {
+			opts = opts || {};
+			
 			var curVal = nestedKey(config.state, key);
-			//is callback?
-			if(typeof val === 'function') {
+
+			if (typeof val === 'function') {
 				val = val(copy(curVal, true));
 			}
-			//is invalid root?
-			if(!key && getType(val) !== 'object') {
-				console.warn('Root state value must be an object');
-				return Promise.resolve();
+
+			if (!key && getType(val) !== 'object') {
+				throw new Error('Root state value must be an object');
 			}
-			//get types
-			var valType = getType(val);
-			var curValType = getType(curVal);
-			//merge values?
-			if(opts.merge && curVal) {
-				//arrays or objects?
-				if(valType === 'array' && curValType === 'array') {
+
+			if (val === curVal) return Promise.resolve(val);
+
+			const valType = getType(val);
+			const curValType = getType(curVal);
+
+			if (opts.merge && curVal) {
+				if (valType === 'array' && curValType === 'array') {
 					val = curVal.concat(val);
-				} else if(valType === 'object' && curValType === 'object') {
-					val = { ...curVal, ...val };
+				} else if (valType === 'object' && curValType === 'object') {
+					val = Object.assign({}, curVal, val);
 				}
 			}
-			//get diff
-			var diff = diffValues(curVal, val, key);
-			//any changes?
-			if(diff.length) {
-				//update state
-				nestedKey(config.state, key, {
-					val: val
-				});
-				//notify subscribers?
-				if(opts.notify !== false && opts.src !== 'set') {
-					runChangeHooks(diff, opts.src);
+
+			const diff = diffValues(curVal, val, key);
+
+			if (diff.length) {
+				nestedKey(config.state, key, { val: val });
+
+				if (opts.notify !== false && opts.src !== 'set') {
+					if (batchDepth > 0) {
+						batchDiffList = batchDiffList || [];
+						diff.forEach(function(entry) {
+							batchDiffList.push({ seq: ++batchSeq, entry: entry });
+						});
+					} else {
+						runChangeHooks(diff, opts.src);
+					}
 				}
 			}
-			//return
+
 			return Promise.resolve(val);
 		},
 
-		merge: function(key, val, opts={}) {
+		merge: function(key, val, opts) {
+			opts = opts || {};
 			opts.merge = true;
 			return api.set(key, val, opts);
 		},
 
-		del: function(key, opts={}) {
+		del: function(key, opts) {
 			return api.set(key, undefined, opts);
 		},
 
-		computed: function(cb, opts={}) {
-			//set vars
-			var doing = false;
-			//default opts
-			opts = Object.assign({
-				effect: false,
-				scheduler: opts.effect ? config.schedulers.effect : config.schedulers.computed
-			}, opts);
-			//create object
-			var obj = {
-				toString() {
-					return obj.get();
-				},
-				get() {
-					return api.inEffect ? obj.compute() : obj.value;
-				},
-				compute() {
-					//is doing?
-					if(!doing) {
-						//start doing
-						doing = true;
-						//cache previous effect
-						var prevEffect = !!api.inEffect;
-						//is effect?
-						if(opts.effect) {
-							api.inEffect = true;
-						}
-						//calculate value
-						obj.value = cb(api);
-						//is effect?
-						if(opts.effect) {
-							api.inEffect = prevEffect;
-						}
-						//stop doing
-						doing = false;
+		batch: function(fn) {
+			batchDepth++;
+			try {
+				return fn();
+			} finally {
+				batchDepth--;
+				if (batchDepth === 0) commitBatch();
+			}
+		},
+
+		computed: function(cb, opts) {
+			opts = opts || {};
+			
+			var value;
+			var dirty = true;
+			var computing = false;
+
+			const scheduler = opts.scheduler || config.schedulers.computed;
+
+			const obj = {
+				get value() {
+					if (computing) return value;
+					if (dirty) {
+						computing = true;
+						const stop = api.trackAccess(recompute, { ctx: obj, scheduler: scheduler });
+						value = cb(api);
+						dirty = false;
+						computing = false;
+						stop();
 					}
-					//return
+					return value;
+				},
+				get: function() {
 					return obj.value;
+				},
+				abort: null
+			};
+
+			function recompute() {
+				dirty = true;
+			}
+
+			obj.value;
+
+			obj.abort = function() {
+				const item = trackerItems.get(recompute);
+				if (item) {
+					detachTracker(item);
+					trackerItems.delete(recompute);
 				}
 			};
-			//update callback
-			var onUpdate = function() {
-				//start tracking
-				var stop = api.trackAccess(onUpdate, {
-					ctx: obj,
-					scheduler: opts.scheduler
-				});
-				//run compute
-				obj.compute();
-				//stop tracking
+
+			return obj;
+		},
+
+		effect: function(cb, opts) {
+			opts = opts || {};
+			
+			const scheduler = opts.scheduler || config.schedulers.effect;
+
+			function runner() {
+				const stop = api.trackAccess(runner, { scheduler: scheduler });
+				cb(api);
 				stop();
-				//return
-				return obj;
+			}
+
+			runner();
+
+			return function() {
+				const item = trackerItems.get(runner);
+				if (item) {
+					detachTracker(item);
+					trackerItems.delete(runner);
+				}
 			};
-			//update now
-			return onUpdate();
 		},
 
-		effect: function(cb, opts={}) {
-			//mark as effect
-			opts.effect = true;
-			//delegate to effect
-			api.computed(cb, opts);
-		},
+		onChange: function(key, cb, opts) {
+			if (!key || typeof key !== 'string') {
+				throw new Error("onChange key must be a non-empty string");
+			}
 
-		onChange: function(key, cb, opts={}) {
-			//create map
+			opts = opts || {};
 			changeHooks[key] = changeHooks[key] || new Map();
-			//create item
-			var item = {
+
+			const item = {
 				cb: cb,
 				scheduler: opts.scheduler || config.schedulers.onChange,
 				abort: function() {
-					//key exists?
-					if(changeHooks[key]) {
-						//remove matching cb
+					if (changeHooks[key]) {
 						changeHooks[key].delete(cb);
-						//remove key?
-						if(!changeHooks[key].size) {
-							delete changeHooks[key];
-						}
+						if (!changeHooks[key].size) delete changeHooks[key];
 					}
 				}
 			};
-			//add item
+
 			changeHooks[key].set(cb, item);
-			//return
 			return item.abort;
 		},
 
 		onAccess: function(key, cb) {
-			//create set
-			accessHooks[key] = accessHooks[key] || new Set();
-			//add item
-			accessHooks[key].add(cb);
-			//abort
-			return function() {
-				//key exists?
-				if(accessHooks[key]) {
-					//remove matching cb
-					accessHooks[key].delete(cb);
-					//remove key?
-					if(!accessHooks[key].size) {
-						delete accessHooks[key];
-					}
-				}
+			if (!key || typeof key !== 'string') {
+				throw new Error("onAccess key must be a non-empty string");
 			}
+		
+			accessHooks[key] = accessHooks[key] || new Set();
+			accessHooks[key].add(cb);
+
+			return function() {
+				if (accessHooks[key]) {
+					accessHooks[key].delete(cb);
+					if (!accessHooks[key].size) delete accessHooks[key];
+				}
+			};
 		},
 
-		trackAccess: function(cb, opts={}) {
-			//already tracking?
-			if(!trackerCache.has(cb)) {
-				//create item
-				var item = {
+		trackAccess: function(cb, opts) {
+			opts = opts || {};
+			
+			var item = trackerItems.get(cb);
+			
+			if (!item) {
+				item = {
 					cb: cb,
 					ctx: opts.ctx || null,
-					scheduler: opts.scheduler || config.schedulers.trackAccess
+					scheduler: opts.scheduler || config.schedulers.trackAccess,
+					deps: new Set(),
+					depsRun: new Set(),
+					_cycleId: 0
 				};
-				//add to cache
-				trackerCache.set(cb, item);
+				trackerItems.set(cb, item);
+			} else {
+				if (opts.ctx !== undefined) item.ctx = opts.ctx;
+				if (opts.scheduler) item.scheduler = opts.scheduler;
+				item.depsRun.clear();
 			}
-			//return
+
+			trackerStack.push(item);
+
 			return function() {
-				trackerCache.delete(cb);
+				if (trackerStack.length && trackerStack[trackerStack.length - 1] === item) {
+					trackerStack.pop();
+				} else {
+					const idx = trackerStack.indexOf(item);
+					if (idx > -1) trackerStack.splice(idx, 1);
+				}
+
+				for (const oldPath of item.deps) {
+					if (!item.depsRun.has(oldPath)) {
+						const m = trackerPaths[oldPath];
+						if (m) {
+							m.delete(item.cb);
+							if (!m.size) delete trackerPaths[oldPath];
+						}
+					}
+				}
+
+				item.deps = new Set(item.depsRun);
+				item.depsRun.clear();
 			};
+		},
+
+		meta: function(key, query) {
+			query = query || {};
+			const argsHash = hash(key, query);
+			const cache = getCache[argsHash] || {};
+			return {
+				error: cache.error || null,
+				loading: cache.loading || false
+			};
+		},
+
+		withMeta: function(key, opts={}) {
+			opts.track = true;
+			var data = this.get(key, opts);
+			var meta = this.meta(key, opts.query || {});
+			meta.data = data;
+			return meta;
+		},
+
+		raw: function(path) {
+			const val = path ? nestedKey(config.state, path) : config.state;
+			return copy(val, true);
 		}
 
 	};
 
-	//return
 	return api;
-
 }

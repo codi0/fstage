@@ -133,67 +133,102 @@ globalThis.FSCONFIG = {
 
 		const registry = get('registry.defaultRegistry', []);
 		const env = get('env');
-		
+
 		const store = get('store.createStore', []);
 		const syncManager = get('sync.createSyncManager', []);
-		const history = get('history.createBrowserHistory', [ get('config.router') ]);
-		
+
 		const routerOpts = get('config.router');
-		routerOpts.history = history;
+		routerOpts.history = get('history.createBrowserHistory', [ routerOpts ]);
 		const router = get('router.createRouter', [ routerOpts ]);
 
 		registry.set('env', env);
 		registry.set('store', store);
 		registry.set('syncManager', syncManager);
-		registry.set('history', history);
 		registry.set('router', router);
 	},
 	
 	afterLoadApp: function(e) {
 		const { get } = this;
-	
+
 		const registry = get('registry.defaultRegistry', []);
-		const rootEl = document.querySelector('#main-content');
-		const storeKey = 'route';
-			
-		const env = registry.get('env');
+		const transition = get('interaction.createTransitionEngine', []);
+
 		const store = registry.get('store');
 		const router = registry.get('router');
 
-		get('lit.FsLitElement.bindDefaults', [
-			{
-				store: store,
-				registry: registry
+		const appName = get('config.name');
+		const rootEl = document.querySelector('#main-content');
+
+		get('lit.FsLitElement.bindDefaults', [{
+			store: store,
+			registry: registry
+		}]);
+
+		transition.setScreenHost({
+
+			async mount(entry) {
+				if (entry._el) return;
+				console.log('mount', entry);
+
+				const meta = entry.match && entry.match.meta;
+				if (!meta || !meta.component) {
+					throw new Error('screenHost.mount: missing component');
+				}
+
+				const el = document.createElement(meta.component);
+				entry._el = el;
+				rootEl.appendChild(el);
+			},
+
+			async unmount(entry) {
+				if (!entry._el) return;
+				console.log('unmount', entry);
+
+				entry._el.remove();
+				entry._el = null;
+			},
+
+			async activate(entry) {
+				const el = entry._el;
+				if (!el) return;
+				console.log('activate', entry);
+
+				const meta = entry.match && entry.match.meta;
+				if (meta && meta.title) {
+					document.title = meta.title + (appName ? ' | ' + appName : '');
+				}
+			},
+
+			async deactivate(entry) {
+				console.log('deactivate', entry);
+			},
+
+			async snapshot(entry) {
+				if (!entry._el) return null;
+				console.log('snapshot', entry);
+
+				return { scrollTop: entry._el.scrollTop || 0 };
+			},
+
+			async restore(entry, snap) {
+				if (!entry._el) return;
+				console.log('restore', entry, snap);
+
+				requestAnimationFrame(() => {
+					entry._el.scrollTop = snap.scrollTop || 0;
+				});
 			}
-		]);
 
-		//const interaction = get('interaction.createInteraction', []);
-		//console.log(interaction);
-		
-		let currentView = null;
-
-		router.after(function(match, location) {
-			const routeConf = match.meta;
-			const appName = get('config.name');
-
-			const nextView = document.createElement(routeConf.component);
-
-			if (currentView) {
-				currentView.remove();
-			}
-
-			rootEl.appendChild(nextView);
-			currentView = nextView;
-
-			if (routeConf.title) {
-				document.title = routeConf.title + (appName ? ' | ' + appName : '');
-			}
-
-			requestAnimationFrame(function() {
-				rootEl.scrollTop = location.state.scroll || 0;
-			});
 		});
 
+		// engine.setAnimator(...)
+
+		const navInteraction = get('interaction.createNavigationInteraction', [{
+			router: router,
+			engine: transition
+		}]);
+
+		navInteraction.start();
 		router.start(rootEl);
 	}
 

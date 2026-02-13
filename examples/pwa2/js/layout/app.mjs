@@ -28,6 +28,7 @@ export class PwaApp extends FsComponent {
 
     main {
       flex: 1 1 auto;
+      position: relative;
       overflow-y: auto;
       -webkit-overflow-scrolling: touch;
       padding: 1rem;

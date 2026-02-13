@@ -1,4 +1,4 @@
-// @fstage/route
+// @fstage/router
 //
 // Responsibilities:
 // - Deterministic path matching
@@ -117,6 +117,7 @@ export function createRouteMatcher(options) {
 
 	var routes = options.routes || [];
 	var flat = flatten(routes);
+	var last = null;
 
 	// Deterministic precedence
 	flat.sort(function(a, b) {
@@ -125,6 +126,7 @@ export function createRouteMatcher(options) {
 
 	return {
 		resolve: function(path) {
+			last = [];
 			path = normalize(path);
 
 			for (var i = 0; i < flat.length; i++) {
@@ -132,17 +134,22 @@ export function createRouteMatcher(options) {
 				var params = match(route.pattern, path);
 
 				if (params) {
-					return [{
+					last = [{
 						id: route.id,
 						pattern: route.pattern,
 						path: path,
 						params: params,
 						meta: route.meta
 					}];
+					break;
 				}
 			}
 
-			return [];
+			return last;
+		},
+		
+		last: function() {
+			return last;
 		}
 	};
 }
@@ -214,10 +221,12 @@ export function createNavigationHandler(options) {
 				return;
 			}
 
-			navigate(route.name, {
-				replace: route.mode === 'replace',
-				params: route.params
-			});
+			Promise.resolve(
+				navigate(route.name, {
+					replace: route.mode === 'replace',
+					params: route.params
+				})
+			);
 		}
 
 		form.addEventListener('submit', onSubmit);
@@ -334,20 +343,30 @@ export function createRouter(options) {
 	options = options || {};
 
 	var history = options.history;
+	if (!history) throw new Error('Router requires history');
+
+	var navIndex = 0;
+	var lastNavIndex = 0;
+	var currentRoute = null;
+
 	var routes = options.routes || [];
+	var matcher = createRouteMatcher({ routes: routes });
+
 	var rootEl = options.rootEl;
 	var def404 = options.def404 || null;
 
-	if (!history) throw new Error('Router requires history');
-
 	var beforeHooks = [];
 	var afterHooks = [];
-	var currentRoute = null;
-	var matcher = createRouteMatcher({ routes: routes });
 
-	function runBefore(match, location) {
+	async function runBefore(match, location) {
 		for (var i = 0; i < beforeHooks.length; i++) {
-			if (beforeHooks[i](match, location) === false) {
+			var res = beforeHooks[i](match, location);
+
+			if (res instanceof Promise) {
+				res = await res;
+			}
+
+			if (res === false) {
 				return false;
 			}
 		}
@@ -360,7 +379,7 @@ export function createRouter(options) {
 		}
 	}
 
-	function commit(path, opts) {
+	async function commit(path, opts) {
 		opts = opts || {};
 
 		if (path === currentRoute) return;
@@ -373,11 +392,23 @@ export function createRouter(options) {
 			return false;
 		}
 
-		if (runBefore(matches[0], history.location()) === false) {
+		if (await runBefore(matches[0], history.location()) === false) {
 			return false;
 		}
 
-		history[opts.replace ? 'replace' : 'push'](path);
+		var method = opts.replace ? 'replace' : 'push';
+		var loc = history.location();
+		var state = (loc && loc.state) || {};
+
+		if (method === 'push') {
+				navIndex++;
+		}
+
+		state = Object.assign({}, state, {
+				id: navIndex
+		});
+
+		history[method](path, state);
 		
 		return true;
 	}
@@ -394,8 +425,30 @@ export function createRouter(options) {
 			return;
 		}
 		
+		var nextState = e.location.state || {};
+		var nextIndex = nextState.id;
+		var direction = null;
+
+		if (typeof nextIndex === 'number') {
+			if (nextIndex < lastNavIndex) {
+				direction = 'back';
+			} else if (nextIndex > lastNavIndex) {
+				direction = 'forward';
+			} else {
+				direction = 'replace';
+			}
+		} else {
+			direction = 'unknown';
+		}
+
+		lastNavIndex = nextIndex;
 		currentRoute = path;
-		runAfter(matches[0], e.location);
+
+		var loc = Object.assign({}, e.location, {
+			direction: direction
+		});
+
+		runAfter(matches[0], loc);
 	}
 
 	var navigation = createNavigationHandler({
@@ -414,7 +467,20 @@ export function createRouter(options) {
 			history.on(onHistory);
 			navigation.start(rootEl);
 
+			var loc = history.location();
+			var state = (loc && loc.state) || {};
+
+			if (typeof state.id !== 'number') {
+				state.id = 0;
+				history.replace(loc.route, state, { silent: true });
+			}
+
+			navIndex = state.id;
+			lastNavIndex = navIndex;
+
 			onHistory({ action: 'init', location: history.location() });
+			
+			return this.current();
 		},
 		
 		stop: function() {
@@ -422,16 +488,36 @@ export function createRouter(options) {
 			history.off(onHistory);
 		},
 
-		navigate: function(path, opts) {
-			commit(path, opts);
+		current: function() {
+			var loc = history.location();
+			var matches = matcher.last();
+			return Object.assign({}, loc, { match: matches[0] || null });
+		},
+
+		match: function(route) {
+			var matches = matcher.resolve(route);
+			return matches[0] || null;
+		},
+
+		navigate: async function(path, opts) {
+			await commit(path, opts);
+			return this.current();
+		},
+
+		forward: function() {
+			history.forward();
+		},
+
+		back: function() {
+			history.back();
 		},
 
 		before: function(fn) {
-			if (typeof fn === 'function') beforeHooks.push(fn);
+			beforeHooks.push(fn);
 		},
 
 		after: function(fn) {
-			if (typeof fn === 'function') afterHooks.push(fn);
+			afterHooks.push(fn);
 		}
 	};
 }

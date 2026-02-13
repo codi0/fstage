@@ -121,7 +121,7 @@ export function forEach(input, fn) {
 //input to string
 export function toString(input) {
 	//convert to string?
-	if(typeof str !== 'string') {
+	if(typeof input !== 'string') {
 		input = JSON.stringify(input);
 	}
 	//return
@@ -130,7 +130,11 @@ export function toString(input) {
 
 //hash input
 export function hash(input) {
-	var str = toString(arguments);
+	var parts = [];
+	for (var i = 0; i < arguments.length; i++) {
+		parts.push(toString(arguments[i]));
+	}
+	var str = parts.join(':');
 	var h1 = 0xdeadbeef ^ 0, h2 = 0x41c6ce57 ^ 0;
 	for(var i = 0, ch; i < str.length; i++) {
 		ch = str.charCodeAt(i);
