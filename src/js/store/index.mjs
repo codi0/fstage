@@ -1,4 +1,5 @@
-import { getType, copy, hash, nestedKey, diffValues } from '../utils/index.mjs';
+import { getType, copy, hash, schedule, nestedKey, diffValues } from '../utils/index.mjs';
+
 
 export function createStore(config) {
 	config = config || {};
@@ -27,32 +28,6 @@ export function createStore(config) {
 	var batchSeq = 0;
 	var batchDiffList = null;
 	var cycleId = 0;
-
-	const queued = {};
-	const flushing = {};
-	const schedulers = {
-		sync: function(fn) { fn(); },
-		micro: function(fn) { Promise.resolve().then(fn); },
-		macro: function(fn) { setTimeout(fn, 0); }
-	};
-
-	function schedule(fn, scheduler) {
-		if (scheduler === 'sync') return fn();
-		
-		queued[scheduler] = queued[scheduler] || new Set();
-		if (queued[scheduler].has(fn)) return;
-		queued[scheduler].add(fn);
-		
-		if (flushing[scheduler]) return;
-		flushing[scheduler] = true;
-		
-		schedulers[scheduler](function() {
-			const fns = Array.from(queued[scheduler]);
-			queued[scheduler].clear();
-			flushing[scheduler] = false;
-			fns.forEach(function(f) { f(); });
-		});
-	}
 
 	function getParentPaths(path) {
 		if (parentPathCache.has(path)) return parentPathCache.get(path);
@@ -164,7 +139,7 @@ export function createStore(config) {
 					api[e.merge ? 'merge' : 'set'](k, e.val, { src: 'get' });
 					const re = new RegExp('^' + k.replace(/\./g, '\\.') + '\\.');
 					const rk = (key === k) ? '' : key.replace(re, '');
-					opts.val = rk ? nestedKey(e.val, rk) : e.val;
+					opts.val = nestedKey(e.val, rk);
 				}
 			})(k);
 			
@@ -303,6 +278,11 @@ export function createStore(config) {
 		runChangeHooks(diff, 'set');
 	}
 
+	function createHash(key, query) {
+		var hasQuery = query && Object.keys(query).length;
+		return hasQuery ? hash(key, query) : key;
+	}
+
 	const api = {
 
 		has: function(key) {
@@ -319,8 +299,7 @@ export function createStore(config) {
 			}
 
 			if (opts.track !== false && (trackerStack.length || Object.keys(accessHooks).length)) {
-				const hasQuery = opts.query && Object.keys(opts.query).length;
-				const argsHash = hasQuery ? hash(key, opts.query) : key;
+				const argsHash = createHash(key, opts.query);
 
 				if (!getCache[argsHash]) {
 					getCache[argsHash] = {};
@@ -328,6 +307,7 @@ export function createStore(config) {
 				}
 
 				logAccess(key);
+
 				val = runAccessHooks(key, {
 					val: val,
 					query: opts.query,
@@ -414,6 +394,10 @@ export function createStore(config) {
 
 			const scheduler = opts.scheduler || config.schedulers.computed;
 
+			function recompute() {
+				dirty = true;
+			}
+
 			const obj = {
 				get value() {
 					if (computing) return value;
@@ -430,22 +414,16 @@ export function createStore(config) {
 				get: function() {
 					return obj.value;
 				},
-				abort: null
-			};
-
-			function recompute() {
-				dirty = true;
-			}
-
-			obj.value;
-
-			obj.abort = function() {
-				const item = trackerItems.get(recompute);
-				if (item) {
-					detachTracker(item);
-					trackerItems.delete(recompute);
+				abort: function() {
+					const item = trackerItems.get(recompute);
+					if (item) {
+						detachTracker(item);
+						trackerItems.delete(recompute);
+					}
 				}
 			};
+
+			obj.value;
 
 			return obj;
 		},
@@ -558,8 +536,7 @@ export function createStore(config) {
 		},
 
 		meta: function(key, query) {
-			query = query || {};
-			const argsHash = hash(key, query);
+			const argsHash = createHash(key, query);
 			const cache = getCache[argsHash] || {};
 			return {
 				error: cache.error || null,
@@ -576,7 +553,7 @@ export function createStore(config) {
 		},
 
 		raw: function(path) {
-			const val = path ? nestedKey(config.state, path) : config.state;
+			const val = nestedKey(config.state, path);
 			return copy(val, true);
 		}
 

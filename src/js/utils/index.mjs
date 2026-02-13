@@ -510,27 +510,50 @@ export 	function diffValues(oldVal, newVal, path='', processed=[]) {
 	return changes;
 }
 
-//schedule task helper
-export function scheduleTask(cb, frameNum=0) {
-	//microtask?
-    if(frameNum <= 0) {
-        return Promise.resolve().then(function() {
-			cb();
-		});
+//schedule helper
+export function schedule(fn, type) {
+	//setup caches?
+	if (!schedule.__queued) {
+		schedule.__queued = {};
+		schedule.__flushing = {};
+		schedule.__types = {
+			micro: function(fn) { queueMicrotask(fn); },
+			macro: function(fn) { setTimeout(fn, 0); }
+		};
 	}
-	//counter
-	var count = 0;
-	//frame helper
-	var frame = function() {
-		count++;
-		if(count > frameNum) {
-			cb();
-		} else {
-			requestAnimationFrame(frame);
+	//is sync?
+	if (type === 'sync') {
+		return fn();
+	}
+	//valid type?
+	if (!schedule.__types[type]) {
+		throw new Error("Invalid schedule type: " + type);
+	}
+	//create set?
+	if (!schedule.__queued[type]) {
+		schedule.__queued[type] = new Set();
+	}
+	//already in queue?
+	if (schedule.__queued[type].has(fn)) {
+		return;
+	}
+	//add to queue
+	schedule.__queued[type].add(fn);
+	//in progress?
+	if (schedule.__flushing[type]) {
+		return;
+	}
+	//mark as in progress
+	schedule.__flushing[type] = true;
+	//run queue
+	schedule.__types[type](function() {
+		var fns = Array.from(schedule.__queued[type]);
+		schedule.__queued[type].clear();
+		schedule.__flushing[type] = false;
+		for(var i=0; i < fns.length; i++) {
+			fns[i]();
 		}
-	};
-	//macrotask
-    requestAnimationFrame(frame);
+	});
 }
 
 //get global css
