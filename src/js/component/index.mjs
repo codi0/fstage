@@ -3,32 +3,33 @@ export * from 'https://cdn.jsdelivr.net/npm/lit-element@4/+esm';
 
 import { getGlobalCss, stylesToString, callSuper } from '../utils/index.mjs';
 
-//lit base class extension
-export class FsComponent extends LitElement {
 
-	static counter = 0;
-	static defaults = {};
+//private vars
+var _count = 0;
+var _cache = {};
+var _defaults = {};
+var _registered = false;
+
+//component class (extends Lit)
+export class FsComponent extends LitElement {
 
 	static shadowDom = true;
 	static globalCss = true;
-	
-	static bindDefaults(obj) {
-		Object.assign(this.defaults || {}, obj || {});
-	}
 
 	constructor() {
 		//parent
 		super();
 		//set ID
-		this.__$id = (++FsComponent.counter);
+		_count++;
+		this.__$id = _count;
 		//call willConstruct?
 		if(typeof this.willConstruct === 'function') {
 			this.willConstruct();
 		}
-		//set defaults
-		for(var i in this.constructor.defaults) {
+		//bind defaults
+		for(var i in _defaults) {
 			if(this[i] === undefined) {
-				this[i] = this.constructor.defaults[i];
+				this[i] = _defaults[i];
 			}
 		}
 		//prepare methods
@@ -184,6 +185,23 @@ export class FsComponent extends LitElement {
 
 }
 
+//bind default properties
+export function bindComponentDefaults(obj, register=true) {
+	Object.assign(_defaults, obj || {});
+	if (register) registerComponents();
+}
+
+//register components wrapper
+export function registerComponents() {
+	//check flag
+	if(_registered) return;
+	_registered = true;
+	//register components
+	for(var i in _cache) {
+		_cache[i].register();
+	}
+}
+
 //create component wrapper
 export function createComponent(tag, def, BaseClass = FsComponent) {
 	//has tag name?
@@ -208,6 +226,14 @@ export function createComponent(tag, def, BaseClass = FsComponent) {
 
 	//create component
 	class Component extends BaseClass {
+
+		static register() {
+			if (_cache[tag]) {
+				delete _cache[tag];
+				customElements.define(tag, Component);
+			}
+		}
+
 		constructor() {
 			//parent
 			super();
@@ -216,6 +242,7 @@ export function createComponent(tag, def, BaseClass = FsComponent) {
 				constructor.call(this);
 			}
 		}
+
 	}
 
 	//is function or object?
@@ -232,10 +259,13 @@ export function createComponent(tag, def, BaseClass = FsComponent) {
 		//copy instance
 		Object.defineProperties(Component.prototype, Object.getOwnPropertyDescriptors(i));
 	}
+	
+	//add to cache
+	_cache[tag] = Component;
 
-	//register element?
-	if(tag && tag.length) {
-		customElements.define(tag, Component);
+	//register now?
+	if (_registered) {
+		Component.register();
 	}
 
 	//return

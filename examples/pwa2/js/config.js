@@ -145,6 +145,11 @@ globalThis.FSCONFIG = {
 		registry.set('store', store);
 		registry.set('syncManager', syncManager);
 		registry.set('router', router);
+
+		get('component.bindComponentDefaults', [{
+			store: store,
+			registry: registry
+		}]);
 	},
 	
 	afterLoadApp: function(e) {
@@ -159,64 +164,41 @@ globalThis.FSCONFIG = {
 		const appName = get('config.name');
 		const rootEl = document.querySelector('#main-content');
 
-		get('lit.FsLitElement.bindDefaults', [{
-			store: store,
-			registry: registry
-		}]);
-
 		transition.setScreenHost({
 
-			async mount(entry) {
-				if (entry._el) return;
-				console.log('mount', entry);
+			async mount(e) {
+				const routeConf = e.screen && e.screen.meta;
 
-				const meta = entry.match && entry.match.meta;
-				if (!meta || !meta.component) {
-					throw new Error('screenHost.mount: missing component');
+				if (!routeConf || !routeConf.component) {
+					throw new Error('screenHost.mount: entry.screen.meta.component missing');
 				}
 
-				const el = document.createElement(meta.component);
-				entry._el = el;
+				const el = document.createElement(routeConf.component);
 				rootEl.appendChild(el);
+
+				return el;
 			},
 
-			async unmount(entry) {
-				if (!entry._el) return;
-				console.log('unmount', entry);
-
-				entry._el.remove();
-				entry._el = null;
+			async unmount(e) {
+				e.el.remove();
 			},
 
-			async activate(entry) {
-				const el = entry._el;
-				if (!el) return;
-				console.log('activate', entry);
+			async activate(e) {
+				const routeConf = e.screen && e.screen.meta;
 
-				const meta = entry.match && entry.match.meta;
-				if (meta && meta.title) {
-					document.title = meta.title + (appName ? ' | ' + appName : '');
+				if (routeConf && routeConf.title) {
+					document.title = routeConf.title + (appName ? ' | ' + appName : '');
 				}
-			},
-
-			async deactivate(entry) {
-				console.log('deactivate', entry);
-			},
-
-			async snapshot(entry) {
-				if (!entry._el) return null;
-				console.log('snapshot', entry);
-
-				return { scrollTop: entry._el.scrollTop || 0 };
-			},
-
-			async restore(entry, snap) {
-				if (!entry._el) return;
-				console.log('restore', entry, snap);
-
+				
+				console.log(e);
+				
 				requestAnimationFrame(() => {
-					entry._el.scrollTop = snap.scrollTop || 0;
+					rootEl.scrollTop = e.location.state.scroll || 0;
 				});
+			},
+
+			async deactivate(e) {
+				// for handling animations visuals
 			}
 
 		});

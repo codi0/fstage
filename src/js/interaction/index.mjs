@@ -1,188 +1,207 @@
 // @fstage/interaction
 //
-// Router:
-//   - Owns history
-//   - Emits direction via router.after(match, location)
+// Interaction v2 — Lean Transition Engine + Router Adapter (native-feel ready)
+// ---------------------------------------------------------------------------
 //
-// Interaction:
-//   - Orchestrates mount / activate / animate / unmount
-//   - Never duplicates navigation stack
-//   - Never wraps history
-//   - Guarantees max 2 mounted screens
-//   - Cancels safely under rapid navigation
-//   - Direction aware (push / replace / back / forward / init)
+// Responsibilities
+// - Orchestrate mount/unmount + lifecycle hooks (activate/deactivate)
+// - Support cancellable/interruptible transitions (token-guarded)
+// - Keep at most 2 screens mounted during a transition
 //
-// Native Feel Guarantees:
-//   - Scroll restoration handled via location.state
-//   - Direction-sensitive animations
-//   - Proper cancellation
-//   - No DOM accumulation
-//   - Gesture-ready foundation
+// Non-responsibilities
+// - No route matching (router owns this)
+// - No history wrapping (router/history owns this)
+// - No persistent navigation stack (router/history owns this)
 //
+// Contracts
+// - screenHost.mount(entry) must return an Element (or throw)
+// - engine tracks entry.el automatically and passes (entry) to hooks
+//
+// Entry shape (engine-owned):
+//   { screen, location, el? }
+//
+// Router adapter expects router.after(fn(match, location)) where:
+//   location.direction: 'back' | 'forward' | null
+//   location.state.scroll: number (for pop restore)
+//
+// Exports:
+//   createTransitionEngine()
+//   createNavigationInteraction()
 
-// --------------------------------------------------
-// TRANSITION ENGINE (Core)
-// --------------------------------------------------
+// ------------------------------------------------------
+// TRANSITION ENGINE (core)
+// ------------------------------------------------------
 
-export function createTransitionEngine() {
+export function createTransitionEngine(options) {
+  options = options || {};
 
-	let screenHost = null;
-	let animator = null;
+  var screenHost = null;
+  var animator = null;
 
-	let current = null;        // current entry
-	let active = null;         // active animation handle
-	let transitionId = 0;      // monotonic guard
+  // current mounted entry (the "committed" screen)
+  var current = null;
 
-	function ensureWired() {
-		if (!screenHost) {
-			throw new Error('TransitionEngine requires screenHost');
-		}
-	}
+  // transition token guard: prevents out-of-order async effects
+  var seq = 0;
+  var running = 0;
 
-	function cancelActive() {
-		if (!active) return;
-		try { active.cancel?.(); } catch {}
-		active = null;
-	}
+  function ensureWired() {
+    if (!screenHost) throw new Error('TransitionEngine requires screenHost');
+  }
 
-	async function transitionTo(nextEntry, meta) {
+  function isStale(id) {
+    return running !== id;
+  }
 
-		ensureWired();
+  async function safeCall(fn, args) {
+    try {
+      if (typeof fn === 'function') return await fn.apply(null, args);
+    } catch {}
+    return undefined;
+  }
 
-		meta = meta || {};
-		const mode = meta.mode || 'push';
-		const id = ++transitionId;
+  async function transitionTo(nextEntry) {
+    ensureWired();
 
-		// cancel running transition
-		cancelActive();
+    // cancel/replace any in-flight transition
+    var id = ++seq;
+    running = id;
 
-		const from = current;
-		const to = nextEntry;
+    // snapshot current BEFORE anything changes
+    var from = current;
 
-		// mount new
-		await screenHost.mount(to);
+    // mount next (must return element)
+    var el = await screenHost.mount(nextEntry);
+    if (!el) throw new Error('screenHost.mount(entry) must return an Element');
+    nextEntry.el = el;
 
-		// activate new immediately (simplifies CSS)
-		await screenHost.activate(to);
+    if (isStale(id)) {
+      // We got preempted after mount; clean up immediately.
+      await safeCall(screenHost.unmount, [ nextEntry ]);
+      return;
+    }
 
-		// restore scroll if available
-		if (to.location?.state?.scroll != null) {
-			await screenHost.restore?.(to, { scrollTop: to.location.state.scroll });
-		}
-
-		// deactivate previous (lifecycle only)
-		if (from) {
-			await screenHost.deactivate(from);
-		}
-
-		// start animation
-		let handle = null;
-
-		if (animator?.start) {
-			handle = animator.start({
-				type: mode,
-				from,
-				to,
-				interactive: false
-			});
-		}
-
-		active = {
-			cancel() {
-				try { handle?.cancel?.(); } catch {}
+    // activate new (lifecycle)
+    await safeCall(screenHost.activate, [ nextEntry ]);
+    if (isStale(id)) {
+      await safeCall(screenHost.unmount, [ nextEntry ]);
+			if (from) {
+					await safeCall(screenHost.activate, [ from ]);
 			}
-		};
+      return;
+    }
 
-		// wait animation
-		if (handle?.finished) {
-			try {
-				await handle.finished;
-			} catch {}
-		}
+    // deactivate old (lifecycle only; do NOT rely on CSS hiding)
+    if (from) {
+      await safeCall(screenHost.deactivate, [ from ]);
+      if (isStale(id)) {
+        await safeCall(screenHost.unmount, [ nextEntry ]);
+        return;
+      }
+    }
 
-		// if a newer transition started, abort cleanup
-		if (id !== transitionId) return;
+    // start animation (optional)
+    var handle = null;
+    if (animator && typeof animator.start === 'function') {
+      try {
+        handle = animator.start({
+          direction: nextEntry.location.direction,
+          from: from ? from.el : null,
+          to: nextEntry.el
+        });
+      } catch {
+        handle = null;
+      }
+    }
 
-		// unmount old
-		if (from) {
-			await screenHost.unmount(from);
-		}
+    // wait animation finish (if any)
+    if (handle) {
+      // allow cancellation to mark stale
+      // (engine cancellation is token-based; animator cancel is best-effort)
+      if (handle.finished && typeof handle.finished.then === 'function') {
+        try {
+          await handle.finished;
+        } catch {}
+      } else if (typeof handle.finish === 'function') {
+        try {
+          await handle.finish();
+        } catch {}
+      }
+    }
 
-		current = to;
-		active = null;
-	}
+    if (isStale(id)) {
+      // Transition was preempted after animation; best-effort cleanup of "to".
+      await safeCall(screenHost.unmount, [ nextEntry ]);
+      return;
+    }
 
-	return {
+    // unmount old after transition completes
+    if (from) {
+      await safeCall(screenHost.unmount, [ from ]);
+    }
 
-		setScreenHost(host) {
-			screenHost = host;
-			return this;
-		},
+    // commit new current
+    current = nextEntry;
+  }
 
-		setAnimator(anim) {
-			animator = anim;
-			return this;
-		},
+  return {
+    setScreenHost: function(host) {
+      screenHost = host;
+      return this;
+    },
 
-		transitionTo,
+    setAnimator: function(anim) {
+      animator = anim;
+      return this;
+    },
 
-		getCurrent() {
-			return current;
-		}
-	};
+    // Preempt any in-flight transition. Best-effort.
+    cancel: function() {
+      running = ++seq;
+      return true;
+    },
+
+    transitionTo: transitionTo,
+
+    getCurrent: function() {
+      return current;
+    }
+  };
 }
 
-
-// --------------------------------------------------
-// NAVIGATION ADAPTER (Router Integration)
-// --------------------------------------------------
+// ------------------------------------------------------
+// NAVIGATION INTERACTION (router adapter)
+// ------------------------------------------------------
 
 export function createNavigationInteraction(options) {
+  options = options || {};
 
-	options = options || {};
+  var router = options.router;
+  var engine = options.engine;
 
-	const router = options.router;
-	const engine = options.engine;
+  if (!router) throw new Error('NavigationInteraction requires router');
+  if (!engine) throw new Error('NavigationInteraction requires transition engine');
 
-	if (!router) throw new Error('NavigationInteraction requires router');
-	if (!engine) throw new Error('NavigationInteraction requires engine');
+  function onNavigate(match, location) {
+    if (!match) return;
 
-	function deriveMode(location) {
-		if (location) {
-			if (location.action === 'back') return 'pop';
-			if (location.action === 'replace') return 'replace';
-			if (location.action === 'init') return 'init';
-		}
+    // IMPORTANT: keep screen shape compatible with your screenHost expectation:
+    // screenHost expects entry.screen.meta.component etc.
+    engine.transitionTo({
+      screen: match,        // router.match(route) object: { id, pattern, path, params, meta }
+      location: location,   // history location object including state.scroll if available
+      el: null
+    });
+  }
 
-		return 'push';
-	}
+  return {
+    engine: function() {
+      return engine;
+    },
 
-	function makeEntry(match, location) {
-		return {
-			key: location?.state?.__rid || 
-			     Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6),
-			match,
-			location
-		};
-	}
-
-	function onNavigate(match, location) {
-
-		const mode = deriveMode(location);
-		const entry = makeEntry(match, location);
-
-		engine.transitionTo(entry, { mode });
-	}
-
-	return {
-
-		start() {
-			router.after(onNavigate);
-			return this;
-		},
-
-		engine() {
-			return engine;
-		}
-	};
+    start: function() {
+      router.after(onNavigate);
+      return this;
+    }
+  };
 }
