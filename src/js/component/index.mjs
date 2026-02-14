@@ -197,9 +197,11 @@ export function registerComponents() {
 	if(_registered) return;
 	_registered = true;
 	//register components
-	for(var i in _cache) {
-		_cache[i].register();
-	}
+	requestAnimationFrame(function() {
+		for(var i in _cache) {
+			_cache[i].register();
+		}
+	});
 }
 
 //create component wrapper
