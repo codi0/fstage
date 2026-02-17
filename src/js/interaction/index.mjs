@@ -21,7 +21,7 @@
 //   { screen, location, el? }
 //
 // Router adapter expects router.after(fn(match, location)) where:
-//   location.direction: 'back' | 'forward' | null
+//   location.direction: 'back' | 'forward' | 'replace'
 //   location.state.scroll: number (for pop restore)
 //
 // Exports:
@@ -40,6 +40,9 @@ export function createTransitionEngine(options) {
 
   // current mounted entry (the "committed" screen)
   var current = null;
+
+  // active interactive controller (if any)
+  var activeCtl = null;
 
   // transition token guard: prevents out-of-order async effects
   var seq = 0;
@@ -60,12 +63,26 @@ export function createTransitionEngine(options) {
     return undefined;
   }
 
-  async function transitionTo(nextEntry) {
+  async function cleanupController(ctl) {
+    try {
+      if (ctl && typeof ctl.destroy === 'function') await ctl.destroy();
+    } catch {}
+  }
+
+  async function transitionTo(nextEntry, opts) {
     ensureWired();
+
+    opts = opts || {};
 
     // cancel/replace any in-flight transition
     var id = ++seq;
     running = id;
+
+    // if we already have an interactive controller, tear it down first
+    if (activeCtl) {
+      await cleanupController(activeCtl);
+      activeCtl = null;
+    }
 
     // snapshot current BEFORE anything changes
     var from = current;
@@ -81,13 +98,135 @@ export function createTransitionEngine(options) {
       return;
     }
 
+    // interactive path: mount + animator only; hooks fire on commit
+    if (opts.interactive) {
+      var handleI = null;
+      if (animator && typeof animator.start === 'function') {
+        try {
+          handleI = animator.start({
+            direction: nextEntry.location && nextEntry.location.direction,
+            from: from ? from.el : null,
+            to: nextEntry.el,
+            interactive: true
+          });
+        } catch {
+          handleI = null;
+        }
+      }
+
+      var done = false;
+
+      function clear() {
+        if (activeCtl === ctl) activeCtl = null;
+      }
+
+      async function commit() {
+        if (done) return;
+        done = true;
+
+        if (isStale(id)) {
+          await safeCall(screenHost.unmount, [ nextEntry ]);
+          clear();
+          return;
+        }
+
+        // activate new (lifecycle)
+        await safeCall(screenHost.activate, [ nextEntry ]);
+        if (isStale(id)) {
+          await safeCall(screenHost.unmount, [ nextEntry ]);
+          clear();
+          return;
+        }
+
+        // deactivate old (lifecycle only)
+        if (from) {
+          await safeCall(screenHost.deactivate, [ from ]);
+          if (isStale(id)) {
+            await safeCall(screenHost.unmount, [ nextEntry ]);
+            clear();
+            return;
+          }
+        }
+
+        // finish animation to end
+        if (handleI) {
+          try {
+            if (typeof handleI.commit === 'function') {
+              await handleI.commit();
+            } else if (handleI.finished && typeof handleI.finished.then === 'function') {
+              await handleI.finished;
+            } else if (typeof handleI.finish === 'function') {
+              await handleI.finish();
+            }
+          } catch {}
+        }
+
+        if (isStale(id)) {
+          await safeCall(screenHost.unmount, [ nextEntry ]);
+          clear();
+          return;
+        }
+
+        // unmount old after transition completes
+        if (from) {
+          await safeCall(screenHost.unmount, [ from ]);
+        }
+
+        // commit new current
+        current = nextEntry;
+        clear();
+      }
+
+      async function cancel() {
+        if (done) return;
+        done = true;
+
+        // revert animation
+        if (handleI) {
+          try {
+            if (typeof handleI.cancel === 'function') {
+              await handleI.cancel();
+            } else if (typeof handleI.destroy === 'function') {
+              handleI.destroy();
+            }
+          } catch {}
+        }
+
+        await safeCall(screenHost.unmount, [ nextEntry ]);
+        clear();
+      }
+
+      async function destroy() {
+        try {
+          await cancel();
+        } catch {}
+      }
+
+      var ctl = {
+        progress: function(p) {
+          if (done) return;
+          if (!handleI) return;
+          if (typeof handleI.progress === 'function') {
+            try { handleI.progress(p); } catch {}
+          } else if (typeof handleI.setProgress === 'function') {
+            try { handleI.setProgress(p); } catch {}
+          }
+        },
+        commit: commit,
+        cancel: cancel,
+        destroy: destroy
+      };
+
+      activeCtl = ctl;
+      return ctl;
+    }
+
+    // non-interactive path: hooks occur immediately (as before)
+
     // activate new (lifecycle)
     await safeCall(screenHost.activate, [ nextEntry ]);
     if (isStale(id)) {
       await safeCall(screenHost.unmount, [ nextEntry ]);
-			if (from) {
-					await safeCall(screenHost.activate, [ from ]);
-			}
       return;
     }
 
@@ -105,7 +244,7 @@ export function createTransitionEngine(options) {
     if (animator && typeof animator.start === 'function') {
       try {
         handle = animator.start({
-          direction: nextEntry.location.direction,
+          direction: nextEntry.location && nextEntry.location.direction,
           from: from ? from.el : null,
           to: nextEntry.el
         });
@@ -116,8 +255,6 @@ export function createTransitionEngine(options) {
 
     // wait animation finish (if any)
     if (handle) {
-      // allow cancellation to mark stale
-      // (engine cancellation is token-based; animator cancel is best-effort)
       if (handle.finished && typeof handle.finished.then === 'function') {
         try {
           await handle.finished;
@@ -158,6 +295,11 @@ export function createTransitionEngine(options) {
     // Preempt any in-flight transition. Best-effort.
     cancel: function() {
       running = ++seq;
+      if (activeCtl) {
+        // best-effort teardown (don't await inside sync API)
+        cleanupController(activeCtl);
+        activeCtl = null;
+      }
       return true;
     },
 

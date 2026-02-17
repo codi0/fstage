@@ -18,6 +18,8 @@ globalThis.FSCONFIG = {
 			'@fstage/history',
 			'@fstage/router',
 			'@fstage/interaction',
+			'@fstage/animator',
+			'@fstage/gesture',
 			'@fstage/store',
 			'@fstage/sync',
 			'@fstage/component',
@@ -116,7 +118,7 @@ globalThis.FSCONFIG = {
 	},
 
 	beforeLoad: function(e) {
-		const env = this.get('env');
+		const env = e.get('env');
 	
 		//skip loading web capacitor packages when running in native hybrid environment
 		if(e.path.startsWith('@capacitor/') && env && env.getFact('platform.hybrid')) {
@@ -129,40 +131,39 @@ globalThis.FSCONFIG = {
 	},
 
 	afterLoadLibs: function(e) {
-		const { get } = this;
+		const registry = e.get('registry.defaultRegistry', []);
+		const env = e.get('env');
 
-		const registry = get('registry.defaultRegistry', []);
-		const env = get('env');
+		const store = e.get('store.createStore', []);
+		const syncManager = e.get('sync.createSyncManager', []);
 
-		const store = get('store.createStore', []);
-		const syncManager = get('sync.createSyncManager', []);
-
-		const routerOpts = get('config.router');
-		routerOpts.history = get('history.createBrowserHistory', [ routerOpts ]);
-		const router = get('router.createRouter', [ routerOpts ]);
+		const routerOpts = e.get('config.router');
+		routerOpts.history = e.get('history.createBrowserHistory', [ routerOpts ]);
+		const router = e.get('router.createRouter', [ routerOpts ]);
 
 		registry.set('env', env);
 		registry.set('store', store);
 		registry.set('syncManager', syncManager);
 		registry.set('router', router);
 
-		get('component.bindComponentDefaults', [{
+		e.get('component.bindComponentDefaults', [{
 			store: store,
 			registry: registry
 		}]);
 	},
 	
 	afterLoadApp: function(e) {
-		const { get } = this;
+		const registry = e.get('registry.defaultRegistry', []);
+		const transition = e.get('interaction.createTransitionEngine', []);
+		const createAnimator = e.get('animator.createAnimator');
+		const createSwipeBackGesture = e.get('gesture.createSwipeBackGesture');
 
-		const registry = get('registry.defaultRegistry', []);
-		const transition = get('interaction.createTransitionEngine', []);
-
+		const env = registry.get('env');
 		const store = registry.get('store');
 		const router = registry.get('router');
 
-		const appName = get('config.name');
-		const rootEl = document.querySelector('#main-content');
+		const appName = e.get('config.name');
+		const rootEl = document.querySelector('pwa-main');
 
 		transition.setScreenHost({
 
@@ -172,8 +173,11 @@ globalThis.FSCONFIG = {
 				if (!routeConf || !routeConf.component) {
 					throw new Error('screenHost.mount: entry.screen.meta.component missing');
 				}
+				
+				const el = document.createElement('pwa-screen');
+				const elChild = document.createElement(routeConf.component);
 
-				const el = document.createElement(routeConf.component);
+				el.appendChild(elChild);
 				rootEl.appendChild(el);
 
 				return el;
@@ -190,8 +194,6 @@ globalThis.FSCONFIG = {
 					document.title = routeConf.title + (appName ? ' | ' + appName : '');
 				}
 				
-				console.log(e);
-				
 				requestAnimationFrame(() => {
 					rootEl.scrollTop = e.location.state.scroll || 0;
 				});
@@ -203,13 +205,23 @@ globalThis.FSCONFIG = {
 
 		});
 
-		// engine.setAnimator(...)
+		transition.setAnimator(createAnimator({ env: env }));
 
-		const navInteraction = get('interaction.createNavigationInteraction', [{
+		const swipe = createSwipeBackGesture({
+			env: env,
+			rootEl: rootEl,
+			engine: transition,
+			getPreviousEntry: function() {
+				return router && router.getPrevious && router.getPrevious();
+			}
+		});
+
+		const navInteraction = e.get('interaction.createNavigationInteraction', [{
 			router: router,
 			engine: transition
 		}]);
 
+		swipe.start();
 		navInteraction.start();
 		router.start(rootEl);
 	}

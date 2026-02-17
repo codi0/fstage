@@ -5,7 +5,7 @@
 //config vars
 var _name = 'fstage';
 var _confName = 'FSCONFIG';
-var _modules = [ 'component', 'dom', 'env', 'form', 'history', 'hls', 'http', 'ipfs', 'interaction', 'lit', 'observe', 'pubsub', 'registry', 'router', 'store', 'sync', 'utils', 'webpush', 'websocket' ];
+var _modules = [ 'animator', 'component', 'dom', 'env', 'form', 'gesture', 'history', 'hls', 'http', 'ipfs', 'interaction', 'lit', 'observe', 'pubsub', 'registry', 'router', 'store', 'sync', 'utils', 'webpush', 'websocket' ];
 
 //misc vars
 var _global = {};
@@ -16,11 +16,8 @@ var _swUpdate = localStorage.getItem('swUpdate') == 1;
 
 //invoke callback helper
 var _cb = function(fn, args, ctx) {
-	if(ctx === undefined) {
-		ctx = _global;
-	}
 	try {
-		return fn ? fn.apply(ctx, args || []) : null;
+		return fn ? fn.apply(ctx || null, args || []) : null;
 	} catch (err) {
 		console.error(err);
 		throw err;
@@ -168,8 +165,10 @@ var load = function(path, type='') {
 				return load(path[i]).then(function(res) {
 					//get group name
 					var group = i[0].toUpperCase() + i.slice(1);
+					//create event
+					var e = { modules: res, get: get };
 					//group loaded hook
-					_cb(_config['afterLoad' + group], [ res ]);
+					_cb(_config['afterLoad' + group], [ e ]);
 					//delete property
 					delete path[i];
 					//load next
@@ -186,6 +185,7 @@ var load = function(path, type='') {
 	return new Promise(function(resolve, reject) {
 		//create event
 		var e = {
+			get: get,
 			type: type,
 			path: path.replace(scope + '/', '')
 		};

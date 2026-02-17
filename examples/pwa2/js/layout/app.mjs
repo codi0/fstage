@@ -5,38 +5,38 @@ export class PwaApp extends FsComponent {
 	static shadowDom = false;
 
   static styles = css`
-    :host {
-      display: block;
-      height: 100vh;
+    pwa-app {
+      display: flex;
+      flex-direction: column;
       width: 100%;
-      overflow: hidden;
+      height: 100%;
       background: var(--sl-color-neutral-0);
       color: var(--sl-color-neutral-900);
     }
 
-    .app {
-      display: flex;
-      flex-direction: column;
-      height: 100%;
-    }
-
-    header {
+    pwa-header {
       flex: 0 0 auto;
-      border-bottom: 1px solid var(--sl-color-neutral-200);
       background: var(--sl-color-neutral-0);
+      border-bottom: 1px solid var(--sl-color-neutral-200);
     }
 
-    main {
-      flex: 1 1 auto;
-      position: relative;
-      overflow-y: auto;
-      -webkit-overflow-scrolling: touch;
-      padding: 1rem;
-    }
+		pwa-main {
+			flex: 1 1 auto;
+			position: relative;
+			overflow: hidden;
+			padding: 0;
+		}
+
+		pwa-screen {
+			position: absolute;
+			inset: 0;
+			padding: 1rem;
+			overflow-y: auto;
+			-webkit-overflow-scrolling: touch;
+		}
 
     @media (min-width: 768px) {
-      main {
-        padding: 1.5rem;
+			pwa-main {
         max-width: 960px;
         margin: 0 auto;
         width: 100%;
@@ -46,15 +46,8 @@ export class PwaApp extends FsComponent {
 
   render() {
     return html`
-      <div class="app">
-        <header>
-          <pwa-header></pwa-header>
-        </header>
-
-        <main id="main-content">
-          <!-- router renders views here -->
-        </main>
-      </div>
+      <pwa-header></pwa-header>
+      <pwa-main></pwa-main>
     `;
   }
 }
