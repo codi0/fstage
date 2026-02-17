@@ -19,7 +19,7 @@ globalThis.FSCONFIG = {
 			'@fstage/router',
 			'@fstage/interaction',
 			'@fstage/animator',
-			'@fstage/gesture',
+			'@fstage/gestures',
 			'@fstage/store',
 			'@fstage/sync',
 			'@fstage/component',
@@ -154,72 +154,39 @@ globalThis.FSCONFIG = {
 	
 	afterLoadApp: function(e) {
 		const registry = e.get('registry.defaultRegistry', []);
-		const transition = e.get('interaction.createTransitionEngine', []);
-		const createAnimator = e.get('animator.createAnimator');
-		const createSwipeBackGesture = e.get('gesture.createSwipeBackGesture');
 
 		const env = registry.get('env');
-		const store = registry.get('store');
 		const router = registry.get('router');
 
+		const envPolicy = env.getPolicy();
 		const appName = e.get('config.name');
 		const rootEl = document.querySelector('pwa-main');
 
-		transition.setScreenHost({
+		const animator = e.get('animator.createAnimator', [ envPolicy ]);
+		const screenHost = e.get('interaction.createScreenHost', [ rootEl, appName ]);
 
-			async mount(e) {
-				const routeConf = e.screen && e.screen.meta;
-
-				if (!routeConf || !routeConf.component) {
-					throw new Error('screenHost.mount: entry.screen.meta.component missing');
-				}
-				
-				const el = document.createElement(routeConf.component);
-				rootEl.appendChild(el);
-
-				return el;
-			},
-
-			async unmount(e) {
-				e.el.remove();
-			},
-
-			async activate(e) {
-				const routeConf = e.screen && e.screen.meta;
-
-				if (routeConf && routeConf.title) {
-					document.title = routeConf.title + (appName ? ' | ' + appName : '');
-				}
-				
-				requestAnimationFrame(() => {
-					e.el.scrollTop = e.location.state.scroll || 0;
-				});
-			},
-
-			async deactivate(e) {
-				// for handling animations visuals
-			}
-
-		});
-
-		transition.setAnimator(createAnimator({ env: env }));
-
-		const swipe = createSwipeBackGesture({
-			env: env,
-			rootEl: rootEl,
-			engine: transition,
-			getPreviousEntry: function() {
-				return router && router.getPrevious && router.getPrevious();
-			}
-		});
-
-		const navInteraction = e.get('interaction.createNavigationInteraction', [{
-			router: router,
-			engine: transition
+		const interaction = e.get('interaction.createTransitionEngine', [{
+			animator: animator,
+			screenHost: screenHost
 		}]);
 
-		swipe.start();
-		navInteraction.start();
+		const gestures = e.get('gestures.createSwipeBackGesture', [{
+			rootEl: rootEl,
+			policy: envPolicy,
+			engine: interaction,
+			onCommit: function() {
+				router.back();
+			}
+		}]);
+		
+		router.after(function(match, location) {
+			interaction.transitionTo({
+				screen: match,
+				location: location
+			});
+		});
+
+		gestures.start();
 		router.start(rootEl);
 	}
 

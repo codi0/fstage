@@ -35,11 +35,12 @@
 export function createTransitionEngine(options) {
   options = options || {};
 
-  var screenHost = null;
-  var animator = null;
+  var animator = options.animator || null;
+  var screenHost = options.screenHost || null;
 
   // current mounted entry (the "committed" screen)
   var current = null;
+  var prev = null;
 
   // active interactive controller (if any)
   var activeCtl = null;
@@ -173,6 +174,7 @@ export function createTransitionEngine(options) {
         }
 
         // commit new current
+        prev = current;
         current = nextEntry;
         clear();
       }
@@ -278,6 +280,7 @@ export function createTransitionEngine(options) {
     }
 
     // commit new current
+    prev = current;
     current = nextEntry;
   }
 
@@ -305,45 +308,44 @@ export function createTransitionEngine(options) {
 
     transitionTo: transitionTo,
 
+    getPrevious: function() {
+      return prev;
+    },
+
     getCurrent: function() {
       return current;
     }
   };
 }
 
-// ------------------------------------------------------
-// NAVIGATION INTERACTION (router adapter)
-// ------------------------------------------------------
-
-export function createNavigationInteraction(options) {
-  options = options || {};
-
-  var router = options.router;
-  var engine = options.engine;
-
-  if (!router) throw new Error('NavigationInteraction requires router');
-  if (!engine) throw new Error('NavigationInteraction requires transition engine');
-
-  function onNavigate(match, location) {
-    if (!match) return;
-
-    // IMPORTANT: keep screen shape compatible with your screenHost expectation:
-    // screenHost expects entry.screen.meta.component etc.
-    engine.transitionTo({
-      screen: match,        // router.match(route) object: { id, pattern, path, params, meta }
-      location: location,   // history location object including state.scroll if available
-      el: null
-    });
-  }
-
-  return {
-    engine: function() {
-      return engine;
-    },
-
-    start: function() {
-      router.after(onNavigate);
-      return this;
-    }
-  };
+export function createScreenHost(rootEl, appName) {
+	return {
+		async mount(e) {
+			const routeConf = e.screen && e.screen.meta;
+			if (!routeConf || !routeConf.component) {
+				throw new Error('screenHost.mount: entry.screen.meta.component missing');
+			}
+			const el = document.createElement(routeConf.component);
+			rootEl.appendChild(el);
+			return el;
+		},
+		async unmount(e) {
+			e.el.remove();
+		},
+		async activate(e) {
+			const screen = e.screen && e.screen.meta;
+			const state = e.location && e.location.state;
+			if (screen && screen.title) {
+				document.title = screen.title + (appName ? ' | ' + appName : '');
+			}
+			if (state && state.scroll > 0) {
+				requestAnimationFrame(() => {
+					e.el.scrollTop = state.scroll;
+				});
+			}
+		},
+		async deactivate(e) {
+			// for handling animations visuals
+		}
+	};
 }

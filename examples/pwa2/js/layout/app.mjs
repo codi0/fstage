@@ -10,6 +10,7 @@ export class PwaApp extends FsComponent {
       flex-direction: column;
       width: 100%;
       height: 100%;
+      min-height: 100dvh;
       background: var(--sl-color-neutral-0);
       color: var(--sl-color-neutral-900);
     }
@@ -24,7 +25,11 @@ export class PwaApp extends FsComponent {
 			flex: 1 1 auto;
 			position: relative;
 			overflow: hidden;
+			width: 100%;
 			padding: 0;
+			margin: 0 auto;
+			touch-action: pan-y;
+			overscroll-behavior: none;
 		}
 
 		pwa-main > * {
@@ -33,15 +38,10 @@ export class PwaApp extends FsComponent {
 			padding: 1rem;
 			overflow-y: auto;
 			-webkit-overflow-scrolling: touch;
+			overscroll-behavior-y: contain;
+			contain: content;
+			will-change: transform;
 		}
-
-    @media (min-width: 768px) {
-			pwa-main {
-        max-width: 960px;
-        margin: 0 auto;
-        width: 100%;
-      }
-    }
   `;
 
   render() {

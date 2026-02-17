@@ -13,6 +13,28 @@ function formatBasePath(path) {
 	return parts.join('/') + '/';
 }
 
+function merge(target, src) {
+	for (var k in src) {
+		var v = src[k];
+		//replace array?
+		if (Array.isArray(v)) {
+			target[k] = v.slice();
+			continue;
+		}
+		//merge object?
+		if (v && typeof v === 'object') {
+			if (!target[k] || typeof target[k] !== 'object' || Array.isArray(target[k])) {
+				target[k] = {};
+			}
+			merge(target[k], v);
+			continue;
+		}
+		//primitive
+		target[k] = v;
+	}
+	return target;
+}
+
 
 // ==============================
 // Helpers: user-agent parsing
@@ -198,36 +220,6 @@ function buildEnv() {
 	var policyStack = []; // [{ fnOrObj, priority }]
 	var resolvedPolicy = null;
 
-	function merge(target, src) {
-
-		for (var k in src) {
-
-			var v = src[k];
-
-			// ---- ARRAY: replace entirely ----
-			if (Array.isArray(v)) {
-				target[k] = v.slice();
-				continue;
-			}
-
-			// ---- OBJECT: deep merge ----
-			if (v && typeof v === 'object') {
-
-				if (!target[k] || typeof target[k] !== 'object' || Array.isArray(target[k])) {
-					target[k] = {};
-				}
-
-				merge(target[k], v);
-				continue;
-			}
-
-			// ---- PRIMITIVE ----
-			target[k] = v;
-		}
-
-		return target;
-	}
-
 	function getPath(obj, path) {
 
 		if(!obj || !path) return undefined;
@@ -319,15 +311,93 @@ function buildEnv() {
 
 	env.registerPolicy(function(e) {
 
+		var preset = 'default';
 		var os = e.getFact('platform.os');
-		var deviceClass = e.getFact('device.class');
 		var isHybrid = e.getFact('platform.hybrid');
+		var isMobile = (e.getFact('device.class') === 'mobile');
+		
+		if (isMobile && [ 'ios', 'android' ].includes(os)) {
+			preset = os;
+		}
 
-		var isMobile = (deviceClass === 'mobile');
+		var presets = {
+		
+			default: function() {
+				return {};
+			},
 
-		// ---- motion presets (policy-owned) ----
-		function motionDefault() {
-			return {
+			android: function() {
+				return {
+					motion: {
+						durationNormal: 200,
+						easing: 'ease-out',
+						keyframes: {
+							forward: {
+								from: [
+									{ transform: 'scale(1)', opacity: 1 },
+									{ transform: 'scale(1.02)', opacity: 0 }
+								],
+								to: [
+									{ transform: 'scale(0.98)', opacity: 0 },
+									{ transform: 'scale(1)', opacity: 1 }
+								]
+							},
+							back: {
+								from: [
+									{ transform: 'scale(1)', opacity: 1 },
+									{ transform: 'scale(0.98)', opacity: 0 }
+								],
+								to: [
+									{ transform: 'scale(1.02)', opacity: 0 },
+									{ transform: 'scale(1)', opacity: 1 }
+								]
+							}
+						}
+					}
+				};
+			},
+
+			ios: function() {
+				return {
+					motion: {
+						durationNormal: 220,
+						easing: 'cubic-bezier(0.25,1,0.5,1)',
+						keyframes: {
+							forward: {
+								from: [
+									{ transform: 'translate3d(0,0,0)', opacity: 1 },
+									{ transform: 'translate3d(-20%,0,0)', opacity: 0.98 }
+								],
+								to: [
+									{ transform: 'translate3d(100%,0,0)', opacity: 0.98 },
+									{ transform: 'translate3d(0,0,0)', opacity: 1 }
+								]
+							},
+							back: {
+								from: [
+									{ transform: 'translate3d(0,0,0)', opacity: 1 },
+									{ transform: 'translate3d(100%,0,0)', opacity: 1 }
+								],
+								to: [
+									{ transform: 'translate3d(-20%,0,0)', opacity: 0.98 },
+									{ transform: 'translate3d(0,0,0)', opacity: 1 }
+								]
+							}
+						}
+					}
+				};
+			}
+			
+		};
+
+		return merge({
+
+			caps: {
+				swipeBack: true,
+				haptics: isHybrid
+			},
+
+			motion: {
 				durationNormal: 200,
 				easing: 'ease',
 				keyframes: {
@@ -352,113 +422,19 @@ function buildEnv() {
 						]
 					}
 				}
-			};
-		}
-
-		function motionIOS() {
-			return {
-				durationNormal: 220,
-				easing: 'cubic-bezier(0.25,1,0.5,1)',
-				keyframes: {
-					// push
-					forward: {
-						from: [
-							{ transform: 'translate3d(0,0,0)', opacity: 1 },
-							{ transform: 'translate3d(-20%,0,0)', opacity: 0.98 }
-						],
-						to: [
-							{ transform: 'translate3d(100%,0,0)', opacity: 0.98 },
-							{ transform: 'translate3d(0,0,0)', opacity: 1 }
-						]
-					},
-					// pop
-					back: {
-						from: [
-							{ transform: 'translate3d(0,0,0)', opacity: 1 },
-							{ transform: 'translate3d(100%,0,0)', opacity: 1 }
-						],
-						to: [
-							{ transform: 'translate3d(-20%,0,0)', opacity: 0.98 },
-							{ transform: 'translate3d(0,0,0)', opacity: 1 }
-						]
-					}
-				}
-			};
-		}
-
-		function motionAndroid() {
-			return {
-				durationNormal: 200,
-				easing: 'ease-out',
-				keyframes: {
-					forward: {
-						from: [
-							{ transform: 'scale(1)', opacity: 1 },
-							{ transform: 'scale(1.02)', opacity: 0 }
-						],
-						to: [
-							{ transform: 'scale(0.98)', opacity: 0 },
-							{ transform: 'scale(1)', opacity: 1 }
-						]
-					},
-					back: {
-						from: [
-							{ transform: 'scale(1)', opacity: 1 },
-							{ transform: 'scale(0.98)', opacity: 0 }
-						],
-						to: [
-							{ transform: 'scale(1.02)', opacity: 0 },
-							{ transform: 'scale(1)', opacity: 1 }
-						]
-					}
-				}
-			};
-		}
-
-		// ---- base policy ----
-		var policy = {
-
-			motion: motionDefault(),
-
-			navigation: {
-				model: isMobile ? 'stack' : 'default'
 			},
 
 			gestures: {
 				swipeBack: {
-					enabled: false,
-					interactive: false,
+					enabled: true,
+					interactive: true,
 					edgeWidth: 24,      // px
 					threshold: 0.35,    // progress 0..1
 					velocity: 0.35      // px/ms (gesture module decides exact calc)
 				}
-			},
-
-			caps: {
-				swipeBack: false,
-				haptics: false
 			}
-		};
 
-		// ---- platform mapping (policy-owned) ----
-		if(os === 'ios' && isMobile) {
-			policy.motion = motionIOS();
-			policy.gestures.swipeBack.enabled = true;
-			policy.gestures.swipeBack.interactive = true;
-			policy.caps.swipeBack = true;
-		}
-
-		if(os === 'android' && isMobile) {
-			policy.motion = motionAndroid();
-			// Android back gesture is OS-level; default off in PWA.
-			// Leave swipeBack disabled unless you explicitly want it.
-		}
-
-		if(isHybrid) {
-			policy.caps.haptics = true;
-		}
-
-		return policy;
+		}, presets[preset]());
 
 	});
 	
