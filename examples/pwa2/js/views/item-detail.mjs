@@ -108,9 +108,7 @@ export class PwaItemDetail extends FsComponent {
     if (!this.task) {
       return html`
         <div class="top">
-          <div class="back">
-            <a href="/items"><sl-button size="small">Back</sl-button></a>
-          </div>
+          <sl-button size="small" data-href="/items" data-back>Back</sl-button>
         </div>
 
         <sl-alert variant="danger" open>
@@ -121,9 +119,7 @@ export class PwaItemDetail extends FsComponent {
 
     return html`
       <div class="top">
-        <div class="back">
-          <a href="/items"><sl-button size="small">Back</sl-button></a>
-        </div>
+        <sl-button size="small" data-href="/items" data-back>Back</sl-button>
 
         <a href="/about" style="text-decoration:none;">
           <sl-button size="small" variant="default">About</sl-button>

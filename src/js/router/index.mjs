@@ -163,6 +163,7 @@ export function createNavigationHandler(options) {
 	var navigate = options.navigate;
 	var rootEl = options.rootEl;
 	var linkAttrs = options.linkAttrs || [ 'data-route', 'data-href', 'href' ];
+	var backAttr = options.backAttr || 'data-back';
 	var replaceAttr = options.replaceAttr || 'data-replace';
 	var paramsAttr = options.paramsAttr || 'data-params';
 
@@ -179,6 +180,7 @@ export function createNavigationHandler(options) {
 		
 		if (!name) return null;
 
+		var back = el.hasAttribute(backAttr);
 		var mode = el.hasAttribute(replaceAttr) ? 'replace' : 'push';
 		var paramsValue = el.getAttribute(paramsAttr);
 		var params = {};
@@ -195,6 +197,7 @@ export function createNavigationHandler(options) {
 
 		return {
 			name: name,
+			back: back,
 			mode: mode,
 			params: params
 		};
@@ -223,6 +226,7 @@ export function createNavigationHandler(options) {
 
 			Promise.resolve(
 				navigate(route.name, {
+					back: route.back,
 					replace: route.mode === 'replace',
 					params: route.params
 				})
@@ -295,6 +299,7 @@ export function createNavigationHandler(options) {
 		}
 
 		navigate(route.name, {
+			back: route.back,
 			replace: route.mode === 'replace',
 			params: route.params
 		});
@@ -310,8 +315,9 @@ export function createNavigationHandler(options) {
 			var state = loc.state || {};
 			
 			if (!loc || !loc.route) return;
+			if (e.target !== rootEl && e.target.parentNode !== rootEl) return;
 
-			state.scroll = rootEl.scrollTop || 0;
+			state.scroll = e.target.scrollTop || 0;
 
 			history.replace(loc.route, state, { silent: true });
 		}, 100);
@@ -322,12 +328,12 @@ export function createNavigationHandler(options) {
 		start: function(el) {
 			rootEl = resolveEl(el || rootEl);
 			document.addEventListener('click', onClick);
-			if(rootEl) rootEl.addEventListener('scroll', onScroll);
+			if(rootEl) rootEl.addEventListener('scroll', onScroll, true);
 		},
 
 		stop: function() {
 			document.removeEventListener('click', onClick);
-			if(rootEl) rootEl.removeEventListener('scroll', onScroll);
+			if(rootEl) rootEl.removeEventListener('scroll', onScroll, true);
 
 			for (var i = 0; i < boundForms.length; i++) {
 				boundForms[i].form.removeEventListener('submit', boundForms[i].handler);
@@ -408,7 +414,7 @@ export function createRouter(options) {
 				id: navIndex
 		});
 
-		history[method](path, state);
+		history[method](path, state, { back: opts.back });
 		
 		return true;
 	}
@@ -428,8 +434,10 @@ export function createRouter(options) {
 		var nextState = e.location.state || {};
 		var nextIndex = nextState.id;
 		var direction = null;
-
-		if (typeof nextIndex === 'number') {
+		
+		if (e.back) {
+			direction = 'back';
+		} else if (typeof nextIndex === 'number') {
 			if (nextIndex < lastNavIndex) {
 				direction = 'back';
 			} else if (nextIndex > lastNavIndex) {
@@ -437,8 +445,6 @@ export function createRouter(options) {
 			} else {
 				direction = 'replace';
 			}
-		} else {
-			direction = 'unknown';
 		}
 
 		lastNavIndex = nextIndex;
@@ -478,7 +484,7 @@ export function createRouter(options) {
 			navIndex = state.id;
 			lastNavIndex = navIndex;
 
-			onHistory({ action: 'init', location: history.location() });
+			onHistory({ mode: 'init', location: history.location() });
 			
 			return this.current();
 		},

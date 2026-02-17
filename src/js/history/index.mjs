@@ -96,15 +96,15 @@ export function createBrowserHistory(options) {
 		};
 	}
 
-	function emit(action) {
-		var loc = snapshot();
+	function emit(e) {
+		e.location = snapshot();
 		for (var i = 0; i < listeners.length; i++) {
-			listeners[i]({ action: action, location: loc });
+			listeners[i](e);
 		}
 	}
 
 	function onPopstate() {
-		emit('pop');
+		emit({ mode: 'pop' });
 	}
 
 	globalThis.addEventListener('popstate', onPopstate);
@@ -132,7 +132,7 @@ export function createBrowserHistory(options) {
 			opts.mode = opts.mode || 'push';
 			var url = buildUrl(conf, route);
 			history[opts.mode + 'State'](state, '', url);
-			if (!opts.silent) emit(opts.mode);
+			if (!opts.silent) emit(opts);
 		},
 
 		replace: function(route, state = {}, opts = {}) {

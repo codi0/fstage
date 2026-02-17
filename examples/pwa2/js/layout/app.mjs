@@ -27,7 +27,7 @@ export class PwaApp extends FsComponent {
 			padding: 0;
 		}
 
-		pwa-screen {
+		pwa-main > * {
 			position: absolute;
 			inset: 0;
 			padding: 1rem;

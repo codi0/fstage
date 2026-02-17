@@ -174,10 +174,7 @@ globalThis.FSCONFIG = {
 					throw new Error('screenHost.mount: entry.screen.meta.component missing');
 				}
 				
-				const el = document.createElement('pwa-screen');
-				const elChild = document.createElement(routeConf.component);
-
-				el.appendChild(elChild);
+				const el = document.createElement(routeConf.component);
 				rootEl.appendChild(el);
 
 				return el;
@@ -195,7 +192,7 @@ globalThis.FSCONFIG = {
 				}
 				
 				requestAnimationFrame(() => {
-					rootEl.scrollTop = e.location.state.scroll || 0;
+					e.el.scrollTop = e.location.state.scroll || 0;
 				});
 			},
 
