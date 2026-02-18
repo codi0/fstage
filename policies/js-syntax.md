@@ -1,8 +1,8 @@
 # Fstage JS Runtime & Syntax Policy
 
-Version: 1.2
+Version: 1.3  
 Status: Active  
-Scope: All core Fstage modules (`@fstage/*`)
+Scope: All core Fstage modules (`@fstage/*`) and PWA shell code that boots them.
 
 ---
 
@@ -10,96 +10,132 @@ Scope: All core Fstage modules (`@fstage/*`)
 
 Fstage is a platform layer. Platform code must prioritise stability, portability, and long-term maintainability over syntactic convenience.
 
-This document defines the minimum language and runtime requirements for all core Fstage modules.
-
-These rules apply to all Fstage code, present and future, including core modules, supporting modules, and internal platform utilities.
-
----
-
-## 2. Language Baseline
-
-Fstage targets modern evergreen browsers and equivalent WebViews. All core modules:
-
-- MUST run natively in ES2020 environments without transpilation
-- SHOULD use the widest supported ES6+ syntax, wherever possible
-
-This baseline is chosen to align with Fstage's module-loading approach (Import Maps + ESM) and to avoid bundling/polyfilling in core.
+This document defines:
+- the minimum runtime requirements (what environments are supported), and
+- the syntax baseline (what language features core code should use).
 
 ---
 
-## 3. Module Format
+## 2. Runtime Minimum (Supported Environments)
 
-- Use native ES Modules (ESM).
+Fstage assumes a modern ESM-capable environment and does not bundle polyfills in core.
+
+### Hard requirement: Import Maps
+Fstage requires native Import Maps support to resolve bare specifiers (e.g. `@fstage/registry`).
+
+Apps MUST block execution before any module graph loads if Import Maps are not supported.
+
+Recommended minimums (indicative):
+- Safari / iOS: 16.4+
+- Chrome / Chromium / Android WebView: 96+
+
+No support is provided for:
+- Internet Explorer
+- legacy Android WebViews without Import Maps
+- non-ESM runtimes
+
+---
+
+## 3. Syntax Baseline (Core Code)
+
+### Baseline: ES2020
+Core Fstage modules should be written to an ES2020 baseline.
+
+Rationale:
+- keeps platform code boring and auditable
+- avoids “syntax drift” and unnecessary modern constructs
+- aligns with evergreen-browser expectations without implying “anything goes”
+
+### Important distinction
+The runtime minimum (Import Maps) may imply that some post-ES2020 features are widely available.
+That does NOT automatically make them acceptable for core platform code.
+
+---
+
+## 4. Module Format
+
+- All Fstage code MUST use native ES Modules (ESM).
 - No CommonJS.
 - No dual builds.
-- No transpilation requirement.
-
-Fstage assumes a modern ESM-capable environment.
-
-Import Maps are a hard requirement for resolving bare specifiers (e.g. `@fstage/registry`).
+- No transpilation requirement for core modules.
 
 ---
 
-## 4. Runtime Assumptions
+## 5. Allowed Beyond Baseline (Discouraged, With Justification)
+
+Some post-ES2020 features are compatible in Import Maps capable environments.
+They remain DISCOURAGED in core modules unless they materially improve clarity.
+
+If used, they MUST be:
+- rare,
+- localised,
+- and justified in a short comment.
+
+Examples that may be acceptable with justification:
+- public class fields (static or instance)
+
+---
+
+## 6. Avoid / Ban List (Even If Supported)
+
+Core modules SHOULD avoid the following unless there is a clear, documented reason:
+
+- optional chaining (`?.`)
+- nullish coalescing (`??`)
+- top-level `await`
+- decorators / other proposal-stage syntax
+- clever metaprogramming patterns that reduce auditability
+
+Rationale: platform code should remain explicit and easy to reason about.
+
+---
+
+## 7. Runtime APIs Assumed
 
 Fstage code may assume the presence of:
 
 - History API (`pushState`, `replaceState`, `popstate`)
 - URL API (`URL`, `URLSearchParams`)
-- requestAnimationFrame
-- Promise
-- Map / Set
-- Modern evergreen browser or equivalent WebView
-
-And specifically:
-
-- Import Maps support (the app must stop early if not supported)
-
-Fstage does NOT support:
-
-- Internet Explorer
-- Legacy Android WebView
-- Pre-ES6 JavaScript engines
+- `requestAnimationFrame`
+- `Promise`
+- `Map` / `Set`
 
 No polyfills are bundled in core.
 
 ---
 
-## 5. Design Principles
+## 8. Source Hygiene
 
-1. Platform code must be boring.
-2. Avoid clever syntax.
-3. Avoid unnecessary abstraction.
-4. Avoid hidden runtime assumptions.
-5. Prefer explicit, readable constructs over compact modern patterns.
+All source files MUST be:
+- UTF-8 encoded
+- LF (`\n`) line endings (preferred)
+- free of Windows-1252 “smart punctuation” bytes (e.g. `0x96`, `0x97`)
 
-If a newer syntax feature improves brevity but not clarity, it should not be used.
+Non-ASCII punctuation in comments is allowed only if it remains valid UTF-8, but plain ASCII is preferred.
 
 ---
 
-## 6. Dependency Policy
+## 9. Dependency Policy
 
-Fstage code should:
-
-- Avoid external dependencies unless strategically necessary.
-- Avoid depending on frameworks.
-- Avoid depending on toolchain transformations.
+Fstage core should:
+- avoid external dependencies unless strategically necessary
+- avoid depending on frameworks
+- avoid depending on toolchain transformations
 
 Infrastructure should own its primitives.
 
 ---
 
-## 7. Future Review
+## 10. Future Review
 
 This policy may be revised only if:
-
-- The minimum supported runtime changes.
-- The platform explicitly moves beyond ES2020 baseline.
+- the runtime minimum changes (e.g. dropping/adding supported environments), or
+- the platform explicitly chooses a higher syntax baseline.
 
 ---
 
-## 8. Compliance
+## 11. Compliance
 
-All Fstage code must comply with this document.
+All Fstage code MUST comply with this document.
 
-A future audit may validate existing modules against this policy.
+Periodic audits may validate existing modules against this policy.
