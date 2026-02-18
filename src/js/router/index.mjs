@@ -462,7 +462,7 @@ export function createRouter(options) {
 			} else if (nextIndex > navIndex) {
 				direction = 'forward';
 			} else {
-				// same index — use forced direction if present (replace-as-back),
+				// same index - use forced direction if present (replace-as-back),
 				// otherwise treat as a standard replace
 				direction = nextState.direction || 'replace';
 			}

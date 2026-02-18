@@ -56,14 +56,14 @@ export function createTransitionEngine(options) {
   async function safeCall(fn, args) {
     try {
       if (typeof fn === 'function') return await fn.apply(null, args);
-    } catch {}
+    } catch (err) {}
     return undefined;
   }
 
   async function cleanupController(ctl) {
     try {
       if (ctl && typeof ctl.destroy === 'function') await ctl.destroy();
-    } catch {}
+    } catch (err) {}
   }
 
   async function run(nextEntry, opts) {
@@ -86,9 +86,9 @@ export function createTransitionEngine(options) {
     var from = current;
 
     // mount next (must return element)
-    var el = await screenHost.mount(nextEntry);
-    if (!el) throw new Error('screenHost.mount(entry) must return an Element');
-    nextEntry.el = el;
+    var res = await screenHost.mount(nextEntry);
+    nextEntry.el = nextEntry.el || res;
+    if (!nextEntry.el) throw new Error('screenHost.mount(entry) must return an Element');
 
     if (isStale(id)) {
       // We got preempted after mount; clean up immediately.
@@ -107,7 +107,7 @@ export function createTransitionEngine(options) {
             to: nextEntry.el,
             interactive: true
           });
-        } catch {
+        } catch (err) {
           handleI = null;
         }
       }
@@ -156,7 +156,7 @@ export function createTransitionEngine(options) {
             } else if (typeof handleI.finish === 'function') {
               await handleI.finish();
             }
-          } catch {}
+          } catch (err) {}
         }
 
         if (isStale(id)) {
@@ -187,7 +187,7 @@ export function createTransitionEngine(options) {
             } else if (typeof handleI.destroy === 'function') {
               handleI.destroy();
             }
-          } catch {}
+          } catch (err) {}
         }
 
         await safeCall(screenHost.unmount, [ nextEntry ]);
@@ -197,7 +197,7 @@ export function createTransitionEngine(options) {
       async function destroy() {
         try {
           await cancel();
-        } catch {}
+        } catch (err) {}
       }
 
       var ctl = {
@@ -205,9 +205,9 @@ export function createTransitionEngine(options) {
           if (done) return;
           if (!handleI) return;
           if (typeof handleI.progress === 'function') {
-            try { handleI.progress(p); } catch {}
+            try { handleI.progress(p); } catch (err) {}
           } else if (typeof handleI.setProgress === 'function') {
-            try { handleI.setProgress(p); } catch {}
+            try { handleI.setProgress(p); } catch (err) {}
           }
         },
         commit: commit,
@@ -246,7 +246,7 @@ export function createTransitionEngine(options) {
           from: from ? from.el : null,
           to: nextEntry.el
         });
-      } catch {
+      } catch (err) {
         handle = null;
       }
     }
@@ -256,11 +256,11 @@ export function createTransitionEngine(options) {
       if (handle.finished && typeof handle.finished.then === 'function') {
         try {
           await handle.finished;
-        } catch {}
+        } catch (err) {}
       } else if (typeof handle.finish === 'function') {
         try {
           await handle.finish();
-        } catch {}
+        } catch (err) {}
       }
     }
 
@@ -311,16 +311,14 @@ export function createScreenHost(options = {}) {
 				throw new Error('screenHost.mount: entry.screen.meta.component missing');
 			}
 
-			const el = document.createElement(routeConf.component);
-			options.el.appendChild(el);
+			e.el = document.createElement(routeConf.component);
+			options.el.appendChild(e.el);
 
 			if (state && state.scroll > 0) {
 				requestAnimationFrame(() => {
 					e.el.scrollTop = state.scroll;
 				});
 			}
-
-			return el;
 		},
 
 		async unmount(e) {

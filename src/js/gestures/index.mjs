@@ -16,7 +16,7 @@ function clamp01(n) {
 //   edge,              // 'left' | 'right' | 'top' | 'bottom'  (default: 'left')
 //   edgeWidth,         // px from edge to begin recognition     (default: 24)
 //   minSwipeDistance,  // px of movement before gesture claims  (default: 10)
-//   commitThreshold,   // progress (0–1) required to commit     (default: 0.35)
+//   commitThreshold,   // progress (0-1) required to commit     (default: 0.35)
 //   velocityThreshold, // px/ms required to commit              (default: 0.35)
 //   enabled,           // bool                                  (default: true)
 //   onStart,           // (event) ? void  mutate event to add properties for other callbacks

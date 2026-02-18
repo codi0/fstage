@@ -1,6 +1,6 @@
 # Fstage JS Runtime & Syntax Policy
 
-Version: 1.1
+Version: 1.2
 Status: Active  
 Scope: All core Fstage modules (`@fstage/*`)
 
@@ -18,32 +18,25 @@ These rules apply to all Fstage code, present and future, including core modules
 
 ## 2. Language Baseline
 
-### Target: ES2017
+Fstage targets modern evergreen browsers and equivalent WebViews. All core modules:
 
-All Fstage code must run natively in ES2017 environments without transpilation.
+- MUST run natively in ES2020 environments without transpilation
+- SHOULD use the widest supported ES6+ syntax, wherever possible
 
-If a feature is not guaranteed in ES2017, it must not be used in core modules.
-
-Common post-ES2017 features to avoid include:
-- optional chaining (?.)
-- nullish coalescing (??)
-- top-level await
-- class fields
-- Array.flat/flatMap
-- Object.fromEntries
-- decorators
-- pipeline operator proposals
+This baseline is chosen to align with Fstage's module-loading approach (Import Maps + ESM) and to avoid bundling/polyfilling in core.
 
 ---
 
 ## 3. Module Format
 
-- All Fstage code must use native ES Modules (ESM).
+- Use native ES Modules (ESM).
 - No CommonJS.
 - No dual builds.
 - No transpilation requirement.
 
 Fstage assumes a modern ESM-capable environment.
+
+Import Maps are a hard requirement for resolving bare specifiers (e.g. `@fstage/registry`).
 
 ---
 
@@ -53,10 +46,14 @@ Fstage code may assume the presence of:
 
 - History API (`pushState`, `replaceState`, `popstate`)
 - URL API (`URL`, `URLSearchParams`)
-- `requestAnimationFrame`
-- `Promise`
-- `Map` / `Set`
+- requestAnimationFrame
+- Promise
+- Map / Set
 - Modern evergreen browser or equivalent WebView
+
+And specifically:
+
+- Import Maps support (the app must stop early if not supported)
 
 Fstage does NOT support:
 
@@ -97,7 +94,7 @@ Infrastructure should own its primitives.
 This policy may be revised only if:
 
 - The minimum supported runtime changes.
-- The platform explicitly moves beyond ES2017 baseline.
+- The platform explicitly moves beyond ES2020 baseline.
 
 ---
 
@@ -106,4 +103,3 @@ This policy may be revised only if:
 All Fstage code must comply with this document.
 
 A future audit may validate existing modules against this policy.
-

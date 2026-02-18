@@ -37,7 +37,7 @@ function prefersReducedMotion() {
   try {
     return !!(globalThis.matchMedia &&
       matchMedia('(prefers-reduced-motion: reduce)').matches);
-  } catch {
+  } catch (err) {
     return false;
   }
 }
@@ -62,7 +62,7 @@ function animate(el, frames, timing) {
   if (!el || !frames || !el.animate) return null;
   try {
     return el.animate(frames, timing);
-  } catch {
+  } catch (err) {
     return null;
   }
 }
@@ -121,13 +121,13 @@ export function createAnimator(options = {}) {
         function setProgress(p) {
           p = clamp01(p);
           var t = p * total;
-          try { if (aFrom) aFrom.currentTime = t; } catch {}
-          try { if (aTo) aTo.currentTime = t; } catch {}
+          try { if (aFrom) aFrom.currentTime = t; } catch (err) {}
+          try { if (aTo) aTo.currentTime = t; } catch (err) {}
         }
 
         function cleanup() {
-          try { if (aFrom) aFrom.cancel(); } catch {}
-          try { if (aTo) aTo.cancel(); } catch {}
+          try { if (aFrom) aFrom.cancel(); } catch (err) {}
+          try { if (aTo) aTo.cancel(); } catch (err) {}
           clearLayer(fromEl);
           clearLayer(toEl);
         }
@@ -136,10 +136,10 @@ export function createAnimator(options = {}) {
           if (done) return Promise.resolve();
           done = true;
 
-          try { if (aFrom) aFrom.playbackRate = 1; } catch {}
-          try { if (aTo) aTo.playbackRate = 1; } catch {}
-          try { if (aFrom) aFrom.play(); } catch {}
-          try { if (aTo) aTo.play(); } catch {}
+          try { if (aFrom) aFrom.playbackRate = 1; } catch (err) {}
+          try { if (aTo) aTo.playbackRate = 1; } catch (err) {}
+          try { if (aFrom) aFrom.play(); } catch (err) {}
+          try { if (aTo) aTo.play(); } catch (err) {}
 
           return Promise.all([ wait(aFrom), wait(aTo) ])
             .then(cleanup);
@@ -149,10 +149,10 @@ export function createAnimator(options = {}) {
           if (done) return Promise.resolve();
           done = true;
 
-          try { if (aFrom) aFrom.playbackRate = -1; } catch {}
-          try { if (aTo) aTo.playbackRate = -1; } catch {}
-          try { if (aFrom) aFrom.play(); } catch {}
-          try { if (aTo) aTo.play(); } catch {}
+          try { if (aFrom) aFrom.playbackRate = -1; } catch (err) {}
+          try { if (aTo) aTo.playbackRate = -1; } catch (err) {}
+          try { if (aFrom) aFrom.play(); } catch (err) {}
+          try { if (aTo) aTo.play(); } catch (err) {}
 
           return Promise.all([ wait(aFrom), wait(aTo) ])
             .then(cleanup);
@@ -173,8 +173,8 @@ export function createAnimator(options = {}) {
       // ---------- NON-INTERACTIVE ----------
       var finished = Promise.all([ wait(aFrom), wait(aTo) ])
         .then(function() {
-          try { if (aFrom) aFrom.cancel(); } catch {}
-          try { if (aTo) aTo.cancel(); } catch {}
+          try { if (aFrom) aFrom.cancel(); } catch (err) {}
+          try { if (aTo) aTo.cancel(); } catch (err) {}
           clearLayer(fromEl);
           clearLayer(toEl);
         });
@@ -182,8 +182,8 @@ export function createAnimator(options = {}) {
       return {
         finished: finished,
         destroy: function() {
-          try { if (aFrom) aFrom.cancel(); } catch {}
-          try { if (aTo) aTo.cancel(); } catch {}
+          try { if (aFrom) aFrom.cancel(); } catch (err) {}
+          try { if (aTo) aTo.cancel(); } catch (err) {}
           clearLayer(fromEl);
           clearLayer(toEl);
         }
