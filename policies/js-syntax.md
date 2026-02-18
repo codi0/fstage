@@ -1,6 +1,6 @@
 # Fstage JS Runtime & Syntax Policy
 
-Version: 1.0  
+Version: 1.1
 Status: Active  
 Scope: All core Fstage modules (`@fstage/*`)
 
@@ -18,39 +18,21 @@ These rules apply to all Fstage code, present and future, including core modules
 
 ## 2. Language Baseline
 
-### Target: ES2015 (ES6)
+### Target: ES2017
 
-All Fstage code must run natively in ES6 environments without transpilation.
+All Fstage code must run natively in ES2017 environments without transpilation.
 
-### Allowed Syntax (ES6)
+If a feature is not guaranteed in ES2017, it must not be used in core modules.
 
-- `let` / `const`
-- Arrow functions
-- Classes
-- Template literals
-- Default parameters
-- Destructuring
-- `Map` / `Set`
-- `Promise`
-- `Symbol`
-- ES Modules (`import` / `export`)
-
-### Disallowed Syntax (Post-ES6)
-
-The following are NOT permitted in Fstage code:
-
-- Optional chaining (`?.`)
-- Nullish coalescing (`??`)
-- Private class fields (`#field`)
-- Public class fields (`class A { x = 1 }`)
-- Top-level `await`
-- Decorators
-- Pipeline operator or any stage proposals
-- `Array.prototype.flat` / `flatMap`
-- `Object.fromEntries`
-- Any syntax introduced after ES2015
-
-If a feature is not guaranteed in ES2015, it must not be used in core modules.
+Common post-ES2017 features to avoid include:
+- optional chaining (?.)
+- nullish coalescing (??)
+- top-level await
+- class fields
+- Array.flat/flatMap
+- Object.fromEntries
+- decorators
+- pipeline operator proposals
 
 ---
 
@@ -115,7 +97,7 @@ Infrastructure should own its primitives.
 This policy may be revised only if:
 
 - The minimum supported runtime changes.
-- The platform explicitly moves beyond ES6 baseline.
+- The platform explicitly moves beyond ES2017 baseline.
 
 ---
 

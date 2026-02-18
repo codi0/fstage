@@ -87,6 +87,7 @@ export function createBrowserHistory(options) {
 	};
 
 	var listeners = [];
+	var silent = false;
 
 	function snapshot() {
 		return {
@@ -104,7 +105,9 @@ export function createBrowserHistory(options) {
 	}
 
 	function onPopstate() {
-		emit({ mode: 'pop' });
+		const e = { mode: 'pop', silent: silent };
+		silent = false;
+		emit(e);
 	}
 
 	globalThis.addEventListener('popstate', onPopstate);
@@ -140,8 +143,19 @@ export function createBrowserHistory(options) {
 			this.push(route, state, opts);
 		},
 
-		back: function() { history.back(); },
-		forward: function() { history.forward(); },
-		go: function(n) { history.go(n); }
+		back: function(opts = {}) {
+			silent = !!opts.silent;
+			history.back();
+		},
+
+		forward: function(opts = {}) {
+			silent = !!opts.silent;
+			history.forward();
+		},
+		
+		go: function(n, opts = {}) {
+			silent = !!opts.silent;
+			history.go(n);
+		}
 	};
 }

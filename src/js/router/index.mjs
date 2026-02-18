@@ -110,7 +110,7 @@ function resolveEl(el) {
 }
 
 
-//EXPORTS
+// EXPORTS
 
 export function createRouteMatcher(options) {
 	options = options || {};
@@ -147,7 +147,7 @@ export function createRouteMatcher(options) {
 
 			return last;
 		},
-		
+
 		last: function() {
 			return last;
 		}
@@ -158,26 +158,38 @@ export function createNavigationHandler(options) {
 
 	options = options || {};
 
-	var boundForms = [];
-	var history = options.history;
-	var navigate = options.navigate;
-	var rootEl = options.rootEl;
-	var linkAttrs = options.linkAttrs || [ 'data-route', 'data-href', 'href' ];
-	var backAttr = options.backAttr || 'data-back';
+	var boundForms  = [];
+	var history     = options.history;
+	var navigate    = options.navigate;
+	var rootEl      = options.rootEl;
+	var linkAttrs   = options.linkAttrs  || [ 'data-route', 'data-href', 'href' ];
+	var backAttr    = options.backAttr   || 'data-back';
 	var replaceAttr = options.replaceAttr || 'data-replace';
-	var paramsAttr = options.paramsAttr || 'data-params';
+	var paramsAttr  = options.paramsAttr || 'data-params';
+	var scrollTid   = null;
 
-	if (!history) throw new Error('NavigationHandler requires history');
+	if (!history)  throw new Error('NavigationHandler requires history');
 	if (!navigate) throw new Error('NavigationHandler requires navigate()');
+
+	// Built once at construction time
+	var linkSel = linkAttrs.map(function(a) { return '[' + a + ']'; }).join(', ');
+
+	function doNavigate(route) {
+		navigate(route.name, {
+			back:    route.back,
+			replace: route.mode === 'replace',
+			params:  route.params
+		});
+	}
 
 	function getRouteFromEl(el) {
 		var name = null;
-		
+
 		for (var i = 0; i < linkAttrs.length; i++) {
 			name = el.getAttribute(linkAttrs[i]);
 			if (name) break;
 		}
-		
+
 		if (!name) return null;
 
 		var back = el.hasAttribute(backAttr);
@@ -224,13 +236,7 @@ export function createNavigationHandler(options) {
 				return;
 			}
 
-			Promise.resolve(
-				navigate(route.name, {
-					back: route.back,
-					replace: route.mode === 'replace',
-					params: route.params
-				})
-			);
+			doNavigate(route);
 		}
 
 		form.addEventListener('submit', onSubmit);
@@ -249,22 +255,12 @@ export function createNavigationHandler(options) {
 
 		var el = null;
 
-		var linkSel = [];
-		for (var i=0; i < linkAttrs.length; i++) {
-			linkSel.push('[' + linkAttrs[i] + ']');
-		}
-		linkSel = linkSel.join(', ');
-
 		if (typeof e.composedPath === 'function') {
 			var path = e.composedPath();
 			for (var i = 0; i < path.length; i++) {
 				var candidate = path[i];
 				if (!candidate || !candidate.matches) continue;
-
-				if (candidate.matches(linkSel)) {
-					el = candidate;
-					break;
-				}
+				if (candidate.matches(linkSel)) { el = candidate; break; }
 			}
 		} else {
 			el = e.target.closest(linkSel);
@@ -298,23 +294,20 @@ export function createNavigationHandler(options) {
 			}
 		}
 
-		navigate(route.name, {
-			back: route.back,
-			replace: route.mode === 'replace',
-			params: route.params
-		});
+		doNavigate(route);
 	}
 
 	function onScroll(e) {
 
 		if (!rootEl) return;
-		if (onScroll.__tid) clearTimeout(onScroll.__tid);
+		if (scrollTid) clearTimeout(scrollTid);
 
-		onScroll.__tid = setTimeout(function() {
+		scrollTid = setTimeout(function() {
+			scrollTid = null;
 			var loc = history.location();
 			var state = loc.state || {};
-			
-			if (!loc || !loc.route) return;
+
+			if (!loc.route) return;
 			if (e.target !== rootEl && e.target.parentNode !== rootEl) return;
 
 			state.scroll = e.target.scrollTop || 0;
@@ -328,12 +321,12 @@ export function createNavigationHandler(options) {
 		start: function(el) {
 			rootEl = resolveEl(el || rootEl);
 			document.addEventListener('click', onClick);
-			if(rootEl) rootEl.addEventListener('scroll', onScroll, true);
+			if (rootEl) rootEl.addEventListener('scroll', onScroll, true);
 		},
 
 		stop: function() {
 			document.removeEventListener('click', onClick);
-			if(rootEl) rootEl.removeEventListener('scroll', onScroll, true);
+			if (rootEl) rootEl.removeEventListener('scroll', onScroll, true);
 
 			for (var i = 0; i < boundForms.length; i++) {
 				boundForms[i].form.removeEventListener('submit', boundForms[i].handler);
@@ -352,7 +345,7 @@ export function createRouter(options) {
 	if (!history) throw new Error('Router requires history');
 
 	var navIndex = 0;
-	var lastNavIndex = 0;
+	var navStack = [];
 	var currentRoute = null;
 
 	var routes = options.routes || [];
@@ -362,7 +355,7 @@ export function createRouter(options) {
 	var def404 = options.def404 || null;
 
 	var beforeHooks = [];
-	var afterHooks = [];
+	var afterHooks  = [];
 
 	async function runBefore(match, location) {
 		for (var i = 0; i < beforeHooks.length; i++) {
@@ -388,7 +381,13 @@ export function createRouter(options) {
 	async function commit(path, opts) {
 		opts = opts || {};
 
-		if (path === currentRoute) return;
+		if (path === currentRoute) {
+			return false;
+		}
+
+		var method = opts.replace ? 'replace' : 'push';
+		var loc    = history.location();
+		var state  = loc.state || {};
 
 		var matches = matcher.resolve(path);
 		if (!matches.length) {
@@ -398,24 +397,46 @@ export function createRouter(options) {
 			return false;
 		}
 
-		if (await runBefore(matches[0], history.location()) === false) {
+		if (await runBefore(matches[0], loc) === false) {
 			return false;
 		}
 
-		var method = opts.replace ? 'replace' : 'push';
-		var loc = history.location();
-		var state = (loc && loc.state) || {};
-
-		if (method === 'push') {
-				navIndex++;
+		// opts.back: try to honour existing stack position first.
+		// If target exists in navStack, jump to it via history.go() to
+		// keep the browser stack clean. If not, replace current entry
+		// and force back direction so the transition animates correctly.
+		if (opts.back) {
+			for (var i = navIndex - 1; i >= 0; i--) {
+				if (navStack[i] && navStack[i].route === path) {
+					history.go(i - navIndex);
+					return true;
+				}
+			}
+			method = 'replace';
 		}
 
-		state = Object.assign({}, state, {
-				id: navIndex
-		});
+		// snapshot departing page state before moving on
+		if (currentRoute && navStack[navIndex]) {
+			navStack[navIndex] = { route: currentRoute, state: state };
+		}
+
+		if (method === 'push') {
+			navIndex++;
+			navStack = navStack.slice(0, navIndex);
+		}
+
+		navStack[navIndex] = { route: path, state: {} };
+
+		state = Object.assign({}, state, { id: navIndex });
+
+		// for replace-as-back, force direction into state so onHistory
+		// can determine correct transition direction despite unchanged index
+		if (opts.back && method === 'replace') {
+			state.direction = 'back';
+		}
 
 		history[method](path, state, { back: opts.back });
-		
+
 		return true;
 	}
 
@@ -430,29 +451,30 @@ export function createRouter(options) {
 			}
 			return;
 		}
-		
+
 		var nextState = e.location.state || {};
 		var nextIndex = nextState.id;
 		var direction = null;
-		
-		if (e.back) {
-			direction = 'back';
-		} else if (typeof nextIndex === 'number') {
-			if (nextIndex < lastNavIndex) {
+
+		if (typeof nextIndex === 'number') {
+			if (nextIndex < navIndex) {
 				direction = 'back';
-			} else if (nextIndex > lastNavIndex) {
+			} else if (nextIndex > navIndex) {
 				direction = 'forward';
 			} else {
-				direction = 'replace';
+				// same index — use forced direction if present (replace-as-back),
+				// otherwise treat as a standard replace
+				direction = nextState.direction || 'replace';
 			}
+			navIndex = nextIndex;
+			navStack[navIndex] = { route: path, state: nextState };
 		}
 
-		lastNavIndex = nextIndex;
 		currentRoute = path;
 
-		var loc = Object.assign({}, e.location, {
-			direction: direction
-		});
+		if (e.silent) return;
+
+		var loc = Object.assign({}, e.location, { direction: direction });
 
 		runAfter(matches[0], loc);
 	}
@@ -473,8 +495,8 @@ export function createRouter(options) {
 			history.on(onHistory);
 			navigation.start(rootEl);
 
-			var loc = history.location();
-			var state = (loc && loc.state) || {};
+			var loc   = history.location();
+			var state = loc.state || {};
 
 			if (typeof state.id !== 'number') {
 				state.id = 0;
@@ -482,22 +504,16 @@ export function createRouter(options) {
 			}
 
 			navIndex = state.id;
-			lastNavIndex = navIndex;
+			navStack[navIndex] = { route: loc.route, state: state };
 
 			onHistory({ mode: 'init', location: history.location() });
-			
-			return this.current();
+
+			return this.peek(0);
 		},
-		
+
 		stop: function() {
 			navigation.stop();
 			history.off(onHistory);
-		},
-
-		current: function() {
-			var loc = history.location();
-			var matches = matcher.last();
-			return Object.assign({}, loc, { match: matches[0] || null });
 		},
 
 		match: function(route) {
@@ -507,22 +523,27 @@ export function createRouter(options) {
 
 		navigate: async function(path, opts) {
 			await commit(path, opts);
-			return this.current();
+			return this.peek(0);
 		},
 
-		forward: function() {
-			history.forward();
+		peek: function(n) {
+			var entry = navStack[navIndex + n];
+			if (!entry) return null;
+			var matches = matcher.resolve(entry.route);
+			if (!matches[0]) return null;
+			var state = (n == 0) ? history.location().state : entry.state;
+			return { match: matches[0], state: state || {} };
 		},
 
-		back: function() {
-			history.back();
+		go: function(n, opts) {
+			history.go(n, opts || {});
 		},
 
-		before: function(fn) {
+		onBefore: function(fn) {
 			beforeHooks.push(fn);
 		},
 
-		after: function(fn) {
+		onAfter: function(fn) {
 			afterHooks.push(fn);
 		}
 	};

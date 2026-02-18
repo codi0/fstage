@@ -15,14 +15,14 @@ globalThis.FSCONFIG = {
 		],
 		libs: [
 			//fstage
-			'@fstage/history',
-			'@fstage/router',
-			'@fstage/interaction',
-			'@fstage/animator',
-			'@fstage/gestures',
 			'@fstage/store',
 			'@fstage/sync',
 			'@fstage/component',
+			'@fstage/history',
+			'@fstage/router',
+			'@fstage/animator',
+			'@fstage/gestures',
+			'@fstage/transitions',
 			//shoelace
 			'@shoelace-style/themes/light.css',
 			'@shoelace-style/components/alert/alert.js?esm',
@@ -162,31 +162,60 @@ globalThis.FSCONFIG = {
 		const appName = e.get('config.name');
 		const rootEl = document.querySelector('pwa-main');
 
-		const animator = e.get('animator.createAnimator', [ envPolicy ]);
-		const screenHost = e.get('interaction.createScreenHost', [ rootEl, appName ]);
+		const animator = e.get('animator.createAnimator', [{
+			policy: envPolicy.motion
+		}]);
 
-		const interaction = e.get('interaction.createTransitionEngine', [{
+		const screenHost = e.get('transitions.createScreenHost', [{
+			el: rootEl,
+			name: appName
+		}]);
+
+		const transitions = e.get('transitions.createTransitionEngine', [{
 			animator: animator,
 			screenHost: screenHost
 		}]);
 
-		const gestures = e.get('gestures.createSwipeBackGesture', [{
-			rootEl: rootEl,
-			policy: envPolicy,
-			engine: interaction,
-			onCommit: function() {
-				router.back();
-			}
+		const gestures = e.get('gestures.createGestureManager', [{
+			policy: envPolicy.gestures
 		}]);
 		
-		router.after(function(match, location) {
-			interaction.transitionTo({
+		gestures.on('edgePan', {
+			edge: 'left',
+			onStart: async function(e) {
+				var prev = router.peek(-1);
+				if (!prev) return false;
+
+				e.ctl = await transitions.run({
+					screen: prev.match,
+					location: {
+						direction: 'back',
+						state: prev.state
+					}
+				}, { interactive: true });
+
+				if (!e.ctl) return false;
+			},
+			onProgress: function(e) {
+				e.ctl.progress(e.progress);
+			},
+			onCommit: async function(e) {
+				await e.ctl.commit()
+				router.go(-1, { silent: true });
+			},
+			onCancel: function(e) {
+				e.ctl.cancel();
+			}
+		});	
+		
+		router.onAfter(function(match, location) {
+			transitions.run({
 				screen: match,
 				location: location
 			});
 		});
 
-		gestures.start();
+		gestures.start(rootEl);
 		router.start(rootEl);
 	}
 

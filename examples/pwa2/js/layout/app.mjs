@@ -28,6 +28,7 @@ export class PwaApp extends FsComponent {
 			width: 100%;
 			padding: 0;
 			margin: 0 auto;
+			background: inherit;
 			touch-action: pan-y;
 			overscroll-behavior: none;
 		}
@@ -36,11 +37,11 @@ export class PwaApp extends FsComponent {
 			position: absolute;
 			inset: 0;
 			padding: 1rem;
+			background: inherit;
 			overflow-y: auto;
 			-webkit-overflow-scrolling: touch;
 			overscroll-behavior-y: contain;
 			contain: content;
-			will-change: transform;
 		}
   `;
 

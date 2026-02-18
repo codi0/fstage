@@ -1,7 +1,4 @@
-// @fstage/interaction
-//
-// Interaction v2 — Lean Transition Engine + Router Adapter (native-feel ready)
-// ---------------------------------------------------------------------------
+// @fstage/transitions
 //
 // Responsibilities
 // - Orchestrate mount/unmount + lifecycle hooks (activate/deactivate)
@@ -40,7 +37,6 @@ export function createTransitionEngine(options) {
 
   // current mounted entry (the "committed" screen)
   var current = null;
-  var prev = null;
 
   // active interactive controller (if any)
   var activeCtl = null;
@@ -70,7 +66,8 @@ export function createTransitionEngine(options) {
     } catch {}
   }
 
-  async function transitionTo(nextEntry, opts) {
+  async function run(nextEntry, opts) {
+		if (!nextEntry) return;
     ensureWired();
 
     opts = opts || {};
@@ -174,7 +171,6 @@ export function createTransitionEngine(options) {
         }
 
         // commit new current
-        prev = current;
         current = nextEntry;
         clear();
       }
@@ -280,70 +276,65 @@ export function createTransitionEngine(options) {
     }
 
     // commit new current
-    prev = current;
     current = nextEntry;
   }
 
   return {
-    setScreenHost: function(host) {
-      screenHost = host;
-      return this;
-    },
+		current: function() {
+			return current;
+		},
+  
+    run: run,
 
-    setAnimator: function(anim) {
-      animator = anim;
-      return this;
-    },
-
-    // Preempt any in-flight transition. Best-effort.
     cancel: function() {
       running = ++seq;
       if (activeCtl) {
-        // best-effort teardown (don't await inside sync API)
         cleanupController(activeCtl);
         activeCtl = null;
       }
       return true;
-    },
-
-    transitionTo: transitionTo,
-
-    getPrevious: function() {
-      return prev;
-    },
-
-    getCurrent: function() {
-      return current;
     }
   };
 }
 
-export function createScreenHost(rootEl, appName) {
+export function createScreenHost(options = {}) {
+	options.el = options.el || document.body;
+	options.name = options.name || '';
+
 	return {
+
 		async mount(e) {
 			const routeConf = e.screen && e.screen.meta;
+			const state = e.location && e.location.state;
+
 			if (!routeConf || !routeConf.component) {
 				throw new Error('screenHost.mount: entry.screen.meta.component missing');
 			}
+
 			const el = document.createElement(routeConf.component);
-			rootEl.appendChild(el);
-			return el;
-		},
-		async unmount(e) {
-			e.el.remove();
-		},
-		async activate(e) {
-			const screen = e.screen && e.screen.meta;
-			const state = e.location && e.location.state;
-			if (screen && screen.title) {
-				document.title = screen.title + (appName ? ' | ' + appName : '');
-			}
+			options.el.appendChild(el);
+
 			if (state && state.scroll > 0) {
 				requestAnimationFrame(() => {
 					e.el.scrollTop = state.scroll;
 				});
 			}
+
+			return el;
 		},
+
+		async unmount(e) {
+			e.el.remove();
+		},
+
+		async activate(e) {
+			const screen = e.screen && e.screen.meta;
+
+			if (screen && screen.title) {
+				document.title = screen.title + (options.name ? ' | ' + options.name : '');
+			}
+		},
+
 		async deactivate(e) {
 			// for handling animations visuals
 		}

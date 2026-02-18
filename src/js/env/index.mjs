@@ -181,7 +181,7 @@ function buildEnv() {
 		capabilities: {
 			notifications: ('Notification' in globalThis),
 			serviceWorker: ('serviceWorker' in (globalThis.navigator || {})),
-			touch: ('ontouchstart' in globalThis) || (globalThis.navigator && navigator.maxTouchPoints > 0)
+			touch: globalThis.navigator && navigator.maxTouchPoints > 0
 		},
 
 		location: {
@@ -311,17 +311,14 @@ function buildEnv() {
 
 	env.registerPolicy(function(e) {
 
-		var preset = 'default';
 		var os = e.getFact('platform.os');
 		var isHybrid = e.getFact('platform.hybrid');
-		var isMobile = (e.getFact('device.class') === 'mobile');
-		
-		if (isMobile && [ 'ios', 'android' ].includes(os)) {
-			preset = os;
-		}
+		var isTouch = e.getFact('capabilities.touch');
+		var isAndroidIos = ['ios', 'android'].includes(os);
+		var preset = (isTouch && isAndroidIos) ? os : 'default';
 
-		var presets = {
-		
+		var presetObj = {
+
 			default: function() {
 				return {};
 			},
@@ -329,27 +326,27 @@ function buildEnv() {
 			android: function() {
 				return {
 					motion: {
-						durationNormal: 200,
-						easing: 'ease-out',
+						durationNormal: 250,
+						easing: 'cubic-bezier(0.2,0,0,1)',
 						keyframes: {
 							forward: {
 								from: [
-									{ transform: 'scale(1)', opacity: 1 },
-									{ transform: 'scale(1.02)', opacity: 0 }
+									{ transform: 'scale(1)',    opacity: 1 },
+									{ transform: 'scale(1.04)', opacity: 0 }
 								],
 								to: [
-									{ transform: 'scale(0.98)', opacity: 0 },
-									{ transform: 'scale(1)', opacity: 1 }
+									{ transform: 'scale(0.92)', opacity: 0 },
+									{ transform: 'scale(1)',    opacity: 1 }
 								]
 							},
 							back: {
 								from: [
-									{ transform: 'scale(1)', opacity: 1 },
-									{ transform: 'scale(0.98)', opacity: 0 }
+									{ transform: 'scale(1)',    opacity: 1 },
+									{ transform: 'scale(0.92)', opacity: 0 }
 								],
 								to: [
-									{ transform: 'scale(1.02)', opacity: 0 },
-									{ transform: 'scale(1)', opacity: 1 }
+									{ transform: 'scale(1.04)', opacity: 0 },
+									{ transform: 'scale(1)',    opacity: 1 }
 								]
 							}
 						}
@@ -359,43 +356,41 @@ function buildEnv() {
 
 			ios: function() {
 				return {
+					gestures: {
+						edgePan: { edgeWidth: 44 }
+					},
 					motion: {
-						durationNormal: 220,
-						easing: 'cubic-bezier(0.25,1,0.5,1)',
+						durationNormal: 350,
+						easing: 'cubic-bezier(0.4,0,0.2,1)',
 						keyframes: {
 							forward: {
 								from: [
-									{ transform: 'translate3d(0,0,0)', opacity: 1 },
+									{ transform: 'translate3d(0,0,0)',    opacity: 1    },
 									{ transform: 'translate3d(-20%,0,0)', opacity: 0.98 }
 								],
 								to: [
 									{ transform: 'translate3d(100%,0,0)', opacity: 0.98 },
-									{ transform: 'translate3d(0,0,0)', opacity: 1 }
+									{ transform: 'translate3d(0,0,0)',    opacity: 1    }
 								]
 							},
 							back: {
 								from: [
-									{ transform: 'translate3d(0,0,0)', opacity: 1 },
+									{ transform: 'translate3d(0,0,0)',    opacity: 1 },
 									{ transform: 'translate3d(100%,0,0)', opacity: 1 }
 								],
 								to: [
 									{ transform: 'translate3d(-20%,0,0)', opacity: 0.98 },
-									{ transform: 'translate3d(0,0,0)', opacity: 1 }
+									{ transform: 'translate3d(0,0,0)',    opacity: 1    }
 								]
 							}
 						}
 					}
 				};
 			}
-			
+
 		};
 
 		return merge({
-
-			caps: {
-				swipeBack: true,
-				haptics: isHybrid
-			},
 
 			motion: {
 				durationNormal: 200,
@@ -403,40 +398,41 @@ function buildEnv() {
 				keyframes: {
 					forward: {
 						from: [
-							{ transform: 'translateX(0)', opacity: 1 },
+							{ transform: 'translateX(0)',   opacity: 1 },
 							{ transform: 'translateX(-10px)', opacity: 0 }
 						],
 						to: [
 							{ transform: 'translateX(10px)', opacity: 0 },
-							{ transform: 'translateX(0)', opacity: 1 }
+							{ transform: 'translateX(0)',    opacity: 1 }
 						]
 					},
 					back: {
 						from: [
-							{ transform: 'translateX(0)', opacity: 1 },
+							{ transform: 'translateX(0)',    opacity: 1 },
 							{ transform: 'translateX(10px)', opacity: 0 }
 						],
 						to: [
 							{ transform: 'translateX(-10px)', opacity: 0 },
-							{ transform: 'translateX(0)', opacity: 1 }
+							{ transform: 'translateX(0)',     opacity: 1 }
 						]
 					}
 				}
 			},
 
 			gestures: {
-				swipeBack: {
-					enabled: true,
-					interactive: true,
-					edgeWidth: 24,      // px
-					threshold: 0.35,    // progress 0..1
-					velocity: 0.35      // px/ms (gesture module decides exact calc)
+				edgePan: {
+					enabled: isTouch,
+					edgeWidth: 24,
+					commitThreshold: 0.35,
+					velocityThreshold: 0.35
 				}
 			}
 
-		}, presets[preset]());
+		}, presetObj[preset]());
 
 	});
+	
+	// Return env object
 	
 	return env;
 
