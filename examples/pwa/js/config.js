@@ -19,7 +19,7 @@ globalThis.FSCONFIG = {
 			//fstage
 			'@fstage/store',
 			'@fstage/sync',
-			'@fstage/lit',
+			'@fstage/component',
 			//ionic
 			'https://cdn.jsdelivr.net/npm/@ionic/core@8/css/ionic.bundle.min.css',
 			'https://cdn.jsdelivr.net/npm/@ionic/core@8/dist/ionic/ionic.esm.min.js',

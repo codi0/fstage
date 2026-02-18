@@ -1,7 +1,7 @@
-import { config } from '@fstage/core';
-import { FsLitElement, html, css } from '@fstage/lit';
+import { get } from '@fstage/core';
+import { FsComponent, html, css } from '@fstage/component';
 
-class PwaHeader extends FsLitElement {
+class PwaHeader extends FsComponent {
 
 	static shadowDom = false;
 
@@ -12,7 +12,7 @@ class PwaHeader extends FsLitElement {
 					<ion-buttons slot="start">
 						<ion-back-button></ion-back-button>
 					</ion-buttons>
-					<ion-title>${config.name}</ion-title>
+					<ion-title>${get('config.name')}</ion-title>
 					<ion-buttons slot="end">
 						<ion-menu-button></ion-menu-button>
 					</ion-buttons>

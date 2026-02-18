@@ -1,6 +1,6 @@
-import { FsLitElement, html, css } from '@fstage/lit';
+import { FsComponent, html, css } from '@fstage/component';
 
-export class PwaHome extends FsLitElement {
+export class PwaHome extends FsComponent {
 
 	static shadowDom = false;
 	

@@ -145,12 +145,14 @@ var load = function(path, type='') {
 		//return
 		return input;
 	};
-	//format input
-	path = formatInput(path);
-	//check path
+	//load all modules?
 	if(path === '@all') {
 		path = _modules;
-	} else if(!path) {
+	}
+	//format input
+	path = formatInput(path);
+	//stop here?
+	if(!path) {
 		return Promise.resolve();
 	}
 	//is object?

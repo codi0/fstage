@@ -1,7 +1,7 @@
-import { config } from '@fstage/core';
-import { FsLitElement, html, css } from '@fstage/lit';
+import { get } from '@fstage/core';
+import { FsComponent, html, css } from '@fstage/component';
 
-export class PwaLayout extends FsLitElement {
+export class PwaLayout extends FsComponent {
 
 	static shadowDom = false;
 	
@@ -15,7 +15,7 @@ export class PwaLayout extends FsLitElement {
 		return html`
 		<ion-app>
 			<ion-router>
-			${Object.entries(config.routes).map(([key, val]) => {
+			${Object.entries(get('config.routes')).map(([key, val]) => {
 				if(val.component) {
 					return html`
 						<ion-route url="${key}" component="${val.component}"></ion-route>
@@ -26,12 +26,12 @@ export class PwaLayout extends FsLitElement {
 			<ion-menu content-id="main-content">
 				<ion-header>
 					<ion-toolbar>
-						<ion-title>${config.name}</ion-title>
+						<ion-title>${get('config.name')}</ion-title>
 					</ion-toolbar>
 				</ion-header>
 				<ion-content>
 					<ion-list>
-					${Object.entries(config.routes).map(([key, val]) => {
+					${Object.entries(get('config.routes')).map(([key, val]) => {
 						if(val.title && val.menu) {
 							return html`
 								<ion-item @click=${this.menuClick} data-href="${key}" style="cursor:pointer;">${val.title}</ion-item>
@@ -49,16 +49,16 @@ export class PwaLayout extends FsLitElement {
 	firstUpdated() {
 		//set vars
 		var router = this.renderRoot.querySelector('ion-router');
-		router.useHash = config.routerHash;
+		router.useHash = get('config.routerHash');
 		//listen for router change
 		router.addEventListener('ionRouteDidChange', function(e) {
 			//set current route
-			router.current = config.routes[e.detail.to];
+			router.current = get('config.routes.' + e.detail.to);
 			//update doc title
 			if(router.current.title) {
-				document.title = router.current.title + ' | ' + config.name;
+				document.title = router.current.title + ' | ' + get('config.name');
 			} else {
-				document.title = config.name;
+				document.title = get('config.name');
 			}
 		});
 	}

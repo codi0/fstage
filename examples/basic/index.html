@@ -14,21 +14,21 @@
 	</style>
 	<script type="module" src="../../src/js/fstage.mjs"></script>
 	<script type="module">
-	Fstage.load('@all').then(function(exports) {
+	fstage.load('@all').then(function(exports) {
 		//set vars
 		var html = [];
 		//add title
 		html.push('<p><b>Fstage modules loaded:</b></p>');
 		html.push('<ul>');
-		//loop through globals
-		for(var i in Fstage) {
+		//loop through modules
+		for(var i in fstage.get()) {
 			html.push('<li>Fstage.' + i + '</li>');
 		}
 		html.push('</ul>');
 		//update DOM
 		document.querySelector('#status').innerHTML = html.join("\n");
 		//log to console
-		console.log(Fstage);
+		console.log('fstage', fstage);
 	});
 	</script>
 </head>
