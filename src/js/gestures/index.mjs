@@ -86,7 +86,7 @@ function createEdgePanGesture(options = {}) {
   }
 
   // Returns 'pending' to signal the manager to watch this gesture on move.
-  // Does not claim the pointer yet — intent must be confirmed first.
+  // Does not claim the pointer yet - intent must be confirmed first.
   function onPointerDown(e) {
     if (!enabled || active) return false;
     if (!isWithinEl(e))     return false;
