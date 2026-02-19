@@ -5,7 +5,7 @@
 //config vars
 var _name = 'fstage';
 var _confName = 'FSCONFIG';
-var _modules = [ 'animator', 'component', 'dom', 'env', 'form', 'gestures', 'history', 'hls', 'http', 'ipfs', 'observe', 'pubsub', 'registry', 'router', 'store', 'sync', 'transitions', 'utils', 'webpush', 'websocket' ];
+var _modules = [ 'animator', 'component', 'dom', 'env', 'form', 'gestures', 'history', 'hls', 'http', 'interactions', 'ipfs', 'observe', 'pubsub', 'registry', 'router', 'store', 'sync', 'transitions', 'utils', 'webpush', 'websocket' ];
 
 //misc vars
 var _global = {};

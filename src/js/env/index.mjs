@@ -316,6 +316,9 @@ function buildEnv() {
 		var isTouch = e.getFact('capabilities.touch');
 		var isAndroidIos = ['ios', 'android'].includes(os);
 		var preset = (isTouch && isAndroidIos) ? os : 'default';
+		
+		isTouch = true;
+		preset = 'ios';
 
 		var presetObj = {
 

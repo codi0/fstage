@@ -6,9 +6,10 @@ function clamp01(n) {
   return n;
 }
 
-// --- Edge Pan Gesture (internal) ---------------------------------------------
+// --- Edge Pan Gesture --------------------------------------------------------
 //
 // Recognizes a pan originating from a screen edge.
+// Used for interactive back-navigation at the page level.
 //
 // Options:
 // {
@@ -19,13 +20,13 @@ function clamp01(n) {
 //   commitThreshold,   // progress (0-1) required to commit     (default: 0.35)
 //   velocityThreshold, // px/ms required to commit              (default: 0.35)
 //   enabled,           // bool                                  (default: true)
-//   onStart,           // (event) ? void  mutate event to add properties for other callbacks
-//   onProgress,        // (event) ? void  event.progress is updated
-//   onCommit,          // (event) ? void
-//   onCancel,          // (event) ? void
+//   onStart,           // (event) => void
+//   onProgress,        // (event) => void  event.progress is updated
+//   onCommit,          // (event) => void
+//   onCancel,          // (event) => void
 // }
 
-function createEdgePanGesture(options = {}) {
+export function createEdgePanGesture(options = {}) {
   const {
     el,
     edge              = 'left',
@@ -85,8 +86,6 @@ function createEdgePanGesture(options = {}) {
     return clamp01((pos - startPos) * sign / size);
   }
 
-  // Returns 'pending' to signal the manager to watch this gesture on move.
-  // Does not claim the pointer yet - intent must be confirmed first.
   function onPointerDown(e) {
     if (!enabled || active) return false;
     if (!isWithinEl(e))     return false;
@@ -102,10 +101,8 @@ function createEdgePanGesture(options = {}) {
     return 'pending';
   }
 
-  // Returns true when intent is confirmed and the pointer is claimed.
   function onPointerMove(e) {
     if (!active) {
-      // pending phase � check for directional intent
       const primary = (getEventPos(e) - startPos) * sign;
       if (primary < minSwipeDistance) return false;
 
@@ -114,7 +111,6 @@ function createEdgePanGesture(options = {}) {
       if (horizontal  && dy > dx) return false;
       if (!horizontal && dx > dy) return false;
 
-      // intent confirmed � claim
       active = true;
       ready  = false;
       event  = { edge, progress: 0, velocity: 0 };
@@ -128,7 +124,6 @@ function createEdgePanGesture(options = {}) {
         })
         .catch(() => {
           active = false;
-          event  = null;
           unlockTouch();
         });
 
@@ -180,97 +175,447 @@ function createEdgePanGesture(options = {}) {
   return { onPointerDown, onPointerMove, onPointerUp, onPointerCancel };
 }
 
-// --- Gesture Types ------------------------------------------------------------
-//
-// Register new gesture factories here, or at runtime via manager.add().
 
-const GESTURE_TYPES = {
-  edgePan: createEdgePanGesture,
-};
-
-// --- Gesture Manager ----------------------------------------------------------
+// --- Swipe Gesture -----------------------------------------------------------
 //
-// Owns a single pointer event loop on document.body (or a specified rootEl).
-// Dispatches to registered gestures in registration order.
-// Only the first gesture to claim a pointer receives subsequent events for it.
-//
-// Gesture onPointerDown return values:
-//   true      ? claimed immediately (pointer captured)
-//   'pending' ? watching for intent on pointermove before claiming
-//   false     ? not interested
+// Recognizes a horizontal swipe on a specific element. Physically moves the
+// element during drag and reveals a coloured action layer behind it.
+// Snaps back on cancel, flies off on commit.
 //
 // Options:
 // {
-//   policy,  // { [gestureType]: { enabled, edgeWidth, commitThreshold, ... } }
-//   rootEl,  // element to bind listeners to (default: document.body)
+//   el,                // required: the element to swipe
+//   directions,        // ['left'] | ['right'] | ['left','right']  (default: both)
+//   threshold,         // fraction of el width to trigger commit    (default: 0.35)
+//   velocityThreshold, // px/ms to trigger commit on fast swipe     (default: 0.4)
+//   resistanceFactor,  // rubber-band factor past threshold          (default: 0.3)
+//   moveEl,            // auto-apply translateX transform            (default: true)
+//   onStart,           // (event) => void | false  return false to cancel
+//   onProgress,        // (event) => void  event: { el, direction, delta, progress }
+//   onCommit,          // (event) => void
+//   onCancel,          // (event) => void
 // }
+
+export function createSwipeGesture(options = {}) {
+  const {
+    el,
+    directions        = ['left', 'right'],
+    threshold         = 0.35,
+    velocityThreshold = 0.4,
+    resistanceFactor  = 0.3,
+    moveEl            = true,
+    onStart,
+    onProgress,
+    onCommit,
+    onCancel,
+  } = options;
+
+  if (!el) throw new Error('createSwipeGesture requires el');
+
+  // Positive directions on each axis
+	const horizontal = directions.some(d => d === 'left' || d === 'right');
+	const canNeg = directions.includes(horizontal ? 'left' : 'up');
+	const canPos = directions.includes(horizontal ? 'right' : 'down');
+
+  let active    = false;
+  let ready     = false;
+  let startMain = 0;   // clientX or clientY
+  let startCross= 0;   // the other axis
+  let lastMain  = 0;
+  let lastT     = 0;
+  let velocity  = 0;
+  let size      = 0;
+  let event     = null;
+  let committed = false;
+
+  function getMain(e)  { return horizontal ? e.clientX : e.clientY; }
+  function getCross(e) { return horizontal ? e.clientY : e.clientX; }
+  function getSize()   { return horizontal ? (el.offsetWidth || 320) : (el.offsetHeight || 320); }
+
+  function directionLabel(delta) {
+    if (horizontal) return delta < 0 ? 'left'  : 'right';
+    else            return delta < 0 ? 'up'    : 'down';
+  }
+
+  function applyTransform(delta) {
+    if (!moveEl) return;
+    el.style.transition = 'none';
+    el.style.transform  = delta === 0 ? '' :
+      horizontal ? `translateX(${delta}px)` : `translateY(${delta}px)`;
+  }
+
+  function springBack() {
+    if (!moveEl) return Promise.resolve();
+    el.style.transition = 'transform 0.32s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+    el.style.transform  = '';
+    return new Promise(resolve => {
+      el.addEventListener('transitionend', () => {
+        el.style.transition = '';
+        resolve();
+      }, { once: true });
+    });
+  }
+
+  function flyOff(direction) {
+    if (!moveEl) return Promise.resolve();
+    const neg = horizontal ? direction === 'left' : direction === 'up';
+    const target = neg ? -size * 1.5 : size * 1.5;
+    el.style.transition = 'transform 0.22s cubic-bezier(0.4, 0, 1, 1)';
+    el.style.transform  = horizontal ? `translateX(${target}px)` : `translateY(${target}px)`;
+    return new Promise(resolve => {
+      el.addEventListener('transitionend', resolve, { once: true });
+    });
+  }
+
+  function resistantDelta(raw) {
+    const thresholdPx = size * threshold;
+    const absRaw      = Math.abs(raw);
+    const sign        = raw < 0 ? -1 : 1;
+    if (absRaw <= thresholdPx) return raw;
+    const excess = absRaw - thresholdPx;
+    return sign * (thresholdPx + excess * resistanceFactor);
+  }
+
+  function onPointerDown(e) {
+    if (active || committed) return false;
+    if (!el.contains(e.target)) return false;
+    startMain  = getMain(e);
+    startCross = getCross(e);
+    lastMain   = startMain;
+    lastT      = performance.now();
+    velocity   = 0;
+    size       = getSize();
+    return 'pending';
+  }
+
+  function onPointerMove(e) {
+    const dMain  = getMain(e)  - startMain;
+    const dCross = getCross(e) - startCross;
+    const absMain  = Math.abs(dMain);
+    const absCross = Math.abs(dCross);
+
+    if (!active) {
+      if (absMain < 8 && absCross < 8)  return false;  // too small
+      if (absCross > absMain)            return false;  // wrong axis — allow natural scroll
+      if (dMain < 0 && !canNeg)          return false;
+      if (dMain > 0 && !canPos)          return false;
+
+      active    = true;
+      ready     = false;
+      committed = false;
+
+      event = { el, direction: directionLabel(dMain), delta: 0, progress: 0 };
+
+      el.style.touchAction = 'none';
+      el.style.userSelect  = 'none';
+
+      Promise.resolve(onStart ? onStart(event) : null)
+        .then(result => {
+          if (active && result !== false) { ready = true; }
+          else { active = false; el.style.touchAction = ''; el.style.userSelect = ''; }
+        })
+        .catch(() => { active = false; el.style.touchAction = ''; el.style.userSelect = ''; });
+
+      return true;
+    }
+
+    if (!ready) return;
+    e.preventDefault();
+
+    const now = performance.now();
+    const dt  = now - lastT;
+    const cur = getMain(e);
+    if (dt > 0) velocity = (cur - lastMain) / dt;
+    lastMain = cur;
+    lastT    = now;
+
+    const raw      = cur - startMain;
+    const clamped  = (raw < 0 && !canNeg) ? 0 : (raw > 0 && !canPos) ? 0 : raw;
+    const delta    = resistantDelta(clamped);
+    const threshPx = size * threshold;
+
+    applyTransform(delta);
+
+    event.direction = directionLabel(clamped);
+    event.delta     = delta;
+    event.progress  = Math.min(1, Math.abs(clamped) / threshPx);
+
+    if (onProgress) onProgress(event);
+  }
+
+  function onPointerUp() {
+    if (!active || !ready) { active = false; return; }
+    active = false;
+    el.style.touchAction = '';
+    el.style.userSelect  = '';
+
+    const rawTravel    = lastMain - startMain;
+    const threshPx     = size * threshold;
+    const shouldCommit = Math.abs(rawTravel) >= threshPx ||
+                         Math.abs(velocity)  >= velocityThreshold;
+
+    if (shouldCommit) {
+      committed = true;
+      const dir = event.direction;
+      flyOff(dir).then(() => {
+        if (onCommit) onCommit(event);
+        committed = false;
+      });
+    } else {
+      springBack().then(() => {
+        if (onCancel) onCancel(event);
+      });
+    }
+    event = null;
+  }
+
+  function onPointerCancel() {
+    if (!active || !ready) { active = false; return; }
+    active = false;
+    el.style.touchAction = '';
+    el.style.userSelect  = '';
+    springBack().then(() => {
+      if (onCancel) onCancel(event);
+    });
+    event = null;
+  }
+
+  return { onPointerDown, onPointerMove, onPointerUp, onPointerCancel };
+}
+
+
+// --- Long Press Gesture ------------------------------------------------------
+//
+// Fires after a sustained hold on an element without significant movement.
+// Triggers haptic feedback on supported devices. Never claims the pointer
+// exclusively — co-exists with swipe and scroll gestures.
+//
+// Options:
+// {
+//   el,            // required: the element to watch
+//   duration,      // ms hold required to fire          (default: 400)
+//   moveThreshold, // px movement before cancelling     (default: 8)
+//   onStart,       // (event) => void  event: { el, x, y }
+//   onCancel,      // () => void
+// }
+
+export function createLongPressGesture(options = {}) {
+  const {
+    el,
+    duration      = 400,
+    moveThreshold = 8,
+    onStart,
+    onCancel,
+  } = options;
+
+  let timer  = null;
+  let startX = 0;
+  let startY = 0;
+  let active = false;
+
+  function cancel(fireCallback) {
+    if (timer) { clearTimeout(timer); timer = null; }
+    if (active && fireCallback && onCancel) onCancel();
+    active = false;
+  }
+
+  function onPointerDown(e) {
+    if (!el || !el.contains(e.target)) return false;
+    startX = e.clientX;
+    startY = e.clientY;
+    active = true;
+
+    timer = setTimeout(() => {
+      if (!active) return;
+      try { navigator.vibrate && navigator.vibrate(10); } catch (err) {}
+      if (onStart) onStart({ el, x: startX, y: startY });
+    }, duration);
+
+    return 'pending'; // watch for movement but never claim
+  }
+
+  function onPointerMove(e) {
+    if (!active) return false;
+    const dx = Math.abs(e.clientX - startX);
+    const dy = Math.abs(e.clientY - startY);
+    if (dx > moveThreshold || dy > moveThreshold) cancel(true);
+    return false; // never claim the pointer
+  }
+
+  function onPointerUp()     { cancel(false); }
+  function onPointerCancel() { cancel(true);  }
+
+  return { onPointerDown, onPointerMove, onPointerUp, onPointerCancel };
+}
+
+
+// --- Tap Gesture -------------------------------------------------------------
+//
+// Distinguishes an intentional tap from accidental touches or scroll
+// initiation. Useful on non-anchor interactive elements.
+//
+// Options:
+// {
+//   el,          // required: the element to watch
+//   maxDistance, // px movement before rejecting as tap   (default: 10)
+//   maxDuration, // ms before rejecting as long press     (default: 350)
+//   onTap,       // (event) => void  event: { el, x, y }
+// }
+
+export function createTapGesture(options = {}) {
+  const {
+    el,
+    maxDistance = 10,
+    maxDuration = 350,
+    onTap,
+  } = options;
+
+  let startX = 0;
+  let startY = 0;
+  let startT = 0;
+
+  function onPointerDown(e) {
+    if (!el || !el.contains(e.target)) return false;
+    startX = e.clientX;
+    startY = e.clientY;
+    startT = performance.now();
+    return 'pending'; // watch but never claim
+  }
+
+  function onPointerMove(e) { return false; }
+
+  function onPointerUp(e) {
+    const dx = Math.abs(e.clientX - startX);
+    const dy = Math.abs(e.clientY - startY);
+    const dt = performance.now() - startT;
+    if (dx <= maxDistance && dy <= maxDistance && dt <= maxDuration) {
+      if (onTap) onTap({ el, x: e.clientX, y: e.clientY });
+    }
+  }
+
+  function onPointerCancel() {}
+
+  return { onPointerDown, onPointerMove, onPointerUp, onPointerCancel };
+}
+
+
+// --- Gesture Types Registry --------------------------------------------------
+
+const GESTURE_TYPES = {
+  edgePan:   createEdgePanGesture,
+  swipe:     createSwipeGesture,
+  longPress: createLongPressGesture,
+  tap:       createTapGesture,
+};
+
+
+// --- Gesture Manager ---------------------------------------------------------
+//
+// Owns a single pointer event loop on a root element. Dispatches to all
+// registered gestures in registration order.
+//
+// Multiple gestures can be 'pending' simultaneously on the same pointer —
+// the first one to claim on pointermove wins exclusively. Gestures that only
+// return 'pending' and never claim (longPress, tap) co-exist safely with
+// claiming gestures (edgePan, swipe).
+//
+// Gesture onPointerDown return values:
+//   true      — claimed immediately
+//   'pending' — watching for intent; multiple gestures may be pending at once
+//   false     — not interested
 //
 // Usage:
-//   const manager = createGestureManager({ policy: policy.gestures });
-//   manager.start();
+//   const manager = createGestureManager({ policy });
+//   manager.start(rootEl);
 //
-//   const stop = manager.on('edgePan', {
-//     el:         myAppEl,
-//     edge:       'left',
-//     onStart:    (e) => { e.ctl = transitions.toPrevious({ interactive: true }); },
-//     onProgress: (e) => e.ctl.progress(e.progress),
-//     onCommit:   (e) => { e.ctl.commit(); router.back({ silent: true }); },
-//     onCancel:   (e) => e.ctl.cancel(),
-//   });
-//
-//   stop(); // remove this gesture
+//   const stop = manager.on('swipe', { el: rowEl, directions: ['left','right'], ... });
+//   stop(); // unregister
 
 export function createGestureManager(config = {}) {
-  const registry = new Set();   // gesture instances
-  const claimed  = new Map();   // pointerId ? gesture (active)
-  const pending  = new Map();   // pointerId ? gesture (intent not yet confirmed)
+  const registry = [];          // ordered list of gesture instances { type, instance }
+  const claimed  = new Map();   // pointerId → gesture instance
+  const pending  = new Map();   // pointerId → gesture instance[]
   let   boundEl  = null;
 
   config.policy = config.policy || {};
 
   function handlePointerDown(e) {
-    for (const gesture of registry) {
-      const result = gesture.onPointerDown(e);
+    const pendingForPointer = [];
+
+    for (const { instance } of registry) {
+      const result = instance.onPointerDown(e);
+
       if (result === true) {
-        claimed.set(e.pointerId, gesture);
-        boundEl.setPointerCapture(e.pointerId);
-        break;
+        // First exclusive claim — stop everything
+        claimed.set(e.pointerId, instance);
+        try { boundEl.setPointerCapture(e.pointerId); } catch (err) {}
+        return;
       }
+
       if (result === 'pending') {
-        pending.set(e.pointerId, gesture);
-        break;
+        // Allow multiple gestures to be pending at once
+        pendingForPointer.push(instance);
       }
+    }
+
+    if (pendingForPointer.length > 0) {
+      pending.set(e.pointerId, pendingForPointer);
     }
   }
 
   function handlePointerMove(e) {
-    const gesture = claimed.get(e.pointerId);
-    if (gesture) { gesture.onPointerMove(e); return; }
-
-    const p = pending.get(e.pointerId);
-    if (p && p.onPointerMove(e)) {
-      pending.delete(e.pointerId);
-      claimed.set(e.pointerId, p);
-      boundEl.setPointerCapture(e.pointerId);
+    // If already claimed, route exclusively
+    const claimedGesture = claimed.get(e.pointerId);
+    if (claimedGesture) {
+      claimedGesture.onPointerMove(e);
+      return;
     }
-  }
 
-  function release(method, e) {
-    const gesture = claimed.get(e.pointerId);
-    if (gesture) {
-      gesture[method](e);
-      claimed.delete(e.pointerId);
+    // Check pending gestures — first to claim wins
+    const pendings = pending.get(e.pointerId);
+    if (!pendings || pendings.length === 0) return;
+
+    for (const gesture of pendings) {
+      if (gesture.onPointerMove(e) === true) {
+        // This gesture claimed it — remove from pending, set as claimed
+        pending.delete(e.pointerId);
+        claimed.set(e.pointerId, gesture);
+        try { boundEl.setPointerCapture(e.pointerId); } catch (err) {}
+        return;
+      }
     }
   }
 
   function handlePointerUp(e) {
-    pending.delete(e.pointerId);
-    release('onPointerUp', e);
+    // Notify all pending gestures (e.g. tap fires here)
+    const pendings = pending.get(e.pointerId);
+    if (pendings) {
+      for (const gesture of pendings) {
+        try { gesture.onPointerUp(e); } catch (err) {}
+      }
+      pending.delete(e.pointerId);
+    }
+    // Notify claimed gesture
+    const gesture = claimed.get(e.pointerId);
+    if (gesture) {
+      try { gesture.onPointerUp(e); } catch (err) {}
+      claimed.delete(e.pointerId);
+    }
   }
 
   function handlePointerCancel(e) {
-    pending.delete(e.pointerId);
-    release('onPointerCancel', e);
+    const pendings = pending.get(e.pointerId);
+    if (pendings) {
+      for (const gesture of pendings) {
+        try { gesture.onPointerCancel(e); } catch (err) {}
+      }
+      pending.delete(e.pointerId);
+    }
+    const gesture = claimed.get(e.pointerId);
+    if (gesture) {
+      try { gesture.onPointerCancel(e); } catch (err) {}
+      claimed.delete(e.pointerId);
+    }
   }
 
   function start(rootEl) {
@@ -285,7 +630,7 @@ export function createGestureManager(config = {}) {
   function stop() {
     if (!boundEl) return;
     boundEl.removeEventListener('pointerdown',   handlePointerDown);
-    boundEl.removeEventListener('pointermove',   handlePointerMove, { passive: false });
+    boundEl.removeEventListener('pointermove',   handlePointerMove);
     boundEl.removeEventListener('pointerup',     handlePointerUp);
     boundEl.removeEventListener('pointercancel', handlePointerCancel);
     claimed.clear();
@@ -293,24 +638,31 @@ export function createGestureManager(config = {}) {
     boundEl = null;
   }
 
+  // Register a gesture. Returns an off() function to unregister.
   function on(type, options = {}) {
     const factory = GESTURE_TYPES[type];
     if (!factory) throw new Error(`Unknown gesture type: "${type}"`);
 
-    const gesture = factory(Object.assign({}, config.policy[type] || {}, options));
-    registry.add(gesture);
+    const instance = factory(Object.assign({}, config.policy[type] || {}, options));
+    const entry    = { type, instance };
+    registry.push(entry);
 
     return function off() {
-      registry.delete(gesture);
+      const idx = registry.indexOf(entry);
+      if (idx !== -1) registry.splice(idx, 1);
+      // Clean up any active state for this instance
       for (const [pointerId, g] of claimed.entries()) {
-        if (g === gesture) claimed.delete(pointerId);
+        if (g === instance) claimed.delete(pointerId);
       }
-      for (const [pointerId, g] of pending.entries()) {
-        if (g === gesture) pending.delete(pointerId);
+      for (const [pointerId, arr] of pending.entries()) {
+        const filtered = arr.filter(g => g !== instance);
+        if (filtered.length === 0) pending.delete(pointerId);
+        else pending.set(pointerId, filtered);
       }
     };
   }
 
+  // Register a new gesture type factory at runtime
   function add(type, factory) {
     GESTURE_TYPES[type] = factory;
   }

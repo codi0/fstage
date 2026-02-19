@@ -1,1 +1,220 @@
+/* ============================================================================
+   Fstage Tasks — Design System
+   Tokens → Base → Components → Utilities
+   ============================================================================ */
 
+
+/* --- Tokens: Light mode (default) ----------------------------------------- */
+
+:root {
+	/* Brand */
+	--color-primary:         #007AFF;
+	--color-primary-subtle:  rgba(0, 122, 255, 0.10);
+	--color-success:         #34C759;
+	--color-success-subtle:  rgba(52, 199, 89, 0.12);
+	--color-danger:          #FF3B30;
+	--color-danger-subtle:   rgba(255, 59, 48, 0.10);
+	--color-warning:         #FF9500;
+	--color-warning-subtle:  rgba(255, 149, 0, 0.10);
+
+	/* Backgrounds */
+	--bg-base:               #FFFFFF;
+	--bg-secondary:          #F2F2F7;
+	--bg-tertiary:           #E5E5EA;
+	--bg-blur:               rgba(242, 242, 247, 0.85);
+
+	/* Text */
+	--text-primary:          #000000;
+	--text-secondary:        rgba(60, 60, 67, 0.75);
+	--text-tertiary:         rgba(60, 60, 67, 0.45);
+
+	/* Separators */
+	--separator:             rgba(60, 60, 67, 0.12);
+	--separator-heavy:       rgba(60, 60, 67, 0.28);
+
+	/* Radii */
+	--radius-sm:   8px;
+	--radius-md:   12px;
+	--radius-lg:   16px;
+	--radius-xl:   24px;
+
+	/* Layout */
+	--tab-height:  49px;
+
+	/* Safe areas */
+	--safe-top:    env(safe-area-inset-top, 0px);
+	--safe-bottom: env(safe-area-inset-bottom, 0px);
+	--safe-left:   env(safe-area-inset-left, 0px);
+	--safe-right:  env(safe-area-inset-right, 0px);
+
+	/* System font stack — SF Pro on iOS/Mac, Roboto on Android, Segoe on Win */
+	--font-body:   -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+	               'Helvetica Neue', Arial, sans-serif;
+}
+
+
+/* --- Tokens: Dark mode (auto) --------------------------------------------- */
+
+@media (prefers-color-scheme: dark) {
+	:root:not([data-theme="light"]) {
+		--bg-base:          #1C1C1E;
+		--bg-secondary:     #000000;
+		--bg-tertiary:      #2C2C2E;
+		--bg-blur:          rgba(28, 28, 30, 0.85);
+
+		--text-primary:     #FFFFFF;
+		--text-secondary:   rgba(235, 235, 245, 0.75);
+		--text-tertiary:    rgba(235, 235, 245, 0.38);
+
+		--separator:        rgba(84, 84, 88, 0.50);
+		--separator-heavy:  rgba(84, 84, 88, 0.72);
+
+		--color-primary-subtle:  rgba(10, 132, 255, 0.14);
+		--color-success-subtle:  rgba(48, 209, 88,  0.14);
+		--color-danger-subtle:   rgba(255, 69, 58,  0.14);
+		--color-warning-subtle:  rgba(255, 159, 10, 0.14);
+	}
+}
+
+/* User-forced dark override */
+[data-theme="dark"] {
+	--bg-base:          #1C1C1E;
+	--bg-secondary:     #000000;
+	--bg-tertiary:      #2C2C2E;
+	--bg-blur:          rgba(28, 28, 30, 0.85);
+
+	--text-primary:     #FFFFFF;
+	--text-secondary:   rgba(235, 235, 245, 0.75);
+	--text-tertiary:    rgba(235, 235, 245, 0.38);
+
+	--separator:        rgba(84, 84, 88, 0.50);
+	--separator-heavy:  rgba(84, 84, 88, 0.72);
+
+	--color-primary:         #0A84FF;
+	--color-success:         #30D158;
+	--color-danger:          #FF453A;
+	--color-warning:         #FF9F0A;
+
+	--color-primary-subtle:  rgba(10, 132, 255, 0.14);
+	--color-success-subtle:  rgba(48, 209, 88,  0.14);
+	--color-danger-subtle:   rgba(255, 69, 58,  0.14);
+	--color-warning-subtle:  rgba(255, 159, 10, 0.14);
+}
+
+/* User-forced light override */
+[data-theme="light"] {
+	/* Already set in :root — explicit reset for when dark media query fires */
+	--bg-base:          #FFFFFF;
+	--bg-secondary:     #F2F2F7;
+	--bg-tertiary:      #E5E5EA;
+	--bg-blur:          rgba(242, 242, 247, 0.85);
+
+	--text-primary:     #000000;
+	--text-secondary:   rgba(60, 60, 67, 0.75);
+	--text-tertiary:    rgba(60, 60, 67, 0.45);
+
+	--separator:        rgba(60, 60, 67, 0.12);
+	--separator-heavy:  rgba(60, 60, 67, 0.28);
+
+	--color-primary:    #007AFF;
+	--color-success:    #34C759;
+	--color-danger:     #FF3B30;
+	--color-warning:    #FF9500;
+
+	--color-primary-subtle:  rgba(0, 122, 255, 0.10);
+	--color-success-subtle:  rgba(52, 199, 89, 0.12);
+	--color-danger-subtle:   rgba(255, 59, 48, 0.10);
+	--color-warning-subtle:  rgba(255, 149, 0, 0.10);
+}
+
+
+/* --- Reset ----------------------------------------------------------------- */
+
+*, *::before, *::after {
+	box-sizing: border-box;
+}
+
+html, body {
+	width: 100%;
+	height: 100%;
+	margin: 0;
+	padding: 0;
+	background: var(--bg-secondary);
+	color: var(--text-primary);
+	font-family: var(--font-body);
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+	/* Prevent font size adjustment on orientation change */
+	-webkit-text-size-adjust: 100%;
+	text-size-adjust: 100%;
+}
+
+body {
+	min-width: 320px;
+	overscroll-behavior: none;
+}
+
+/* No callout on long-press (iOS) except on inputs */
+* {
+	-webkit-touch-callout: none;
+}
+
+input, textarea, [contenteditable] {
+	-webkit-touch-callout: default;
+}
+
+/* Remove tap highlight everywhere — components opt-in to custom feedback */
+* {
+	-webkit-tap-highlight-color: transparent;
+}
+
+/* Native-feel focus ring */
+:focus-visible {
+	outline: 2px solid var(--color-primary);
+	outline-offset: 2px;
+}
+
+p, h1, h2, h3, h4 {
+	margin: 0;
+}
+
+button {
+	font-family: var(--font-body);
+}
+
+input, textarea, select {
+	font-family: var(--font-body);
+	color: var(--text-primary);
+	background: transparent;
+}
+
+a {
+	color: var(--color-primary);
+	text-decoration: none;
+}
+
+
+/* --- Scroll containers ----------------------------------------------------- */
+
+/* Smooth momentum scrolling on iOS */
+.scroll, pwa-main > * {
+	-webkit-overflow-scrolling: touch;
+}
+
+/* Hide scrollbars but keep functionality */
+::-webkit-scrollbar {
+	display: none;
+}
+
+* {
+	scrollbar-width: none;
+}
+
+
+/* --- Transitions (page-level) ---------------------------------------------- */
+/* pwa-main children are absolutely positioned — transitions engine
+   applies WAAPI animations; ensure they don't clip during animation */
+
+pwa-main {
+	isolation: isolate;
+}

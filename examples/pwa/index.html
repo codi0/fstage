@@ -20,7 +20,7 @@
 		box-sizing: border-box;
 	}
 
-	html, body, pwa-layout {
+	html, body, pwa-app {
 		width: 100%;
 		height: 100%;
 		padding: 0;
@@ -35,7 +35,7 @@
 		font-family: var(--pwa-font);
 	}
 	
-	pwa-layout {
+	pwa-app {
 		display: block;
 	}
 
@@ -137,19 +137,17 @@
 			</div>
 		</div>
 	</div>
-	<pwa-layout></pwa-layout>
+	<pwa-app></pwa-app>
 	<script>
 	(function() {
 
 		//set config
 		window.FSCONFIG = {
-			rootEl: 'pwa-layout',
+			rootEl: 'pwa-app',
 			loadScreen: 'spinner',
 			swPath: 'sw.js',
 			configPath: 'js/config.js',
-			setupPath: '../../src/js/fstage.mjs', //CDN: https://cdn.jsdelivr.net/gh/codi0/fstage@latest/src/js/fstage.min.mjs
-			tests: tests,
-			splash: splash
+			scriptPath: '../../src/js/fstage.mjs' //CDN: https://cdn.jsdelivr.net/gh/codi0/fstage@latest/src/js/fstage.min.mjs
 		};
 
 		//tests helper
@@ -158,9 +156,16 @@
 				try {
 					new Function("(a = 0) => a");
 					return true;
-				} catch(e) {
+				} catch (err) {
 					return false;
 				}					
+			},
+			importMapCan: function() {
+				try {
+					return !!(HTMLScriptElement.supports && HTMLScriptElement.supports('importmap'));
+				} catch (err) {
+					return false;
+				}
 			},
 			lsCan: function(){
 				var test = 1;
@@ -168,7 +173,7 @@
 					localStorage.setItem(test, test);
 					localStorage.removeItem(test);
 					return true;
-				} catch(e) {
+				} catch (err) {
 					return false;
 				}
 			},
@@ -180,6 +185,9 @@
 			},
 			swInstalling: function() {
 				return tests.swCan() && !tests.swHas() && FSCONFIG.swPath;
+			},
+			isDev: function() {
+				return [ '', 'localhost' ].includes(location.hostname);
 			},
 			online: function() {
 				return !window.navigator || navigator.onLine !== false;
@@ -204,7 +212,7 @@
 				}, opts);
 				//set message?
 				if(!opts.message) {
-					if(!tests.es6Can() || !tests.lsCan()) {
+					if(!tests.importMapCan() || !tests.lsCan()) {
 						opts.mode = 'text';
 						opts.message = '<div class="pwa-unsupported">Unfortunately this device is not supported</div>';
 					} else if(!tests.online() && !tests.swHas()) {
@@ -281,27 +289,32 @@
 			splash.show({
 				message: 'App installation failed... re-trying in 5 seconds'
 			});
-			//timeout
-			setTimeout(function() {
-				location.reload();
-			}, 5000);		
+			//timeout?
+			if(!tests.isDev()) {
+				setTimeout(function() {
+					location.reload();
+				}, 5000);
+			}	
 		};
 
 		//show splash
 		splash.show();
 		
 		//stop here?
-		if(!tests.es6Can() || !tests.lsCan()) {
+		if(!tests.importMapCan() || !tests.lsCan()) {
 			return;
 		}
-		
+
+		//cache splash
+		window.FSCONFIG.splash = splash;
+
 		//load pwa
 		window.addEventListener('load', function(e) {
 			//init helper
 			var init = function() {
 				//create script
 				var s = document.createElement('script');
-				s.src = FSCONFIG.setupPath;
+				s.src = FSCONFIG.scriptPath;
 				s.type = 'module';
 				document.documentElement.firstChild.appendChild(s);
 				//log timer

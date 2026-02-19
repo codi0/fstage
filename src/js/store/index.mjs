@@ -17,6 +17,7 @@ export function createStore(config) {
 	}, config);
 
 	const getCache = {};
+	const modelsCache = {};
 	const changeHooks = {};
 	const accessHooks = {};
 	const parentPathCache = new Map();
@@ -76,6 +77,10 @@ export function createStore(config) {
 			
 			(function(k) {
 				if (!accessHooks[k]) return;
+
+				// Child key access triggered a parent hook — register tracker on the
+				// parent too, so when api.set('settings') fires, this component is notified
+				if (k !== key) logAccess(k);
 
 				var e = null;
 				var v = opts.val;
@@ -555,6 +560,27 @@ export function createStore(config) {
 		raw: function(path) {
 			const val = nestedKey(config.state, path);
 			return copy(val, true);
+		},
+
+		model: function(key, model) {
+			//set model?
+			if (model) {
+				//already exists?
+				if (modelsCache[key]) {
+					throw new Error("store.model key already exists: " + key);
+				}
+				//check type
+				const type = getType(model);
+				const allowed = [ 'object', 'function' ];
+				//valid type?
+				if (!allowed.includes(type)) {
+					throw new Error("store.model model must be: " + allowed.join(', '));
+				}
+				//add to cache
+				modelsCache[key] = model;
+			}
+			//return model
+			return modelsCache[key] || null;
 		}
 
 	};

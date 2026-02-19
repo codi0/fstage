@@ -170,6 +170,10 @@ export function createNavigationHandler(options) {
 
 	if (!history)  throw new Error('NavigationHandler requires history');
 	if (!navigate) throw new Error('NavigationHandler requires navigate()');
+	
+	if (!linkAttrs.includes(backAttr)) {
+		linkAttrs.push(backAttr);
+	}
 
 	// Built once at construction time
 	var linkSel = linkAttrs.map(function(a) { return '[' + a + ']'; }).join(', ');
@@ -184,15 +188,21 @@ export function createNavigationHandler(options) {
 
 	function getRouteFromEl(el) {
 		var name = null;
+		var back = el.hasAttribute(backAttr);
 
 		for (var i = 0; i < linkAttrs.length; i++) {
 			name = el.getAttribute(linkAttrs[i]);
 			if (name) break;
 		}
+		
+		if (!name && back) {
+			name = 'back';
+		}
+		
+		if (!name) {
+			return null;
+		}
 
-		if (!name) return null;
-
-		var back = el.hasAttribute(backAttr);
 		var mode = el.hasAttribute(replaceAttr) ? 'replace' : 'push';
 		var paramsValue = el.getAttribute(paramsAttr);
 		var params = {};

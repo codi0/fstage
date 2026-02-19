@@ -286,6 +286,8 @@ export function nestedKey(input, key, opts={}) {
 	//set vars
 	var res = input;
 	var hasVal = ('val' in opts);
+	//stop early?
+	if (!res) return opts.default;
 	//split key into parts
 	var keyArr = key ? key.split('.') : [];
 	//loop through parts
@@ -561,15 +563,11 @@ export function getGlobalCss(useCache=true) {
 	//generate cache?
 	if(!useCache || !getGlobalCss.__$cache) {
 		getGlobalCss.__$cache = Array.from(document.styleSheets).map(function(s) {
-			try {
-				var css = Array.from(s.cssRules).map(rule => rule.cssText).join(' ');
-				var sheet = new CSSStyleSheet();
-				sheet.replaceSync(css);
-				return sheet;
-			} catch (e) {
-				return null;
-			}
-		}).filter(Boolean);
+			var css = Array.from(s.cssRules).map(rule => rule.cssText).join(' ');
+			var sheet = new CSSStyleSheet();
+			sheet.replaceSync(css);
+			return sheet;
+		});
 	}
 	//return
 	return getGlobalCss.__$cache;

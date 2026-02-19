@@ -1,0 +1,67 @@
+{
+	"records": [
+    {
+      "id": "1",
+      "title": "Set up project structure",
+      "description": "Create the base project layout and ensure all core modules load correctly.",
+      "completed": false,
+      "priority": "high",
+      "dueDate": "2026-02-19",
+      "createdAt": 1739923200000
+    },
+    {
+      "id": "2",
+      "title": "Review routing",
+      "description": "Confirm routes, placeholders, and navigation lifecycle behaviour.",
+      "completed": false,
+      "priority": "medium",
+      "dueDate": "2026-02-19",
+      "createdAt": 1739923200000
+    },
+    {
+      "id": "3",
+      "title": "Build example views",
+      "description": "Add realistic pages to the example app to create interaction pressure.",
+      "completed": true,
+      "priority": "high",
+      "dueDate": "2026-02-18",
+      "createdAt": 1739836800000
+    },
+    {
+      "id": "4",
+      "title": "Evaluate interaction layer",
+      "description": "Assess whether interaction, gesture, and animation modules are justified.",
+      "completed": false,
+      "priority": "low",
+      "dueDate": "2026-02-20",
+      "createdAt": 1739923200000
+    },
+    {
+      "id": "5",
+      "title": "Document findings",
+      "description": "Write down what feels webby vs native once the UI is in place.",
+      "completed": false,
+      "priority": "medium",
+      "dueDate": "2026-02-24",
+      "createdAt": 1739923200000
+    },
+    {
+      "id": "6",
+      "title": "Performance profiling",
+      "description": "Measure frame rate during swipe gestures and list scroll.",
+      "completed": false,
+      "priority": "medium",
+      "dueDate": "2026-02-21",
+      "createdAt": 1739923200000
+    },
+    {
+      "id": "7",
+      "title": "Accessibility audits",
+      "description": "Ensure touch targets, focus management, and screen reader labels are correct.",
+      "completed": false,
+      "priority": "high",
+      "dueDate": "2026-02-22",
+      "createdAt": 1739923200000
+    }
+	]
+}

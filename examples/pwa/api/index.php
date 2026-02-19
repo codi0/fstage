@@ -7,7 +7,8 @@ $offset = isset($_GET['offset']) ? intval($_GET['offset']) : 0;
 $order = isset($_GET['order']) ? htmlspecialchars($_GET['order']) : 'id.asc';
 
 //mock db records
-$data = json_decode(file_get_contents('data.json'), true) ?: [];
+$file = 'tasks.json';
+$data = json_decode(file_get_contents($file), true) ?: [];
 
 //is DELETE?
 if($_SERVER['REQUEST_METHOD'] == 'DELETE') {
@@ -21,7 +22,7 @@ if($_SERVER['REQUEST_METHOD'] == 'DELETE') {
 	//reset keys
 	$data = array_values($data);
 	//save to db
-	file_put_contents('data.json', json_encode($data));
+	file_put_contents($file, json_encode($data));
 	//set output
 	$output = [
 		'result' => 'ok',
@@ -64,7 +65,7 @@ if($_SERVER['REQUEST_METHOD'] == 'POST') {
 			$newId = $record['id'];
 		}
 		//save to db
-		file_put_contents('data.json', json_encode($data), LOCK_EX);
+		file_put_contents($file, json_encode($data), LOCK_EX);
 	}
 	//set output
 	$output = [
