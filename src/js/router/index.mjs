@@ -311,14 +311,18 @@ export function createNavigationHandler(options) {
 
 		if (!rootEl) return;
 		if (scrollTid) clearTimeout(scrollTid);
-
+		
 		scrollTid = setTimeout(function() {
 			scrollTid = null;
 			var loc = history.location();
 			var state = loc.state || {};
 
 			if (!loc.route) return;
-			if (e.target !== rootEl && e.target.parentNode !== rootEl) return;
+
+			var parent = e.target.parentNode;
+			var grandParent = parent ? parent.parentNode : null;
+
+			if (![ e.target, parent, grandParent ].includes(rootEl)) return;
 
 			state.scroll = e.target.scrollTop || 0;
 
@@ -507,9 +511,19 @@ export function createRouter(options) {
 
 			var loc   = history.location();
 			var state = loc.state || {};
+			var replace = false;
 
 			if (typeof state.id !== 'number') {
 				state.id = 0;
+				replace = true;
+			}
+			
+			if (state.scroll > 0) {
+				state.scroll = 0;
+				replace = true;
+			}
+			
+			if (replace) {
 				history.replace(loc.route, state, { silent: true });
 			}
 

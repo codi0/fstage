@@ -12,7 +12,7 @@
 //
 // Contracts
 // - screenHost.mount(entry) must return an Element (or throw)
-// - engine tracks entry.el automatically and passes (entry) to hooks
+// - engine tracks entry.target automatically and passes (entry) to hooks
 //
 // Entry shape (engine-owned):
 //   { screen, location, el? }
@@ -87,8 +87,8 @@ export function createTransitionEngine(options) {
 
     // mount next (must return element)
     var res = await screenHost.mount(nextEntry);
-    nextEntry.el = nextEntry.el || res;
-    if (!nextEntry.el) throw new Error('screenHost.mount(entry) must return an Element');
+    nextEntry.target = nextEntry.target || res;
+    if (!nextEntry.target) throw new Error('screenHost.mount(entry) must return a target element');
 
     if (isStale(id)) {
       // We got preempted after mount; clean up immediately.
@@ -103,8 +103,8 @@ export function createTransitionEngine(options) {
         try {
           handleI = animator.start({
             direction: nextEntry.location && nextEntry.location.direction,
-            from: from ? from.el : null,
-            to: nextEntry.el,
+            from: from ? from.target : null,
+            to: nextEntry.target,
             interactive: true
           });
         } catch (err) {
@@ -243,8 +243,8 @@ export function createTransitionEngine(options) {
       try {
         handle = animator.start({
           direction: nextEntry.location && nextEntry.location.direction,
-          from: from ? from.el : null,
-          to: nextEntry.el
+          from: from ? from.target : null,
+          to: nextEntry.target
         });
       } catch (err) {
         handle = null;
@@ -298,43 +298,70 @@ export function createTransitionEngine(options) {
 }
 
 export function createScreenHost(options = {}) {
-	options.el = options.el || document.body;
-	options.name = options.name || '';
+  options.el = options.el || document.body;
+  options.name = options.name || '';
+  options.inlineCss = (options.inlineCss !== false);
 
-	return {
+  return {
 
-		async mount(e) {
-			const routeConf = e.screen && e.screen.meta;
-			const state = e.location && e.location.state;
+    async mount(e) {
+      const routeConf = e.screen && e.screen.meta;
+      const state = e.location && e.location.state;
 
-			if (!routeConf || !routeConf.component) {
-				throw new Error('screenHost.mount: entry.screen.meta.component missing');
+      if (!routeConf || !routeConf.component) {
+        throw new Error('screenHost.mount: entry.screen.meta.component missing');
+      }
+
+      // Transition wrapper (animated) + inner scroller (scroll state)
+      const wrap = document.createElement('div');
+      wrap.setAttribute('data-screen', routeConf.component);
+
+      const scroller = document.createElement('div');
+			scroller.setAttribute('data-scroller', '');
+			
+			if (options.inlineCss) {
+				wrap.style.position = 'absolute';
+				wrap.style.inset = '0';
+				wrap.style.background = 'inherit';
+				wrap.style.overflow = 'hidden';
+
+				scroller.style.position = 'absolute';
+				scroller.style.inset = '0';
+				scroller.style.overflowY = 'auto';
+				scroller.style.webkitOverflowScrolling = 'touch';
+				scroller.style.overscrollBehaviorY = 'contain';
 			}
 
-			e.el = document.createElement(routeConf.component);
-			options.el.appendChild(e.el);
+      const view = document.createElement(routeConf.component);
 
-			if (state && state.scroll > 0) {
-				requestAnimationFrame(() => {
-					e.el.scrollTop = state.scroll;
-				});
-			}
-		},
+      scroller.appendChild(view);
+      wrap.appendChild(scroller);
+      options.el.appendChild(wrap);
 
-		async unmount(e) {
-			e.el.remove();
-		},
+      e.target = wrap;
 
-		async activate(e) {
-			const screen = e.screen && e.screen.meta;
+      if (state && state.scroll > 0) {
+        requestAnimationFrame(() => {
+          scroller.scrollTop = state.scroll;
+        });
+      }
+    },
 
-			if (screen && screen.title) {
-				document.title = screen.title + (options.name ? ' | ' + options.name : '');
-			}
-		},
+    async unmount(e) {
+			e.target.remove();
+    },
 
-		async deactivate(e) {
-			// for handling animations visuals
-		}
-	};
+    async activate(e) {
+      const screen = e.screen && e.screen.meta;
+
+      if (screen && screen.title) {
+        document.title = screen.title + (options.name ? ' | ' + options.name : '');
+      }
+    },
+
+    async deactivate(e) {
+      // for handling animations visuals
+    }
+  };
+
 }

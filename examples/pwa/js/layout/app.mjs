@@ -1,56 +1,42 @@
-import { FsComponent, html, css } from '@fstage/component';
+export default {
 
-export class PwaApp extends FsComponent {
+	tag: 'pwa-app',
 
-	static shadowDom = false;
+	shadow: false,
 
-	static inject = {
-		'data-theme': 'store(settings.theme)',
-	};
+	inject: ['store'],
 
-	static properties = {
-		'data-theme': { type: String, reflect: true },
-	};
-
-	static styles = css`
+	style: (ctx) => ctx.css`
 		pwa-app {
-			display: flex;
-			flex-direction: column;
-			width: 100%;
-			height: 100%;
-			min-height: 100dvh;
-			background: var(--bg-secondary);
-			color: var(--text-primary);
+			display: flex; flex-direction: column;
+			width: 100%; height: 100%; min-height: 100dvh;
+			background: var(--bg-secondary); color: var(--text-primary);
+			position: relative;
 		}
 
 		pwa-main {
-			flex: 1 1 auto;
-			position: relative;
-			overflow: hidden;
-			width: 100%;
-			padding: 0;
-			margin: 0;
-			touch-action: pan-y;
-			overscroll-behavior: none;
+			flex: 1 1 auto; position: relative;
+			overflow: hidden; width: 100%;
+			background: inherit; padding: 0; margin: 0;
 		}
 
-		pwa-main > * {
+		pwa-overlay {
 			position: absolute;
-			inset: 0;
-			background: var(--bg-secondary);
-			overflow-y: auto;
-			-webkit-overflow-scrolling: touch;
-			overscroll-behavior-y: contain;
-			contain: layout style;
+			top: 0; left: 0; right: 0; bottom: 0;
+			z-index: 200; pointer-events: none;
 		}
-	`;
+		pwa-overlay > * { pointer-events: auto; }
+	`,
 
-	render() {
-		return html`
+	render: function(ctx) {
+		var theme = ctx.store.get('settings.theme') || 'auto';
+		ctx.host.setAttribute('data-theme', theme);
+		return ctx.html`
+			<pwa-header></pwa-header>
 			<pwa-main></pwa-main>
+			<pwa-overlay></pwa-overlay>
 			<pwa-tab-bar></pwa-tab-bar>
 		`;
 	}
-}
 
-customElements.define('pwa-app', PwaApp);
+};

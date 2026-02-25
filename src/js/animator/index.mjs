@@ -72,6 +72,92 @@ function wait(anim) {
 }
 
 
+// --- State-aware keyframe helpers -------------------------------------------
+//
+// Problem: Some presets assume an initial state (e.g. translateY(0)).
+// If the element currently has a different computed transform when the
+// animation starts, it will visually snap (jump) to the first keyframe.
+//
+// Solution: Allow presets to opt-in to "start from current" using the
+// sentinel value 'current' (for transform/opacity/etc). When present,
+// we replace it with the element's computed style at invocation time.
+// We also commit/cancel any in-flight animations on the element so we
+// start from the *actual* current visual state.
+
+function commitAndCancelRunningAnimations(el) {
+  if (!el || !el.getAnimations) return;
+  const list = el.getAnimations() || [];
+  for (const a of list) {
+    try {
+      if (typeof a.commitStyles === 'function') a.commitStyles();
+    } catch (err) {}
+    try { a.cancel(); } catch (err) {}
+  }
+}
+
+function getComputedForProp(cs, prop) {
+  if (!cs) return '';
+  if (prop === 'transform') return cs.transform || 'none';
+  if (prop === 'opacity') return cs.opacity;
+  // Prefer getPropertyValue for generic keys
+  try {
+    const v = cs.getPropertyValue(prop);
+    return v != null ? v : '';
+  } catch (err) {
+    return '';
+  }
+}
+
+function resolveCurrentSentinels(el, keyframes) {
+  if (!el || !keyframes || keyframes.length === 0) return keyframes;
+  const cs = getComputedStyle(el);
+
+  const meta = new Set(['offset', 'easing', 'composite']);
+
+  return keyframes.map(function (kf) {
+    const out = { ...kf };
+    for (const k in out) {
+      if (meta.has(k)) continue;
+      if (out[k] === 'current') {
+        out[k] = getComputedForProp(cs, k);
+      }
+    }
+    return out;
+  });
+}
+
+function rebaseFirstKeyframeToComputed(el, keyframes) {
+  if (!el || !keyframes || keyframes.length === 0) return keyframes;
+  const cs = getComputedStyle(el);
+
+  const meta = new Set(['offset', 'easing', 'composite']);
+
+  // Collect all animated properties used anywhere in the keyframes
+  const props = [];
+  const seen = new Set();
+  for (const kf of keyframes) {
+    for (const k in kf) {
+      if (meta.has(k)) continue;
+      if (!seen.has(k)) {
+        seen.add(k);
+        props.push(k);
+      }
+    }
+  }
+
+  if (props.length === 0) return keyframes;
+
+  // Clone array; replace first frame's props with computed values
+  const out = keyframes.slice();
+  const first = { ...out[0] };
+  for (const p of props) {
+    first[p] = getComputedForProp(cs, p);
+  }
+  out[0] = first;
+  return out;
+}
+
+
 // --- Named animation presets -------------------------------------------------
 //
 // Each preset defines { from, to } keyframe arrays for a single element.
@@ -150,8 +236,10 @@ export const ANIMATION_PRESETS = {
     to:   [{ transform: 'translateY(0)' }],
   },
 
+  // Bottom sheet: slides down to off-screen bottom
+  // NOTE: start from current computed transform to avoid visual snapping
   slideDownSheet: {
-    from: [{ transform: 'translateY(0)' }],
+    from: [{ transform: 'current' }],
     to:   [{ transform: 'translateY(100%)' }],
   },
 
@@ -305,13 +393,22 @@ export function createAnimator(options = {}) {
 
     // Multi-keyframe sequence (e.g. pop) — `from` IS the full sequence
     const isSequence = frames.from && !frames.to;
-    const keyframes  = isSequence
+    const rawKeyframes  = isSequence
       ? frames.from
       : [...(frames.from || []), ...(frames.to || [])];
 
-    if (keyframes.length === 0) {
+    if (rawKeyframes.length === 0) {
       return { finished: Promise.resolve(), cancel: function () {} };
     }
+
+    // IMPORTANT: If there are any running animations, commit their current
+    // visual styles before starting a new one to avoid snapping.
+    commitAndCancelRunningAnimations(el);
+
+    // Resolve any 'current' sentinels against computed style at invocation time.
+    // Then ALWAYS rebase the first keyframe to the element's current computed state
+    // to avoid visual snapping when presets assume a starting transform/opacity.
+    const keyframes = rebaseFirstKeyframeToComputed(el, resolveCurrentSentinels(el, rawKeyframes));
 
     el.style.willChange = 'transform, opacity';
 

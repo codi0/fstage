@@ -1,13 +1,15 @@
-import { FsComponent, html, css } from '@fstage/component';
+export default {
 
-export class PwaBottomSheet extends FsComponent {
+	tag: 'pwa-bottom-sheet',
 
-	static properties = {
-		open:  { type: Boolean, reflect: true },
-		title: { type: String },
-	};
+	inject: ['animator'],
 
-	static styles = css`
+	props: {
+		open:  { default: false, attr: false },
+		title: { default: '',    attr: false },
+	},
+
+	style: (ctx) => ctx.css`
 		:host { display: contents; }
 
 		.sheet-backdrop {
@@ -17,7 +19,6 @@ export class PwaBottomSheet extends FsComponent {
 			transition: background 0.28s ease;
 			pointer-events: none;
 		}
-
 		.sheet-backdrop.visible {
 			background: rgba(0,0,0,0.45);
 			pointer-events: auto;
@@ -28,20 +29,19 @@ export class PwaBottomSheet extends FsComponent {
 			z-index: 101;
 			background: var(--bg-base);
 			border-radius: var(--radius-xl) var(--radius-xl) 0 0;
-			padding-bottom: var(--safe-bottom);
+			padding-bottom: calc(var(--tab-height) + var(--safe-bottom));
 			max-height: 92dvh;
 			display: flex; flex-direction: column;
 			transform: translateY(100%);
 			will-change: transform;
 			box-shadow: 0 -2px 20px rgba(0,0,0,0.12);
 		}
+		.sheet-panel.is-open { transform: translateY(0); }
 
 		.sheet-handle-row {
 			display: flex; align-items: center; justify-content: center;
-			padding: 10px 0 4px; flex-shrink: 0;
-			touch-action: none; cursor: grab;
+			padding: 10px 0 4px; flex-shrink: 0; cursor: grab;
 		}
-
 		.sheet-handle {
 			width: 36px; height: 4px; border-radius: 2px;
 			background: var(--text-tertiary); opacity: 0.5;
@@ -51,7 +51,6 @@ export class PwaBottomSheet extends FsComponent {
 			display: flex; align-items: center; justify-content: space-between;
 			padding: 4px 16px 12px; flex-shrink: 0;
 		}
-
 		.sheet-title { font-size: 17px; font-weight: 600; color: var(--text-primary); }
 
 		.sheet-close {
@@ -60,95 +59,69 @@ export class PwaBottomSheet extends FsComponent {
 			display: flex; align-items: center; justify-content: center;
 			color: var(--text-secondary); -webkit-tap-highlight-color: transparent; padding: 0;
 		}
-
-		.sheet-close svg { width: 16px; height: 16px; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+		.sheet-close svg { width: 16px; height: 16px; stroke: currentColor; stroke-width: 2; stroke-linecap: round; fill: none; }
 
 		.sheet-body {
 			flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 0 16px 16px;
 		}
-	`;
+	`,
 
-	static interactions = {
+	interactions: {
+		'click(.sheet-backdrop)': function(e, ctx) { ctx.emit('bottomSheetClosed'); },
+		'click(.sheet-close)':    function(e, ctx) { ctx.emit('bottomSheetClosed'); },
 
-		'gesture.swipe(.sheet-handle-row)': {
-				directions: ['down'],
-				moveEl:     false,
-				onProgress(e) { this._panel.style.transform = `translateY(${e.delta}px)`; console.log(e); },
-				onCommit()    { this._close(); },
-				onCancel()    { this._panel.style.transform = ''; },
-		}
-	
-	};
+		'gesture.swipe(.sheet-panel)': {
+			trigger:    '.sheet-handle-row',
+			directions: ['down'],
+			onCommit:   function(e, ctx) { ctx.emit('bottomSheetClosed'); },
+		},
+	},
 
-	constructor() {
-		super();
-		this.open          = false;
-		this.title         = '';
-		this._onVVResize   = this._onVVResize.bind(this);
-	}
+	rendered: function(ctx, changed) {
+		if (!('open' in changed)) return;
 
-	get _panel()    { return this.renderRoot.querySelector('.sheet-panel');    }
-	get _backdrop() { return this.renderRoot.querySelector('.sheet-backdrop'); }
-
-	updated(changed) {
-		if (!changed.has('open')) return;
-
-		const { _panel: panel, _backdrop: backdrop } = this;
+		var open     = ctx.props.open;
+		var panel    = ctx.root.querySelector('.sheet-panel');
+		var backdrop = ctx.root.querySelector('.sheet-backdrop');
 		if (!panel || !backdrop) return;
 
-		if (this.open) {
+		if (open) {
+			panel.classList.remove('is-open');
 			backdrop.classList.add('visible');
-			this.animator.animate(panel, 'slideUpSheet', { duration: 320 });
-			this._startKeyboardWatch();
-			// Focus first input once animation settles
-			setTimeout(() => {
-				const first = this.renderRoot.querySelector('slot')
-					?.assignedElements({ flatten: true })
-					.flatMap(el => [...el.querySelectorAll('input, textarea, [autofocus]')])
-					.find(Boolean);
-				if (first) first.focus();
-			}, 320);
+			var anim = ctx.animator.animate(panel, 'slideUpSheet', { duration: 320 });
+			anim.finished.then(function() {
+				panel.classList.add('is-open');
+				panel.style.transform = '';
+				anim.cancel();
+			});
+			var slot  = ctx.root.querySelector('slot');
+			var first = slot && slot.assignedElements({ flatten: true }).reduce(function(found, el) { return found || el.querySelector('input, textarea, [autofocus]'); }, null);
+			if (first) first.focus();
 		} else {
-			backdrop.classList.remove('visible');
-			this.animator.animate(panel, 'slideDownSheet', { duration: 260 });
-			this._stopKeyboardWatch();
+			var anim = ctx.animator.animate(panel, 'slideDownSheet', { duration: 260 });
+			anim.finished.then(function() {
+				panel.classList.remove('is-open');
+				backdrop.classList.remove('visible');
+			});
 		}
-	}
+	},
 
-	_startKeyboardWatch() {
-		if (window.visualViewport) window.visualViewport.addEventListener('resize', this._onVVResize);
-	}
+	render: function(ctx) {
+		return ctx.html`
+			<div class="sheet-backdrop"></div>
 
-	_stopKeyboardWatch() {
-		if (window.visualViewport) window.visualViewport.removeEventListener('resize', this._onVVResize);
-		this.renderRoot.host?.style.removeProperty('--keyboard-offset');
-	}
-
-	_onVVResize() {
-		const offset = Math.max(0, window.innerHeight - window.visualViewport.height);
-		this._panel.style.transform = `translateY(-${offset}px)`;
-	}
-
-	_close() {
-		this.dispatchEvent(new CustomEvent('close', { bubbles: true, composed: true }));
-	}
-
-	render() {
-		return html`
-			<div class="sheet-backdrop" @click=${this._close}></div>
-
-			<div class="sheet-panel" role="dialog" aria-modal="true" aria-label="${this.title}">
+			<div class="sheet-panel" role="dialog" aria-modal="true" aria-label=${ctx.props.title}>
 
 				<div class="sheet-handle-row">
 					<div class="sheet-handle"></div>
 				</div>
 
 				<div class="sheet-header">
-					<span class="sheet-title">${this.title}</span>
-					<button class="sheet-close" @click=${this._close} aria-label="Close">
-						<svg viewBox="0 0 24 24" fill="none">
-							<line x1="18" y1="6" x2="6" y2="18"/>
-							<line x1="6"  y1="6" x2="18" y2="18"/>
+					<span class="sheet-title">${ctx.props.title}</span>
+					<button class="sheet-close" aria-label="Close">
+						<svg viewBox="0 0 24 24">
+							<line x1="18" y1="6"  x2="6"  y2="18"/>
+							<line x1="6"  y1="6"  x2="18" y2="18"/>
 						</svg>
 					</button>
 				</div>
@@ -159,7 +132,6 @@ export class PwaBottomSheet extends FsComponent {
 
 			</div>
 		`;
-	}
-}
+	},
 
-customElements.define('pwa-bottom-sheet', PwaBottomSheet);
+};

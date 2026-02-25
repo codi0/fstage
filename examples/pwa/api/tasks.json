@@ -62,6 +62,15 @@
       "priority": "high",
       "dueDate": "2026-02-22",
       "createdAt": 1739923200000
+    },
+    {
+      "id": "8",
+      "title": "Quality Assurance",
+      "description": "End to end testing of all core user journeys.",
+      "completed": false,
+      "priority": "high",
+      "dueDate": "2026-02-27",
+      "createdAt": 1739923200000
     }
 	]
 }

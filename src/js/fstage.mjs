@@ -14,6 +14,12 @@ var _exports = {};
 var _uri = import.meta.url;
 var _swUpdate = localStorage.getItem('swUpdate') == 1;
 
+//detect nonce
+var _nonce = (function() {
+	var el = document.querySelector('script[nonce], style[nonce]');
+	return el ? el.getAttribute('nonce') : '';
+})();
+
 //invoke callback helper
 var _cb = function(fn, args, ctx) {
 	try {
@@ -75,6 +81,10 @@ var _buildMap = function(paths) {
 	map.textContent = JSON.stringify({
 		imports: paths
 	});
+	//set nonce?
+	if(_nonce) {
+		map.setAttribute('nonce', _nonce);
+	}
 	//add to document
 	document.documentElement.firstChild.appendChild(map);
 };
@@ -83,7 +93,7 @@ var _buildMap = function(paths) {
 var _queryMap = function() {
 	//set vars
 	var res = {};
-	var importMaps = document.querySelectorAll('script[type="importmap"]');
+	var importMaps = document.querySelectorAll('[type="importmap"]');
 	//loop through maps
 	importMaps.forEach(function(s) {
 		var m = JSON.parse(s.textContent);
@@ -189,11 +199,17 @@ var load = function(path, type='') {
 		var e = {
 			get: get,
 			type: type,
-			path: path.replace(scope + '/', '')
+			path: path
 		};
+		//set name
+		var name = e.path;
+		//format name?
+		if(name.indexOf(scope + '/') === 0) {
+			name = name.replace(scope + '/', '').replace(/\/index.mjs$/, '');
+		}
 		//is cached?
-		if(_exports[e.path]) {
-			resolve(_exports[e.path]);
+		if(_exports[name]) {
+			resolve(_exports[name]);
 			return;
 		}
 		//set default scope?
@@ -209,7 +225,6 @@ var load = function(path, type='') {
 		//set vars
 		var isBase = (e.type === 'base');
 		var isScript = /(\+esm|\.m?js)(\#|\?|$)/.test(e.path);
-		var name = path.replace(scope + '/', '');
 		//guess type?
 		if(!e.type) {
 			if(/^[a-zA-Z0-9\/\-\_\@]+$/.test(e.path) || /(\.|\?|\+)(mjs|esm|es6)/.test(e.path)) {
@@ -225,7 +240,7 @@ var load = function(path, type='') {
 			e.path = _config.importMap[e.path];
 		} else {
 			var bestMatch = Object.keys(_config.importMap).filter(function(key) {
-				return e.path.startsWith(key);
+				return e.path.indexOf(key) === 0 && key[key.length-1] === '/';
 			}).sort(function(a, b) {
 				return b.length - a.length;
 			})[0];
@@ -241,28 +256,10 @@ var load = function(path, type='') {
 		if(e.type === 'module') {
 			//dynamic import
 			return import(e.path).then(function(exports) {
-				//add to event
-				e.exports = exports;
-				//process exports?
-				if(e.exports) {
-					//is core module?
-					if(!_exports[name] && _modules.includes(name)) {
-						//set default?
-						if(e.exports.default || e.exports[name]) {
-							_exports[name] = e.exports.default || e.exports[name];
-						} else {
-							_exports[name] = {};
-						}
-						//loop through exports
-						for(var i in e.exports) {
-							if(i !== 'default' && i !== name) {
-								_exports[name][i] = e.exports[i];
-							}
-						}
-					}
-					//after load hook
-					_cb(_config['afterLoad'], [ e ]);
-				}
+				//cache exports
+				e.exports = _exports[name] = exports || {};
+				//after load hook
+				_cb(_config['afterLoad'], [ e ]);
 				//resolve
 				resolve(e.exports);
 			}).catch(function(err) {
@@ -282,6 +279,7 @@ var load = function(path, type='') {
 			el.src = e.path;
 			el.async = false;
 			if(e.type) el.type = e.type;
+			
 		} else {
 			el.href = e.path;
 			if(!isBase) {
@@ -291,15 +289,8 @@ var load = function(path, type='') {
 		//use listeners?
 		if(isScript || el.rel === 'stylesheet') {
 			el.setAttribute('crossorigin', 'anonymous');
-			[ 'load', 'error' ].forEach(function(k) {
-				el.addEventListener(k, function() {	
-					if(k === 'load') {
-						resolve();
-					} else {
-						reject();
-					}
-				});
-			});
+			el.addEventListener('load', resolve);
+			el.addEventListener('error', reject);
 		} else {
 			resolve();
 		}
@@ -320,8 +311,8 @@ _config = _exports['config'] = Object.assign({
 }, globalThis[_confName] || {});
 
 //add core mappings
+_config.importMap['@' + _name ] = _uri;
 _config.importMap['@' + _name + '/'] = _config.scriptDir;
-_config.importMap['@' + _name + '/core'] = _uri;
 
 //loop through defined modules
 for(var i=0; i < _modules.length; i++) {
@@ -360,16 +351,6 @@ _global = { get: get, load: load };
 //set globals
 globalThis[_name] = _global;
 globalThis[_confName] = {};
-
-//cjs export?
-if(typeof module === 'object' && module.exports) {
-	module.exports = _global;
-}
-
-//amd export?
-if(typeof define === 'function' && define.amd) {
-	define(_name, [], function() { return _global; });
-}
 
 //module export
 export { get, load };

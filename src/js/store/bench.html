@@ -1,0 +1,430 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Store Benchmark - Comprehensive</title>
+  <style>
+    body { font-family: monospace; padding: 20px; }
+    #log { white-space: pre-line; margin-top: 10px; }
+    .section { margin-top: 20px; font-weight: bold; }
+  </style>
+</head>
+<body>
+<h2>Store Benchmark - Comprehensive</h2>
+<div id="status">Initialising...</div>
+<div id="log"></div>
+
+<script type="module">
+import { createStore as reduxCreateStore } from "https://esm.sh/redux@5";
+import { atom as nanoAtom } from "https://esm.sh/nanostores";
+import { observable, autorun, computed as mobxComputed } from "https://esm.sh/mobx@6";
+
+import { createStore as fstageCreateStore } from './index.mjs';
+import { createStore as fstageCreateStoreSignals } from './signals.mjs';
+
+const status = document.getElementById('status');
+const logEl = document.getElementById('log');
+
+function log(msg) {
+  console.log(msg);
+  logEl.textContent += msg + "\n";
+}
+
+const now = () => performance.now();
+const fmt = n => n.toFixed(2);
+
+function measure(label, fn) {
+  const t0 = now();
+  fn();
+  const t = now() - t0;
+  log(`  ${label}: ${fmt(t)} ms`);
+  return t;
+}
+
+const ITEMS = 10000;
+const COMPONENTS = 2000;
+const READS = 50000;
+const WRITES = 10000;
+const ITERATIONS = 5;
+const COMPUTED_COUNT = 1000;
+const BATCH_SIZE = 1000;
+
+function warmup(fn, times = 3) {
+  for (let i = 0; i < times; i++) fn();
+}
+
+function benchmark(label, fn, iterations = ITERATIONS) {
+  warmup(fn, 2);
+  const times = [];
+  for (let i = 0; i < iterations; i++) {
+    const t0 = now();
+    fn();
+    times.push(now() - t0);
+  }
+  const avg = times.reduce((a,b)=>a+b) / times.length;
+  log(`  ${label}: ${fmt(avg)} ms`);
+  return avg;
+}
+
+// ==================================================
+// FSTAGE
+// ==================================================
+function benchFstage(createStore, label='') {
+	var name = 'Fstage' + (label ? ' (' + label + ')' : '') + ':';
+  log(name);
+
+  const s = createStore({ state: { items: {}, list: [] } });
+
+  for (let i = 0; i < ITEMS; i++) {
+    s.set(`items.${i}`, { value: 0, status: "ok" });
+  }
+
+  const unsubs = [];
+  for (let i = 0; i < COMPONENTS; i++) {
+    const id = i % ITEMS;
+    unsubs.push(s.onChange(`items.${id}.value`, ()=>{}, { scheduler:'sync' }));
+  }
+
+  const reads = benchmark("reads", ()=>{
+    for (let i = 0; i < READS; i++) {
+      const id = i % ITEMS;
+      void s.get(`items.${id}.value`);
+    }
+  });
+
+  const writes = benchmark("writes", ()=>{
+    for (let i = 0; i < WRITES; i++) {
+      const id = i % ITEMS;
+      s.set(`items.${id}.value`, i);
+    }
+  });
+
+  const computed = [];
+  for (let i = 0; i < COMPUTED_COUNT; i++) {
+    computed.push(s.computed(() => s.get(`items.${i}.value`) * 2));
+  }
+
+  const computedReads = benchmark("computed", ()=>{
+    for (let i = 0; i < COMPUTED_COUNT; i++) {
+      void computed[i].value;
+    }
+  });
+
+  const batch = benchmark("batch", ()=>{
+    s.batch && s.batch(() => {
+      for (let i = 0; i < BATCH_SIZE; i++) {
+        s.set(`items.${i}.value`, i);
+      }
+    });
+  });
+
+  const list = Array.from({length: 1000}, (_, i) => i);
+  s.set('list', list);
+  const listOp = benchmark("list reorder", ()=>{
+    s.set('list', list.slice().reverse());
+  });
+
+  s.set('deep', { a: { b: { c: { d: { e: { f: { value: 0 } } } } } } });
+  const deep = benchmark("deep nested", ()=>{
+    s.set('deep.a.b.c.d.e.f.value', Math.random());
+  });
+
+  const memory = measure("memory (10k unsub)", ()=>{
+    for (let cycle = 0; cycle < 10; cycle++) {
+      const temp = [];
+      for (let i = 0; i < 1000; i++) {
+        temp.push(s.onChange('x', () => {}));
+      }
+      temp.forEach(u => u());
+    }
+  });
+
+  unsubs.forEach(u => u());
+  computed.forEach(c => c.abort && c.abort());
+
+  return { name, reads, writes, computedReads, batch, listOp, deep, memory };
+}
+
+// ==================================================
+// REDUX
+// ==================================================
+function benchRedux() {
+  log("Redux:");
+
+  const initialState = { items:{}, list: [], deep: {} };
+  for (let i = 0; i < ITEMS; i++) {
+    initialState.items[i] = { value:0, status:"ok" };
+  }
+
+  const reducer = (state=initialState, action)=>{
+    if (action.type === "SET") {
+      return {
+        ...state,
+        items: {
+          ...state.items,
+          [action.id]: {
+            ...state.items[action.id],
+            value: action.value
+          }
+        }
+      };
+    }
+    if (action.type === "SET_LIST") {
+      return { ...state, list: action.value };
+    }
+    if (action.type === "SET_DEEP") {
+      return { ...state, deep: action.value };
+    }
+    return state;
+  };
+
+  const store = reduxCreateStore(reducer);
+
+  const unsubs = [];
+  for (let i = 0; i < COMPONENTS; i++) {
+    const id = i % ITEMS;
+    let last = store.getState().items[id].value;
+    unsubs.push(store.subscribe(()=>{
+      const next = store.getState().items[id].value;
+      if (next !== last) last = next;
+    }));
+  }
+
+  const reads = benchmark("reads", ()=>{
+    const state = store.getState();
+    for (let i = 0; i < READS; i++) {
+      const id = i % ITEMS;
+      void state.items[id].value;
+    }
+  });
+
+  const writes = benchmark("writes", ()=>{
+    for (let i = 0; i < WRITES; i++) {
+      const id = i % ITEMS;
+      store.dispatch({ type:"SET", id, value:i });
+    }
+  });
+
+  const batch = benchmark("batch", ()=>{
+    for (let i = 0; i < BATCH_SIZE; i++) {
+      store.dispatch({ type:"SET", id: i, value: i });
+    }
+  });
+
+  const list = Array.from({length: 1000}, (_, i) => i);
+  store.dispatch({ type: "SET_LIST", value: list });
+  const listOp = benchmark("list reorder", ()=>{
+    store.dispatch({ type: "SET_LIST", value: list.slice().reverse() });
+  });
+
+  const deep = benchmark("deep nested", ()=>{
+    store.dispatch({ type: "SET_DEEP", value: { a: { b: { c: { d: { e: { f: { value: Math.random() } } } } } } } });
+  });
+
+  const memory = measure("memory (10k unsub)", ()=>{
+    for (let cycle = 0; cycle < 10; cycle++) {
+      const temp = [];
+      for (let i = 0; i < 1000; i++) {
+        temp.push(store.subscribe(() => {}));
+      }
+      temp.forEach(u => u());
+    }
+  });
+
+  unsubs.forEach(u => u());
+
+  return { name:"Redux", reads, writes, computedReads: 0, batch, listOp, deep, memory };
+}
+
+// ==================================================
+// MOBX
+// ==================================================
+function benchMobx() {
+  log("MobX:");
+
+  const state = observable({ items:{}, list: [], deep: {} });
+
+  for (let i = 0; i < ITEMS; i++) {
+    state.items[i] = observable({ value:0, status:"ok" });
+  }
+
+  const disposers = [];
+  for (let i = 0; i < COMPONENTS; i++) {
+    const id = i % ITEMS;
+    disposers.push(autorun(()=>{ void state.items[id].value; }));
+  }
+
+  const reads = benchmark("reads", ()=>{
+    for (let i = 0; i < READS; i++) {
+      const id = i % ITEMS;
+      void state.items[id].value;
+    }
+  });
+
+  const writes = benchmark("writes", ()=>{
+    for (let i = 0; i < WRITES; i++) {
+      const id = i % ITEMS;
+      state.items[id].value = i;
+    }
+  });
+
+  const computed = [];
+  for (let i = 0; i < COMPUTED_COUNT; i++) {
+    computed.push(mobxComputed(() => state.items[i].value * 2));
+  }
+
+  const computedReads = benchmark("computed", ()=>{
+    for (let i = 0; i < COMPUTED_COUNT; i++) {
+      void computed[i].get();
+    }
+  });
+
+  const batch = benchmark("batch", ()=>{
+    for (let i = 0; i < BATCH_SIZE; i++) {
+      state.items[i].value = i;
+    }
+  });
+
+  const list = Array.from({length: 1000}, (_, i) => i);
+  state.list = observable(list);
+  const listOp = benchmark("list reorder", ()=>{
+    state.list = observable(list.slice().reverse());
+  });
+
+  state.deep = observable({ a: { b: { c: { d: { e: { f: { value: 0 } } } } } } });
+  const deep = benchmark("deep nested", ()=>{
+    state.deep.a.b.c.d.e.f.value = Math.random();
+  });
+
+  const memory = measure("memory (10k unsub)", ()=>{
+    for (let cycle = 0; cycle < 10; cycle++) {
+      const temp = [];
+      for (let i = 0; i < 1000; i++) {
+        temp.push(autorun(() => { void state.items[0]; }));
+      }
+      temp.forEach(d => d());
+    }
+  });
+
+  disposers.forEach(d=>d());
+
+  return { name:"MobX", reads, writes, computedReads, batch, listOp, deep, memory };
+}
+
+// ==================================================
+// NANOSTORES
+// ==================================================
+function benchNano() {
+  log("NanoStores:");
+
+  const items = {};
+  for (let i = 0; i < ITEMS; i++) {
+    items[i] = nanoAtom({ value:0, status:"ok" });
+  }
+
+  const unsubs = [];
+  for (let i = 0; i < COMPONENTS; i++) {
+    const id = i % ITEMS;
+    unsubs.push(items[id].listen(()=>{}));
+  }
+
+  const reads = benchmark("reads", ()=>{
+    for (let i = 0; i < READS; i++) {
+      const id = i % ITEMS;
+      void items[id].get().value;
+    }
+  });
+
+  const writes = benchmark("writes", ()=>{
+    for (let i = 0; i < WRITES; i++) {
+      const id = i % ITEMS;
+      const cur = items[id].get();
+      items[id].set({ ...cur, value:i });
+    }
+  });
+
+  const batch = benchmark("batch", ()=>{
+    for (let i = 0; i < BATCH_SIZE; i++) {
+      const cur = items[i].get();
+      items[i].set({ ...cur, value: i });
+    }
+  });
+
+  const listAtom = nanoAtom([]);
+  const list = Array.from({length: 1000}, (_, i) => i);
+  listAtom.set(list);
+  const listOp = benchmark("list reorder", ()=>{
+    listAtom.set(list.slice().reverse());
+  });
+
+  const deepAtom = nanoAtom({});
+  deepAtom.set({ a: { b: { c: { d: { e: { f: { value: 0 } } } } } } });
+  const deep = benchmark("deep nested", ()=>{
+    const cur = deepAtom.get();
+    deepAtom.set({ ...cur, a: { b: { c: { d: { e: { f: { value: Math.random() } } } } } } });
+  });
+
+  const memory = measure("memory (10k unsub)", ()=>{
+    for (let cycle = 0; cycle < 10; cycle++) {
+      const temp = [];
+      const testAtom = nanoAtom(0);
+      for (let i = 0; i < 1000; i++) {
+        temp.push(testAtom.listen(() => {}));
+      }
+      temp.forEach(u => u());
+    }
+  });
+
+  unsubs.forEach(u => u());
+
+  return { name:"NanoStores", reads, writes, computedReads: 0, batch, listOp, deep, memory };
+}
+
+// ==================================================
+// RUN ALL
+// ==================================================
+setTimeout(function() {
+  status.textContent = "Running benchmarks...";
+
+  const results = [];
+  
+  log("=".repeat(60));
+  log("BASIC OPERATIONS");
+  log("=".repeat(60));
+  
+  results.push(benchFstage(fstageCreateStore, 'core'));
+  results.push(benchFstage(fstageCreateStoreSignals, 'signals'));
+  results.push(benchRedux());
+  results.push(benchMobx());
+  results.push(benchNano());
+
+  log("\n" + "=".repeat(60));
+  log("SUMMARY");
+  log("=".repeat(60));
+  
+  const metrics = ['reads', 'writes', 'computedReads', 'batch', 'listOp', 'deep', 'memory'];
+  const labels = {
+    reads: 'Reads (50k)',
+    writes: 'Writes (10k)', 
+    computedReads: 'Computed (1k)',
+    batch: 'Batch (1k)',
+    listOp: 'List Reorder',
+    deep: 'Deep Nested',
+    memory: 'Memory Stress'
+  };
+  
+  metrics.forEach(metric => {
+    log(`\n${labels[metric]}:`);
+    results.forEach(r => {
+      if (r[metric] !== undefined && r[metric] > 0) {
+        log(`  ${r.name.padEnd(25)} ${fmt(r[metric])} ms`);
+      }
+    });
+  });
+
+  status.textContent = "Done.";
+}, 0);
+
+</script>
+</body>
+</html>

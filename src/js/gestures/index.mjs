@@ -6,6 +6,28 @@ function clamp01(n) {
   return n;
 }
 
+function containsTarget(el, e) {
+	if (!el || !e || !e.target) return false;
+	return el.contains(e.target) || (e.composedPath && e.composedPath().includes(el));
+}
+
+function lockTouch(lock = true) {
+	const el = document.body || document.documentElement;
+	if (!el) return;
+	el.style.touchAction = lock ? 'none' : '';
+	el.style.userSelect  = lock ? 'none' : '';
+}
+
+function suppressNextClick() {
+	const handler = function(e) {
+		e.stopPropagation();
+		e.preventDefault();
+		document.removeEventListener('click', handler, true);
+	};
+	document.addEventListener('click', handler, true);
+}
+
+
 // --- Edge Pan Gesture --------------------------------------------------------
 //
 // Recognizes a pan originating from a screen edge.
@@ -13,7 +35,8 @@ function clamp01(n) {
 //
 // Options:
 // {
-//   el,                // optional element to scope the gesture to
+//   target,            // optional element to scope the gesture to
+//   trigger,           // optional element for hit-testing (defaults to target)
 //   edge,              // 'left' | 'right' | 'top' | 'bottom'  (default: 'left')
 //   edgeWidth,         // px from edge to begin recognition     (default: 24)
 //   minSwipeDistance,  // px of movement before gesture claims  (default: 10)
@@ -28,7 +51,7 @@ function clamp01(n) {
 
 export function createEdgePanGesture(options = {}) {
   const {
-    el,
+    target,
     edge              = 'left',
     edgeWidth         = 24,
     minSwipeDistance  = 10,
@@ -40,6 +63,8 @@ export function createEdgePanGesture(options = {}) {
     onCommit,
     onCancel,
   } = options;
+
+  const trigger = options.trigger || target;
 
   let active     = false;
   let ready      = false;
@@ -53,24 +78,13 @@ export function createEdgePanGesture(options = {}) {
 
   const horizontal = edge === 'left' || edge === 'right';
   const sign       = (edge === 'right' || edge === 'bottom') ? -1 : 1;
-  const touchEl    = el || document.body;
-
-  function lockTouch() {
-    touchEl.style.touchAction = 'none';
-    touchEl.style.userSelect  = 'none';
-  }
-
-  function unlockTouch() {
-    touchEl.style.touchAction = '';
-    touchEl.style.userSelect  = '';
-  }
 
   function getEventPos(e) {
     return horizontal ? e.clientX : e.clientY;
   }
 
-  function isWithinEl(e) {
-    return !el || el.contains(e.target);
+  function isWithinTarget(e) {
+    return !trigger || containsTarget(trigger, e);
   }
 
   function isWithinEdge(e) {
@@ -87,9 +101,9 @@ export function createEdgePanGesture(options = {}) {
   }
 
   function onPointerDown(e) {
-    if (!enabled || active) return false;
-    if (!isWithinEl(e))     return false;
-    if (!isWithinEdge(e))   return false;
+    if (!enabled || active)   return false;
+    if (!isWithinTarget(e))   return false;
+    if (!isWithinEdge(e))     return false;
 
     startPos   = getEventPos(e);
     startCross = horizontal ? e.clientY : e.clientX;
@@ -113,18 +127,18 @@ export function createEdgePanGesture(options = {}) {
 
       active = true;
       ready  = false;
-      event  = { edge, progress: 0, velocity: 0 };
-      lockTouch();
+      event  = { target, edge, progress: 0, velocity: 0 };
+      lockTouch(true);
 
       Promise.resolve(onStart ? onStart(event) : null)
         .then(result => {
           if (active && result !== false) { ready = true; return; }
           active = false;
-          unlockTouch();
+          lockTouch(false);
         })
         .catch(() => {
           active = false;
-          unlockTouch();
+          lockTouch(false);
         });
 
       return true;
@@ -149,27 +163,26 @@ export function createEdgePanGesture(options = {}) {
   function onPointerUp() {
     if (!active || !ready) { active = false; return; }
     active = false;
-    unlockTouch();
+    lockTouch(false);
 
     event.progress = getProgress(lastPos);
     event.velocity = velocity;
 
-    const shouldCommit =
-      event.progress  > commitThreshold ||
-      velocity * sign > velocityThreshold;
+    const shouldCommit = event.progress > commitThreshold || velocity * sign > velocityThreshold;
 
-    if (shouldCommit) { if (onCommit) onCommit(event); }
-    else              { if (onCancel) onCancel(event); }
-
-    event = null;
+    if (shouldCommit) {
+			suppressNextClick();
+			if (onCommit) onCommit(event);
+		} else {
+			if (onCancel) onCancel(event);
+		}
   }
 
   function onPointerCancel() {
     if (!active || !ready) { active = false; return; }
     active = false;
-    unlockTouch();
+    lockTouch(false);
     if (onCancel) onCancel(event);
-    event = null;
   }
 
   return { onPointerDown, onPointerMove, onPointerUp, onPointerCancel };
@@ -178,27 +191,27 @@ export function createEdgePanGesture(options = {}) {
 
 // --- Swipe Gesture -----------------------------------------------------------
 //
-// Recognizes a horizontal swipe on a specific element. Physically moves the
-// element during drag and reveals a coloured action layer behind it.
-// Snaps back on cancel, flies off on commit.
+// Recognizes a swipe on a target element. Physically moves the element during
+// drag. Snaps back on cancel, flies off on commit.
 //
 // Options:
 // {
-//   el,                // required: the element to swipe
-//   directions,        // ['left'] | ['right'] | ['left','right']  (default: both)
-//   threshold,         // fraction of el width to trigger commit    (default: 0.35)
-//   velocityThreshold, // px/ms to trigger commit on fast swipe     (default: 0.4)
-//   resistanceFactor,  // rubber-band factor past threshold          (default: 0.3)
-//   moveEl,            // auto-apply translateX transform            (default: true)
+//   target,            // required: the element to measure/move  (e.target in callbacks)
+//   trigger,           // optional: hit-test element             (defaults to target)
+//   directions,        // ['left'] | ['right'] | ['left','right'] | ['up'] | ['down'] etc.
+//   threshold,         // fraction of target size to trigger commit   (default: 0.35)
+//   velocityThreshold, // px/ms to trigger commit on fast swipe        (default: 0.4)
+//   resistanceFactor,  // rubber-band factor past threshold            (default: 0.3)
+//   moveEl,            // auto-apply transform to target               (default: true)
 //   onStart,           // (event) => void | false  return false to cancel
-//   onProgress,        // (event) => void  event: { el, direction, delta, progress }
+//   onProgress,        // (event) => void  event: { target, direction, delta, progress }
 //   onCommit,          // (event) => void
 //   onCancel,          // (event) => void
 // }
 
 export function createSwipeGesture(options = {}) {
   const {
-    el,
+    target,
     directions        = ['left', 'right'],
     threshold         = 0.35,
     velocityThreshold = 0.4,
@@ -210,17 +223,19 @@ export function createSwipeGesture(options = {}) {
     onCancel,
   } = options;
 
-  if (!el) throw new Error('createSwipeGesture requires el');
+  if (!target) throw new Error('createSwipeGesture requires target');
 
-  // Positive directions on each axis
-	const horizontal = directions.some(d => d === 'left' || d === 'right');
-	const canNeg = directions.includes(horizontal ? 'left' : 'up');
-	const canPos = directions.includes(horizontal ? 'right' : 'down');
+  const trigger = options.trigger || target;
+
+  // Axis and direction flags
+  const horizontal = directions.some(d => d === 'left' || d === 'right');
+  const canNeg     = directions.includes(horizontal ? 'left' : 'up');
+  const canPos     = directions.includes(horizontal ? 'right' : 'down');
 
   let active    = false;
   let ready     = false;
-  let startMain = 0;   // clientX or clientY
-  let startCross= 0;   // the other axis
+  let startMain = 0;
+  let startCross= 0;
   let lastMain  = 0;
   let lastT     = 0;
   let velocity  = 0;
@@ -230,7 +245,7 @@ export function createSwipeGesture(options = {}) {
 
   function getMain(e)  { return horizontal ? e.clientX : e.clientY; }
   function getCross(e) { return horizontal ? e.clientY : e.clientX; }
-  function getSize()   { return horizontal ? (el.offsetWidth || 320) : (el.offsetHeight || 320); }
+  function getSize()   { return horizontal ? (target.offsetWidth || 320) : (target.offsetHeight || 320); }
 
   function directionLabel(delta) {
     if (horizontal) return delta < 0 ? 'left'  : 'right';
@@ -239,18 +254,18 @@ export function createSwipeGesture(options = {}) {
 
   function applyTransform(delta) {
     if (!moveEl) return;
-    el.style.transition = 'none';
-    el.style.transform  = delta === 0 ? '' :
+    target.style.transition = 'none';
+    target.style.transform  = delta === 0 ? '' :
       horizontal ? `translateX(${delta}px)` : `translateY(${delta}px)`;
   }
 
   function springBack() {
     if (!moveEl) return Promise.resolve();
-    el.style.transition = 'transform 0.32s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
-    el.style.transform  = '';
+    target.style.transition = 'transform 0.32s cubic-bezier(0.25, 0.46, 0.45, 0.94)';
+    target.style.transform  = '';
     return new Promise(resolve => {
-      el.addEventListener('transitionend', () => {
-        el.style.transition = '';
+      target.addEventListener('transitionend', () => {
+        target.style.transition = '';
         resolve();
       }, { once: true });
     });
@@ -258,12 +273,12 @@ export function createSwipeGesture(options = {}) {
 
   function flyOff(direction) {
     if (!moveEl) return Promise.resolve();
-    const neg = horizontal ? direction === 'left' : direction === 'up';
-    const target = neg ? -size * 1.5 : size * 1.5;
-    el.style.transition = 'transform 0.22s cubic-bezier(0.4, 0, 1, 1)';
-    el.style.transform  = horizontal ? `translateX(${target}px)` : `translateY(${target}px)`;
+    const neg    = horizontal ? direction === 'left' : direction === 'up';
+    const offset = neg ? -size * 1.5 : size * 1.5;
+    target.style.transition = 'transform 0.22s cubic-bezier(0.4, 0, 1, 1)';
+    target.style.transform  = horizontal ? `translateX(${offset}px)` : `translateY(${offset}px)`;
     return new Promise(resolve => {
-      el.addEventListener('transitionend', resolve, { once: true });
+      target.addEventListener('transitionend', resolve, { once: true });
     });
   }
 
@@ -278,7 +293,7 @@ export function createSwipeGesture(options = {}) {
 
   function onPointerDown(e) {
     if (active || committed) return false;
-    if (!el.contains(e.target)) return false;
+    if (!containsTarget(trigger, e)) return false;
     startMain  = getMain(e);
     startCross = getCross(e);
     lastMain   = startMain;
@@ -295,8 +310,8 @@ export function createSwipeGesture(options = {}) {
     const absCross = Math.abs(dCross);
 
     if (!active) {
-      if (absMain < 8 && absCross < 8)  return false;  // too small
-      if (absCross > absMain)            return false;  // wrong axis — allow natural scroll
+      if (absMain < 8 && absCross < 8)  return false;
+      if (absCross > absMain)            return false;
       if (dMain < 0 && !canNeg)          return false;
       if (dMain > 0 && !canPos)          return false;
 
@@ -304,17 +319,16 @@ export function createSwipeGesture(options = {}) {
       ready     = false;
       committed = false;
 
-      event = { el, direction: directionLabel(dMain), delta: 0, progress: 0 };
+      event = { target, direction: directionLabel(dMain), delta: 0, progress: 0 };
 
-      el.style.touchAction = 'none';
-      el.style.userSelect  = 'none';
+      lockTouch(true);
 
       Promise.resolve(onStart ? onStart(event) : null)
         .then(result => {
           if (active && result !== false) { ready = true; }
-          else { active = false; el.style.touchAction = ''; el.style.userSelect = ''; }
+          else { active = false; lockTouch(false); }
         })
-        .catch(() => { active = false; el.style.touchAction = ''; el.style.userSelect = ''; });
+        .catch(() => { active = false; lockTouch(false); });
 
       return true;
     }
@@ -346,8 +360,7 @@ export function createSwipeGesture(options = {}) {
   function onPointerUp() {
     if (!active || !ready) { active = false; return; }
     active = false;
-    el.style.touchAction = '';
-    el.style.userSelect  = '';
+    lockTouch(false);
 
     const rawTravel    = lastMain - startMain;
     const threshPx     = size * threshold;
@@ -356,6 +369,7 @@ export function createSwipeGesture(options = {}) {
 
     if (shouldCommit) {
       committed = true;
+      suppressNextClick();
       const dir = event.direction;
       flyOff(dir).then(() => {
         if (onCommit) onCommit(event);
@@ -366,18 +380,15 @@ export function createSwipeGesture(options = {}) {
         if (onCancel) onCancel(event);
       });
     }
-    event = null;
   }
 
   function onPointerCancel() {
     if (!active || !ready) { active = false; return; }
     active = false;
-    el.style.touchAction = '';
-    el.style.userSelect  = '';
+    lockTouch(false);
     springBack().then(() => {
       if (onCancel) onCancel(event);
     });
-    event = null;
   }
 
   return { onPointerDown, onPointerMove, onPointerUp, onPointerCancel };
@@ -392,21 +403,26 @@ export function createSwipeGesture(options = {}) {
 //
 // Options:
 // {
-//   el,            // required: the element to watch
-//   duration,      // ms hold required to fire          (default: 400)
-//   moveThreshold, // px movement before cancelling     (default: 8)
-//   onStart,       // (event) => void  event: { el, x, y }
+//   target,        // required: the element being watched   (e.target in callbacks)
+//   trigger,       // optional: hit-test element            (defaults to target)
+//   duration,      // ms hold required to fire              (default: 400)
+//   moveThreshold, // px movement before cancelling         (default: 8)
+//   onStart,       // (event) => void  event: { target, x, y }
 //   onCancel,      // () => void
 // }
 
 export function createLongPressGesture(options = {}) {
   const {
-    el,
+    target,
     duration      = 400,
     moveThreshold = 8,
     onStart,
     onCancel,
   } = options;
+
+  if (!target) throw new Error('createLongPressGesture requires target');
+
+  const trigger = options.trigger || target;
 
   let timer  = null;
   let startX = 0;
@@ -420,7 +436,7 @@ export function createLongPressGesture(options = {}) {
   }
 
   function onPointerDown(e) {
-    if (!el || !el.contains(e.target)) return false;
+    if (!containsTarget(trigger, e)) return false;
     startX = e.clientX;
     startY = e.clientY;
     active = true;
@@ -428,7 +444,7 @@ export function createLongPressGesture(options = {}) {
     timer = setTimeout(() => {
       if (!active) return;
       try { navigator.vibrate && navigator.vibrate(10); } catch (err) {}
-      if (onStart) onStart({ el, x: startX, y: startY });
+      if (onStart) onStart({ target, x: startX, y: startY });
     }, duration);
 
     return 'pending'; // watch for movement but never claim
@@ -456,26 +472,31 @@ export function createLongPressGesture(options = {}) {
 //
 // Options:
 // {
-//   el,          // required: the element to watch
+//   target,      // required: the element being watched   (e.target in callbacks)
+//   trigger,     // optional: hit-test element            (defaults to target)
 //   maxDistance, // px movement before rejecting as tap   (default: 10)
 //   maxDuration, // ms before rejecting as long press     (default: 350)
-//   onTap,       // (event) => void  event: { el, x, y }
+//   onTap,       // (event) => void  event: { target, x, y }
 // }
 
 export function createTapGesture(options = {}) {
   const {
-    el,
+    target,
     maxDistance = 10,
     maxDuration = 350,
     onTap,
   } = options;
+
+  if (!target) throw new Error('createTapGesture requires target');
+
+  const trigger = options.trigger || target;
 
   let startX = 0;
   let startY = 0;
   let startT = 0;
 
   function onPointerDown(e) {
-    if (!el || !el.contains(e.target)) return false;
+    if (!containsTarget(trigger, e)) return false;
     startX = e.clientX;
     startY = e.clientY;
     startT = performance.now();
@@ -489,7 +510,7 @@ export function createTapGesture(options = {}) {
     const dy = Math.abs(e.clientY - startY);
     const dt = performance.now() - startT;
     if (dx <= maxDistance && dy <= maxDistance && dt <= maxDuration) {
-      if (onTap) onTap({ el, x: e.clientX, y: e.clientY });
+      if (onTap) onTap({ target, x: e.clientX, y: e.clientY });
     }
   }
 
@@ -528,7 +549,7 @@ const GESTURE_TYPES = {
 //   const manager = createGestureManager({ policy });
 //   manager.start(rootEl);
 //
-//   const stop = manager.on('swipe', { el: rowEl, directions: ['left','right'], ... });
+//   const stop = manager.on('swipe', { target: rowEl, directions: ['left','right'], ... });
 //   stop(); // unregister
 
 export function createGestureManager(config = {}) {
@@ -553,7 +574,6 @@ export function createGestureManager(config = {}) {
       }
 
       if (result === 'pending') {
-        // Allow multiple gestures to be pending at once
         pendingForPointer.push(instance);
       }
     }
@@ -564,20 +584,17 @@ export function createGestureManager(config = {}) {
   }
 
   function handlePointerMove(e) {
-    // If already claimed, route exclusively
     const claimedGesture = claimed.get(e.pointerId);
     if (claimedGesture) {
       claimedGesture.onPointerMove(e);
       return;
     }
 
-    // Check pending gestures — first to claim wins
     const pendings = pending.get(e.pointerId);
     if (!pendings || pendings.length === 0) return;
 
     for (const gesture of pendings) {
       if (gesture.onPointerMove(e) === true) {
-        // This gesture claimed it — remove from pending, set as claimed
         pending.delete(e.pointerId);
         claimed.set(e.pointerId, gesture);
         try { boundEl.setPointerCapture(e.pointerId); } catch (err) {}
@@ -587,7 +604,6 @@ export function createGestureManager(config = {}) {
   }
 
   function handlePointerUp(e) {
-    // Notify all pending gestures (e.g. tap fires here)
     const pendings = pending.get(e.pointerId);
     if (pendings) {
       for (const gesture of pendings) {
@@ -595,7 +611,6 @@ export function createGestureManager(config = {}) {
       }
       pending.delete(e.pointerId);
     }
-    // Notify claimed gesture
     const gesture = claimed.get(e.pointerId);
     if (gesture) {
       try { gesture.onPointerUp(e); } catch (err) {}
@@ -638,7 +653,6 @@ export function createGestureManager(config = {}) {
     boundEl = null;
   }
 
-  // Register a gesture. Returns an off() function to unregister.
   function on(type, options = {}) {
     const factory = GESTURE_TYPES[type];
     if (!factory) throw new Error(`Unknown gesture type: "${type}"`);
@@ -650,7 +664,6 @@ export function createGestureManager(config = {}) {
     return function off() {
       const idx = registry.indexOf(entry);
       if (idx !== -1) registry.splice(idx, 1);
-      // Clean up any active state for this instance
       for (const [pointerId, g] of claimed.entries()) {
         if (g === instance) claimed.delete(pointerId);
       }
@@ -662,7 +675,6 @@ export function createGestureManager(config = {}) {
     };
   }
 
-  // Register a new gesture type factory at runtime
   function add(type, factory) {
     GESTURE_TYPES[type] = factory;
   }

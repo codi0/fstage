@@ -1,25 +1,16 @@
-import { FsComponent, html, css } from '@fstage/component';
+export default {
 
-export class PwaSettings extends FsComponent {
+	tag: 'pwa-settings',
 
-	static shadowDom = false;
+	inject: ['store'],
 
-	static inject = {
-		settings: 'store:settings',
-	};
-
-	static styles = css`
-		pwa-settings { display: block; }
-
-		.view-header { padding: var(--safe-top) 16px 0; background: var(--bg-secondary); position: sticky; top: 0; z-index: 10; }
-		.view-title-row { padding: 12px 0 8px; }
-		.view-title { font-size: 28px; font-weight: 700; color: var(--text-primary); }
+	style: (ctx) => ctx.css`
+		:host { display: block; }
 
 		.body { padding: 16px 16px 48px; display: flex; flex-direction: column; gap: 32px; }
 
 		.settings-section-label { font-size: 13px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; padding-left: 4px; }
 		.settings-group { background: var(--bg-base); border-radius: var(--radius-lg); overflow: hidden; }
-
 		.settings-row { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--separator); min-height: 52px; }
 		.settings-row:last-child { border-bottom: none; }
 
@@ -35,18 +26,18 @@ export class PwaSettings extends FsComponent {
 		.row-select { background: none; padding: 10px; border: none; font-size: 15px; color: var(--color-primary); cursor: pointer; font-family: inherit; text-align: left; -webkit-appearance: none; outline: none; }
 
 		.version-note { text-align: center; font-size: 13px; color: var(--text-tertiary); padding: 8px 0 24px; }
-	`;
+	`,
 
-	render() {
-		const theme = this.settings?.theme || 'auto';
+	interactions: {
+		'change(.row-select)': function(e, ctx) {
+			ctx.store.model('settings').setTheme(e.matched.value);
+		},
+	},
 
-		return html`
-			<div class="view-header">
-				<div class="view-title-row">
-					<span class="view-title">Settings</span>
-				</div>
-			</div>
+	render: function(ctx) {
+		var theme = ctx.store.get('settings.theme') || 'auto';
 
+		return ctx.html`
 			<div class="body">
 				<div>
 					<div class="settings-section-label">Appearance</div>
@@ -59,8 +50,7 @@ export class PwaSettings extends FsComponent {
 								<div class="row-label">Appearance</div>
 								<div class="row-hint">Controls app colour scheme</div>
 							</div>
-							<select class="row-select" .value=${theme}
-								@change=${e => this.store.model('settings').setTheme(e.target.value)}>
+							<select class="row-select" .value=${theme}>
 								<option value="auto">Auto</option>
 								<option value="light">Light</option>
 								<option value="dark">Dark</option>
@@ -87,8 +77,6 @@ export class PwaSettings extends FsComponent {
 				<div class="version-note">Built with Fstage</div>
 			</div>
 		`;
-	}
+	},
 
-}
-
-customElements.define('pwa-settings', PwaSettings);
+};

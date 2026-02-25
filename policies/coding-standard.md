@@ -1,8 +1,6 @@
-# Fstage JS Runtime & Syntax Policy
+# Fstage: Coding Standard
 
-Version: 1.3  
-Status: Active  
-Scope: All core Fstage modules (`@fstage/*`) and PWA shell code that boots them.
+Version: 1.0 
 
 ---
 
@@ -43,8 +41,8 @@ Core Fstage modules should be written to an ES2020 baseline.
 
 Rationale:
 - keeps platform code boring and auditable
-- avoids “syntax drift” and unnecessary modern constructs
-- aligns with evergreen-browser expectations without implying “anything goes”
+- avoids "syntax drift" and unnecessary modern constructs
+- aligns with evergreen-browser expectations without implying "anything goes"
 
 ### Important distinction
 The runtime minimum (Import Maps) may imply that some post-ES2020 features are widely available.
@@ -109,7 +107,7 @@ No polyfills are bundled in core.
 All source files MUST be:
 - UTF-8 encoded
 - LF (`\n`) line endings (preferred)
-- free of Windows-1252 “smart punctuation” bytes (e.g. `0x96`, `0x97`)
+- free of Windows-1252 "smart punctuation" bytes (e.g. `0x96`, `0x97`)
 
 Non-ASCII punctuation in comments is allowed only if it remains valid UTF-8, but plain ASCII is preferred.
 

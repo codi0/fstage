@@ -12,15 +12,14 @@
 //       animator,
 //       gestureManager,
 //   }]);
-//   bindComponentDefaults({ ..., interactionsManager });
 //
 // Usage in components:
 //
 //   static interactions = {
-//       'click(.btn)':            (e, t) => { this._onBtn(e, t); },
-//       'change(input)':          (e, t) => { this._onChange(t.value); },
-//       'gesture.swipe(.row)':    { directions: ['left','right'], onCommit(e) { ... } },
-//       'gesture.longPress':      { onStart(e) { ... } },
+//       'click(.btn)':            (e, ctx) => { this._onBtn(e, t); },
+//       'change(input)':          (e, ctx) => { this._onChange(t.value); },
+//       'gesture.swipe(.row)':    { directions: ['left','right'], onCommit(e, ctx) { ... } },
+//       'gesture.longPress':      { onStart(e, ctx) { ... } },
 //       'animate.enter':          { preset: 'slideUp', duration: 160 },
 //       'animate.exit':           { preset: 'slideDown', duration: 120 },
 //   };
@@ -66,6 +65,34 @@ function parseKey(key) {
 }
 
 
+// ── DOM event delegation (supports shadow composedPath) ──────────────────────
+
+function activateDomEvent(root, isShadow, eventName, selector, handler) {
+	var listener = function(e) {
+		var matched = null;
+		if (selector) {
+			if (isShadow) {
+				var path = e.composedPath();
+				for (var i = 0; i < path.length; i++) {
+					if (path[i] === root) break;
+					if (path[i].matches && path[i].matches(selector)) { matched = path[i]; break; }
+				}
+			} else {
+				matched = (e.target && e.target.closest) ? e.target.closest(selector) : null;
+				if (matched && !root.contains(matched)) matched = null;
+			}
+			if (!matched) return;
+		} else {
+			matched = e.target;
+		}
+		Object.defineProperty(e, 'matched', { value: matched, configurable: true, enumerable: false });
+		handler(e);
+	};
+	root.addEventListener(eventName, listener);
+	return function() { root.removeEventListener(eventName, listener); };
+}
+
+
 export function createInteractionsManager(config) {
 	config = config || {};
 
@@ -74,80 +101,70 @@ export function createInteractionsManager(config) {
 
 	return {
 
-		// Wire all interactions for a component instance.
+		// Definition-based components (Fstage component runtime).
 		// Returns a single cleanup function.
-		activate: function(component) {
-			var interactions = component.constructor.interactions;
+		activate: function(interactions, ctx) {
 			if (!interactions) return null;
 
 			var cleanups   = [];
-			var root       = component.shadowRoot || component;
 			var exitConfig = null;
+			var isShadow = !!ctx.host.shadowRoot;
 
 			for (var key in interactions) {
 				var parsed = parseKey(key);
 				if (!parsed) continue;
-
 				var value = interactions[key];
 
-				// ── Animate ──────────────────────────────────────────────────
+				// ── Animate ─────────────────────────────────────────────
 				if (parsed.group === 'animate') {
 					if (parsed.name === 'enter' && animator) {
-						animator.animate(component, value.preset || value, value);
+						animator.animate(ctx.host, value.preset || value, value);
 					}
-					if (parsed.name === 'exit') {
-						exitConfig = value; // deferred — runs on cleanup
-					}
+					if (parsed.name === 'exit') exitConfig = value;
 					continue;
 				}
 
-				// ── Gesture ──────────────────────────────────────────────────
+				// ── Gesture ─────────────────────────────────────────────
 				if (parsed.group === 'gesture' && gestureManager) {
-					var gTarget = parsed.selector
-						? root.querySelector(parsed.selector)
-						: component;
+					var target = parsed.selector ? ctx.root.querySelector(parsed.selector) : ctx.root;
+					if (!target) continue;
 
-					if (!gTarget && parsed.selector) continue;
+					var cfg = { target: target };
+					if (value && value.directions) cfg.directions = value.directions;
+					if (value && value.trigger) {
+						cfg.trigger = ctx.root.querySelector(value.trigger) || undefined;
+					}
 
-					var gOpts = bindCallbacks(
-						Object.assign({}, value, { el: gTarget }),
-						component
-					);
+					var cbNames = ['onStart', 'onProgress', 'onCommit', 'onCancel'];
+					for (var i = 0; i < cbNames.length; i++) {
+						var cb = cbNames[i];
+						if (value && typeof value[cb] === 'function') {
+							(function(fn, name) {
+								cfg[name] = function(e) { fn(e, ctx); };
+							})(value[cb], cb);
+						}
+					}
 
-					cleanups.push(gestureManager.on(parsed.name, gOpts));
+					var off = gestureManager.on(parsed.name, cfg);
+					if (typeof off === 'function') cleanups.push(off);
 					continue;
 				}
 
-				// ── DOM event ────────────────────────────────────────────────
-				if (parsed.group === 'dom') {
-					var cb       = value.bind(component);
-					var selector = parsed.selector;
-
-					var handler = selector
-						? (function(sel, fn) {
-							return function(e) {
-								var t = e.target && e.target.closest ? e.target.closest(sel) : null;
-								if (t) fn(e, t);
-							};
-						})(selector, cb)
-						: function(e) { cb(e, root); };
-
-					root.addEventListener(parsed.name, handler);
-
-					cleanups.push(
-						(function(evt, fn) {
-							return function() { root.removeEventListener(evt, fn); };
-						})(parsed.name, handler)
-					);
+				// ── DOM event ───────────────────────────────────────────
+				if (parsed.group === 'dom' && typeof value === 'function') {
+					(function(fn) {
+						cleanups.push(activateDomEvent(ctx.root, isShadow, parsed.name, parsed.selector, function(e) {
+							fn(e, ctx);
+						}));
+					})(value);
 				}
 			}
 
-			// Return unified cleanup — also runs exit animation if declared
 			return function() {
 				if (exitConfig && animator) {
-					animator.animate(component, exitConfig.preset || exitConfig, exitConfig);
+					animator.animate(ctx.host, exitConfig.preset || exitConfig, exitConfig);
 				}
-				for (var i = 0; i < cleanups.length; i++) {
+				for (var i = cleanups.length - 1; i >= 0; i--) {
 					try { cleanups[i](); } catch (err) {}
 				}
 			};

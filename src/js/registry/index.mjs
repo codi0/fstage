@@ -1,3 +1,14 @@
+//cache
+var cache = null;
+
+//default registry singleton
+export function defaultRegistry() {
+	if (cache === null) {
+		cache = createRegistry();
+	}
+	return cache;
+}
+
 //create registry factory
 export function createRegistry() {
 	
@@ -67,10 +78,4 @@ export function createRegistry() {
 	//return
 	return api;
 
-}
-
-//default registry singleton
-export function defaultRegistry() {
-	defaultRegistry.__$cache = defaultRegistry.__$cache || createRegistry();
-	return defaultRegistry.__$cache;
 }

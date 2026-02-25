@@ -1,42 +1,16 @@
-import { FsComponent, html, css } from '@fstage/component';
+export default {
 
-export class PwaTaskRow extends FsComponent {
+	tag: 'pwa-task-row',
 
-	static shadowDom = false;
+	props: {
+		task:  { default: null, attr: false },
+		index: { default: 0, attr: 'index', type: 'number' },
+	},
 
-	static defaults = {
-		task:  null,
-		index: 0,
-	};
+	inject: ['store', 'animator'],
 
-	static properties = {
-		task:  { type: Object },
-		index: { type: Number },
-	};
-
-	static interactions = {
-		// Enter animation
-		'animate.enter': { preset: 'slideUp', duration: 160 },
-
-		// Check button — stopPropagation prevents data-href on row-content firing
-		'click(.check-btn)': function(e, t) {
-			e.stopPropagation();
-			if (!this.task) return;
-			this.store.model('tasks').toggle(this.task.id);
-			this.animator.animate(t, 'pop', { duration: 300 });
-		},
-
-		// Swipe gesture on the moving content element
-		'gesture.swipe(.row-content)': {
-			directions: ['left', 'right'],
-			onProgress(e) { this._onSwipeProgress(e); },
-			onCommit(e)   { this._onSwipeCommit(e);   },
-			onCancel()    { this._onSwipeCancel();     },
-		},
-	};
-
-	static styles = css`
-		pwa-task-row {
+	style: (ctx) => ctx.css`
+		:host {
 			display: block;
 			position: relative;
 			overflow: hidden;
@@ -53,7 +27,6 @@ export class PwaTaskRow extends FsComponent {
 
 		.reveal-right { background: var(--color-success); justify-content: flex-start; padding-left: 20px; }
 		.reveal-left  { background: var(--color-danger);  justify-content: flex-end;   padding-right: 20px; }
-
 		.reveal svg { width: 22px; height: 22px; stroke: #fff; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; fill: none; }
 
 		.row-content {
@@ -71,19 +44,15 @@ export class PwaTaskRow extends FsComponent {
 			-webkit-tap-highlight-color: transparent;
 			transition: border-color 0.15s ease, background 0.15s ease;
 		}
-
 		.check-btn.done { border-color: var(--color-success); background: var(--color-success); }
-
 		.check-btn svg { width: 13px; height: 13px; stroke: #fff; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; fill: none; opacity: 0; transition: opacity 0.1s ease; }
 		.check-btn.done svg { opacity: 1; }
 
 		.task-info { flex: 1; min-width: 0; }
-
 		.task-title { font-size: 15px; font-weight: 500; color: var(--text-primary); line-height: 1.35; margin: 0 0 4px; transition: color 0.15s ease; }
 		.task-title.done { color: var(--text-tertiary); text-decoration: line-through; }
 
 		.task-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-
 		.due-date { font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 3px; }
 		.due-date.overdue { color: var(--color-danger);  font-weight: 500; }
 		.due-date.today   { color: var(--color-primary); font-weight: 500; }
@@ -96,52 +65,56 @@ export class PwaTaskRow extends FsComponent {
 
 		.chevron { flex-shrink: 0; color: var(--text-tertiary); align-self: center; }
 		.chevron svg { width: 16px; height: 16px; stroke: currentColor; stroke-width: 2; fill: none; }
-	`;
+	`,
 
-	updated(changed) {
-		if (changed.has('index')) this.style.setProperty('--row-index', this.index);
-	}
+	interactions: {
+		'animate.enter': { preset: 'slideUp', duration: 160 },
 
-	_formatDate(dateStr) {
-		if (!dateStr) return null;
-		const today    = new Date().toISOString().split('T')[0];
-		const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
-		if (dateStr < today)      return { label: 'Overdue',   cls: 'overdue' };
-		if (dateStr === today)    return { label: 'Today',     cls: 'today'   };
-		if (dateStr === tomorrow) return { label: 'Tomorrow',  cls: ''        };
-		const d = new Date(dateStr + 'T00:00:00');
-		return { label: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), cls: '' };
-	}
+		'click(.check-btn)': function(e, ctx) {
+			e.stopPropagation();
+			var t = ctx.props.task;
+			if (!t) return;
+			ctx.store.model('tasks').toggle(t.id);
+			ctx.animator.animate(e.matched, 'pop', { duration: 300 });
+		},
 
-	_onSwipeProgress(e) {
-		const right = this.querySelector('.reveal-right');
-		const left  = this.querySelector('.reveal-left');
-		if (!right || !left) return;
-		const show = e.direction === 'right' ? right : left;
-		const hide = e.direction === 'right' ? left  : right;
-		show.style.opacity = e.progress;
-		hide.style.opacity = '0';
-	}
+		'gesture.swipe(.row-content)': {
+			directions: ['left', 'right'],
+			onProgress: function(e, ctx) {
+				var right = ctx.root.querySelector('.reveal-right');
+				var left  = ctx.root.querySelector('.reveal-left');
+				if (!right || !left) return;
+				var show = e.direction === 'right' ? right : left;
+				var hide = e.direction === 'right' ? left  : right;
+				show.style.opacity = e.progress;
+				hide.style.opacity = '0';
+			},
+			onCommit: function(e, ctx) {
+				var t = ctx.props.task;
+				if (!t) return;
+				if (e.direction === 'right') ctx.store.model('tasks').toggle(t.id);
+				else                          ctx.store.model('tasks').delete(t.id);
+			},
+			onCancel: function(e, ctx) {
+				var right = ctx.root.querySelector('.reveal-right');
+				var left  = ctx.root.querySelector('.reveal-left');
+				if (right) right.style.opacity = '0';
+				if (left)  left.style.opacity  = '0';
+			},
+		},
+	},
 
-	_onSwipeCommit(e) {
-		if (!this.task) return;
-		if (e.direction === 'right') this.store.model('tasks').toggle(this.task.id);
-		else                         this.store.model('tasks').delete(this.task.id);
-	}
+	rendered: function(ctx) {
+		ctx.host.style.setProperty('--row-index', ctx.props.index);
+	},
 
-	_onSwipeCancel() {
-		const right = this.querySelector('.reveal-right');
-		const left  = this.querySelector('.reveal-left');
-		if (right) right.style.opacity = '0';
-		if (left)  left.style.opacity  = '0';
-	}
+	render: function(ctx) {
+		var t = ctx.props.task;
+		if (!t) return ctx.html``;
 
-	render() {
-		if (!this.task) return html``;
-		const t        = this.task;
-		const dateInfo = this._formatDate(t.dueDate);
+		var dateInfo = _formatDate(t.dueDate);
 
-		return html`
+		return ctx.html`
 			<div class="reveal reveal-right" aria-hidden="true">
 				<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
 			</div>
@@ -149,19 +122,20 @@ export class PwaTaskRow extends FsComponent {
 				<svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
 			</div>
 
-			<div class="row-content" data-href="/tasks/${t.id}">
-				<button class="check-btn ${t.completed ? 'done' : ''}"
-					aria-label="${t.completed ? 'Mark incomplete' : 'Mark complete'}"
-					aria-pressed="${t.completed}">
+			<div class="row-content" data-href=${'/tasks/' + t.id}>
+				<button
+					class=${'check-btn' + (t.completed ? ' done' : '')}
+					aria-label=${t.completed ? 'Mark incomplete' : 'Mark complete'}
+					aria-pressed=${t.completed}>
 					<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
 				</button>
 
 				<div class="task-info">
-					<p class="task-title ${t.completed ? 'done' : ''}">${t.title}</p>
+					<p class=${'task-title' + (t.completed ? ' done' : '')}>${t.title}</p>
 					<div class="task-meta">
-						<span class="priority-dot ${t.priority}"></span>
-						${dateInfo ? html`
-							<span class="due-date ${dateInfo.cls}">
+						<span class=${'priority-dot ' + t.priority}></span>
+						${dateInfo ? ctx.html`
+							<span class=${'due-date' + (dateInfo.cls ? ' ' + dateInfo.cls : '')}>
 								<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
 								${dateInfo.label}
 							</span>
@@ -174,7 +148,17 @@ export class PwaTaskRow extends FsComponent {
 				</span>
 			</div>
 		`;
-	}
-}
+	},
 
-customElements.define('pwa-task-row', PwaTaskRow);
+};
+
+function _formatDate(dateStr) {
+	if (!dateStr) return null;
+	var today    = new Date().toISOString().split('T')[0];
+	var tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+	if (dateStr < today)      return { label: 'Overdue',  cls: 'overdue' };
+	if (dateStr === today)    return { label: 'Today',    cls: 'today'   };
+	if (dateStr === tomorrow) return { label: 'Tomorrow', cls: ''        };
+	var d = new Date(dateStr + 'T00:00:00');
+	return { label: d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), cls: '' };
+}

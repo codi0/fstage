@@ -1,258 +1,271 @@
-import { LitElement } from 'https://cdn.jsdelivr.net/npm/lit-element@4/+esm';
-export * from 'https://cdn.jsdelivr.net/npm/lit-element@4/+esm';
+// @fstage/component
+//
+// Definition-based web component runtime.
+//
+// Accepts component definition objects (per the Fstage Component Definition Standard) and registers them as custom elements.
 
-import { getGlobalCss, stylesToString, callSuper } from '../utils/index.mjs';
-
-
-// private vars
-var _count      = 0;
-var _cache      = {};
-var _defaults   = {};
-var _registered = false;
+import { getGlobalCss, stylesToString } from '../utils/index.mjs';
 
 
-// Parse inject value: 'source(key)' or legacy 'source:key'
-function parseInjectValue(val) {
-	var m = val.match(/^(\w+)\((.+)\)$/);
-	if (m) return { prefix: m[1], key: m[2] };
-	var parts = val.split(':');
-	if (parts.length > 1) return { prefix: parts.shift(), key: parts.join(':') };
-	return null;
+// --- Helpers
+
+const compSheets = new Map();
+
+function adoptSheet(root, sheet) {
+	if (root.adoptedStyleSheets && !root.adoptedStyleSheets.includes(sheet)) {
+		root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
+	}
+}
+
+function cssToSheet(css) {
+	var sheet = null;
+	var cssText = stylesToString(css);
+	if (cssText) {
+		sheet = new CSSStyleSheet();
+		sheet.replaceSync(cssText);
+	}
+	return sheet;
+}
+
+function doDispatchEvent(el, type, details, opts) {
+	opts = opts || {};
+	var event = new CustomEvent(type, Object.assign({ bubbles: true, composed: true, detail: details || null }, opts));
+	return el.dispatchEvent(event);
 }
 
 
-// --- FsComponent -------------------------------------------------------------
+// --- Runtime Factory
 
-export class FsComponent extends LitElement {
+export function createRuntime(config) {
 
-	static shadowDom = true;
-	static globalCss = true;
+	config = config || {};
 
-	constructor() {
-		super();
-		_count++;
-		this.__$id = _count;
+	const helpers = config.ctx || {};
+	const baseClass = config.baseClass || HTMLElement;
 
-		if (typeof this.willConstruct === 'function') {
-			this.willConstruct();
-		}
+	const registry = config.registry;
+	const interactionsManager = config.interactionsManager;
 
-		// Apply injected defaults (store, registry, animator, etc.)
-		for (var i in _defaults) {
-			if (this[i] === undefined) {
-				this[i] = _defaults[i];
-			}
-		}
+	// All reserved definition keys — not copied to the prototype
+	const reserved = [
+		'tag', 'shadow', 'globalStyles', 'props', 'state', 'inject', 'style', 'render',
+		'interactions', 'init', 'connected', 'disconnected', 'rendered', 'onError'
+	];
 
-		// Apply component-level static defaults
-		var defaults = this.constructor.defaults;
-		if (defaults) {
-			for (var j in defaults) {
-				if (this[j] === undefined) {
-					this[j] = defaults[j];
+	return {
+
+		define: function(def) {
+			if (!def.tag || def.tag.indexOf('-') === -1) throw new Error('[fstage/component] Invalid tag: ' + def.tag);
+			if (customElements.get(def.tag)) throw new Error('[fstage/component] Already defined: ' + def.tag);
+			
+			const defaults = {
+				shadow: true,
+				globalStyles: true,
+				inject: [],
+				props: {},
+				state: {},
+				interactions: {}
+			};
+			
+			for (var i in defaults) {
+				if (def[i] === undefined || def[i] === null) {
+					def[i] = defaults[i];
 				}
 			}
-		}
 
-		this.prepareTracker();
-		this.prepareInject();
+			class Component extends baseClass {
 
-		if (typeof this.constructed === 'function') {
-			queueMicrotask(() => this.constructed());
-		}
-	}
+				static get properties() {
+					const props = {};
+					for (var k in (def.props || {})) {
+						const ps = def.props[k];
+						props[k] = {
+							attribute: ps.attr || false,
+							reflect:   ps.reflect || false,
+							// Accept constructor references (Number, Boolean) or legacy strings
+							type: ps.type === Boolean || ps.type === 'boolean' ? Boolean
+							    : ps.type === Number  || ps.type === 'number'  ? Number
+							    : String
+						};
+					}
+					return props;
+				}
 
-	connectedCallback() {
-		super.connectedCallback();
-	}
+				constructor() {
+					super();
 
-	// firstUpdated fires once after first render — safe point to wire interactions.
-	// Subclasses that override MUST call super.firstUpdated(...args).
-	firstUpdated(...args) {
-		if (super.firstUpdated) super.firstUpdated(...args);
-		this.activateInteractions();
-	}
+					// Per-instance context and cleanup store
+					const self       = this;
+					const ctx        = this.__ctx = {};
+					const cleanupFns = this.__cleanupFns = [];
 
-	disconnectedCallback() {
-		this.deactivateInteractions();
-		super.disconnectedCallback();
-	}
+					// Template helpers forwarded from runtime config
+					ctx.html = helpers.html;
+					ctx.css  = helpers.css;
+					ctx.svg  = helpers.svg;
 
-	createRenderRoot() {
-		if (this.constructor.shadowDom) {
-			var root = super.createRenderRoot();
-			if (this.constructor.globalCss) {
-				this.attachGlobalStyles(root, getGlobalCss());
+					// Host element and render root
+					ctx.host = this;
+					ctx.root = null;
+
+					// ctx.props — thin alias for the host element; external props are already
+					// reactive properties on the instance so no wrapper is needed
+					ctx.props = this;
+
+					// Initialise declared props with defaults
+					for (var k in def.props) {
+						this[k] = def.props[k].default;
+					}
+
+					// ctx.state — Proxy for local component state, seeded from def.state defaults.
+					// Any write calls requestUpdate(key, oldValue) so LitElement's shouldUpdate
+					// guard is satisfied and a re-render is triggered.
+					const stateTarget = {};
+					for (var k in (def.state || {})) {
+						stateTarget[k] = def.state[k];
+					}
+					ctx.state = new Proxy(stateTarget, {
+						get(target, key) {
+							return target[key];
+						},
+						set(target, key, value) {
+							var oldValue = target[key];
+							target[key] = value;
+							self.requestUpdate(key, oldValue);
+							return true;
+						}
+					});
+
+					// ctx.emit — dispatch a composed, bubbling CustomEvent from the host
+					ctx.emit = function(type, detail, opts) {
+						return doDispatchEvent(self, type, detail, opts);
+					};
+
+					// ctx.cleanup — register a teardown function run on disconnectedCallback
+					ctx.cleanup = function(fn) {
+						if (typeof fn === 'function') cleanupFns.push(fn);
+					};
+
+					// Resolve registry services
+					def.inject.forEach(function(key) {
+						if (ctx[key] !== undefined) {
+							throw new Error('[fstage/component] ctx.' + key + ' already exists');
+						}
+						var service = registry ? registry.get(key) : undefined;
+						if (service === undefined || service === null) {
+							throw new Error('[fstage/component] inject key not found in registry: ' + key);
+						}
+						ctx[key] = service;
+					});
+
+					if (def.init) def.init(ctx);
+				}
+
+				createRenderRoot() {
+					const ctx = this.__ctx;
+					if (ctx.root) return ctx.root;
+
+					if (!compSheets.has(def.tag)) {
+						const styleText  = (typeof def.style === 'function') ? def.style(ctx) : (def.style || '');
+						compSheets.set(def.tag, cssToSheet(styleText));
+					}
+					
+					const styleSheet = compSheets.get(def.tag);
+
+					if (def.shadow) {
+						ctx.root = super.createRenderRoot();
+						if (def.globalStyles) getGlobalCss().forEach(function(s) { adoptSheet(ctx.root, s); });
+						if (styleSheet) adoptSheet(ctx.root, styleSheet);
+					} else {
+						ctx.root = this;
+						if (styleSheet) adoptSheet(document, styleSheet);
+					}
+					return ctx.root;
+				}
+
+				connectedCallback() {
+					const ctx = this.__ctx;
+					super.connectedCallback();
+					if (def.connected) def.connected(ctx);
+				}
+
+				disconnectedCallback() {
+					const ctx        = this.__ctx;
+					const cleanupFns = this.__cleanupFns;
+					super.disconnectedCallback();
+
+					while (cleanupFns.length > 0) {
+						cleanupFns.pop()();
+					}
+
+					if (def.disconnected) def.disconnected(ctx);
+				}
+
+				render() {
+					const ctx = this.__ctx;
+					if (!def.render) return ctx.html``;
+					try {
+						return def.render(ctx);
+					} catch (err) {
+						if (def.onError) {
+							def.onError(err, ctx);
+						} else {
+							console.error('[fstage/component] render error in ' + def.tag + ':', err);
+						}
+						return ctx.html``;
+					}
+				}
+
+				performUpdate() {
+					const ctx = this.__ctx;
+
+					if (!ctx.store || !ctx.store.trackAccess) {
+						return super.performUpdate();
+					}
+
+					ctx.store.trackAccess(this, () => {
+						super.performUpdate();
+						return () => this.requestUpdate();
+					});
+				}
+
+				firstUpdated(changedProperties) {
+					const ctx        = this.__ctx;
+					const cleanupFns = this.__cleanupFns;
+					super.firstUpdated(changedProperties);
+
+					if (interactionsManager && Object.keys(def.interactions).length) {
+						const result = interactionsManager.activate(def.interactions, ctx);
+						if (typeof result === 'function') cleanupFns.push(result);
+					}
+				}
+
+				updated(changedProperties) {
+					const ctx = this.__ctx;
+					super.updated(changedProperties);
+
+					if (def.rendered) {
+						// Convert LitElement's changedProperties Map { key → previousValue }
+						// into a plain object for ergonomic access in definition code
+						var changed = {};
+						changedProperties.forEach(function(oldVal, key) { changed[key] = oldVal; });
+						def.rendered(ctx, changed);
+					}
+				}
+
 			}
-			return root;
-		}
-		// No shadow DOM — inject component styles into document root
-		if (this.constructor.styles) {
-			this.attachLocalStyles(this.getRootNode(), this.constructor.styles);
-		}
-		return this;
-	}
 
-	performUpdate() {
-		var stopTracker = null;
-		if (this.__$storeCache) {
-			stopTracker = this.__$storeCache.cb();
-			for (var i in this.__$storeCache.props) {
-				var key          = this.__$storeCache.props[i];
-				this[i]          = this.store.get(key);
-				this[i + 'Meta'] = this.store.meta(key) || {};
+			// Copy any non-reserved, function-valued def keys onto the prototype
+			// so imperative methods (e.g. overlay.mount) are available on the element
+			for (var i in def) {
+				if (reserved.includes(i)) continue;
+				if (typeof def[i] !== 'function') continue;
+				Component.prototype[i] = def[i];
 			}
-		}
-		super.performUpdate();
-		stopTracker && stopTracker();
-	}
 
-	prepareTracker() {
-		if (this.store) {
-			this.__$storeCache = {
-				props: {},
-				cb: () => this.store.trackAccess(() => this.requestUpdate(), { ctx: this }),
-			};
-		}
-	}
+			customElements.define(def.tag, Component);
+		},
 
-	prepareInject() {
-		if (!this.constructor.inject) return;
-		for (var i in this.constructor.inject) {
-			if (this[i] !== undefined) continue;
-			var parsed = parseInjectValue(this.constructor.inject[i]);
-			if (!parsed) continue;
-			if (this.registry && parsed.prefix === 'registry') {
-				this[i] = this.registry.get(parsed.key);
-			}
-			if (this.store && parsed.prefix === 'store') {
-				this.__$storeCache.props[i] = parsed.key;
-			}
-		}
-	}
+	};
 
-
-	// --- Interaction system --------------------------------------------------
-	//
-	// Delegated to @fstage/interactions via this.interactionsManager (injected).
-	// Components declare behaviour via static interactions:
-	//
-	//   static interactions = {
-	//     'click(.btn)':           (e, t) => { ... },
-	//     'gesture.swipe(.row)':   { directions: ['left','right'], onCommit(e) { ... } },
-	//     'animate.enter':         { preset: 'slideUp', duration: 160 },
-	//     'animate.exit':          { preset: 'slideDown', duration: 120 },
-	//   };
-
-	activateInteractions() {
-		if (!this.constructor.interactions) return;
-		if (!this.interactionsManager) return;
-		this.__$interactionCleanup = this.interactionsManager.activate(this);
-	}
-
-	deactivateInteractions() {
-		if (this.__$interactionCleanup) {
-			this.__$interactionCleanup();
-			this.__$interactionCleanup = null;
-		}
-	}
-
-
-	// --- Style helpers -------------------------------------------------------
-
-	attachGlobalStyles(root, styles) {
-		if (!styles || !styles.length) return;
-		for (var sheet of styles) {
-			if (root.adoptedStyleSheets && !root.adoptedStyleSheets.includes(sheet)) {
-				root.adoptedStyleSheets.push(sheet);
-			}
-		}
-	}
-
-	attachLocalStyles(root, styles) {
-		if (!styles) return;
-		if (!root.__$cssCache) root.__$cssCache = new Map();
-		var s        = stylesToString(styles);
-		var cssSheet = root.__$cssCache.get(s);
-		if (!cssSheet) {
-			cssSheet = new CSSStyleSheet();
-			cssSheet.replaceSync(s);
-			root.__$cssCache.set(s, cssSheet);
-		}
-		if (root.adoptedStyleSheets && !root.adoptedStyleSheets.includes(cssSheet)) {
-			root.adoptedStyleSheets.push(cssSheet);
-		}
-	}
-
-	callSuper(method, args = [], instance = this) {
-		return callSuper(instance, method, args);
-	}
-
-}
-
-
-// --- Module-level helpers ----------------------------------------------------
-
-export function bindComponentDefaults(obj, register = true) {
-	Object.assign(_defaults, obj || {});
-	if (register) registerComponents();
-}
-
-export function registerComponents() {
-	if (_registered) return;
-	_registered = true;
-	requestAnimationFrame(function() {
-		for (var i in _cache) {
-			_cache[i].register();
-		}
-	});
-}
-
-export function createComponent(tag, def, BaseClass = FsComponent) {
-	if (typeof tag !== 'string') {
-		BaseClass = def || BaseClass;
-		def       = tag;
-		tag       = null;
-	}
-
-	if (tag && customElements.get(tag)) {
-		throw new Error(tag + ' already defined as a custom element');
-	}
-
-	if (typeof def === 'function' && def.prototype && def.prototype.constructor === def) {
-		throw new Error('createComponent only accepts an object or function definition');
-	}
-
-	var constructor = null;
-
-	class Component extends BaseClass {
-
-		static register() {
-			if (_cache[tag]) {
-				delete _cache[tag];
-				customElements.define(tag, Component);
-			}
-		}
-
-		constructor() {
-			super();
-			if (constructor) constructor.call(this);
-		}
-
-	}
-
-	if (typeof def === 'function') {
-		Component.prototype.render = def;
-	} else {
-		const { static: s, constructor: c, ...i } = def;
-		if (c) constructor = c;
-		if (s) Object.assign(Component, s);
-		Object.defineProperties(Component.prototype, Object.getOwnPropertyDescriptors(i));
-	}
-
-	_cache[tag] = Component;
-
-	if (_registered) Component.register();
-
-	return Component;
 }

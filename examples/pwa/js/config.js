@@ -2,9 +2,11 @@ globalThis.FSCONFIG = {
 
 	debug: true,
 	name: 'Tasks',
-	
+
 	importMap: {
-		'@capacitor/': 'https://cdn.jsdelivr.net/npm/@capacitor/'
+		'lit': 'https://cdn.jsdelivr.net/npm/lit-element@4/+esm',
+		'uhtml': 'https://cdn.jsdelivr.net/npm/uhtml@5/dist/prod/dom.js',
+		'@capacitor/': 'https://cdn.jsdelivr.net/npm/@capacitor/',
 	},
 
 	loadAssets: {
@@ -13,27 +15,20 @@ globalThis.FSCONFIG = {
 			'@fstage/registry',
 		],
 		libs: [
+			'lit',
+			'@fstage/component',
 			'@fstage/store',
 			'@fstage/sync',
-			'@fstage/component',
 			'@fstage/history',
 			'@fstage/router',
 			'@fstage/animator',
 			'@fstage/gestures',
-			'@fstage/interactions',
 			'@fstage/transitions',
-			//capacitor
-			//'@capacitor/core@7/+esm',
-			//'@capacitor/camera@7/+esm',
-			//'@capacitor/splash-screen@7/+esm',
+			'@fstage/interactions',
 		],
 		app: [
 			// store
 			'js/store/tasks.mjs',
-			// layout
-			'js/layout/app.mjs',
-			'js/layout/tab-bar.mjs',
-			'js/layout/bottom-sheet.mjs',
 			// views
 			'js/views/task-row.mjs',
 			'js/views/tasks.mjs',
@@ -44,176 +39,178 @@ globalThis.FSCONFIG = {
 			'css/style.css',
 			'manifest.json',
 			'favicon.png',
-		]
+			// layout (app last — depends on all other components)
+			'js/layout/overlay.mjs',
+			'js/layout/header.mjs',
+			'js/layout/tab-bar.mjs',
+			'js/layout/bottom-sheet.mjs',
+			'js/layout/app.mjs',
+		],
 	},
 
 	router: {
 		urlScheme: 'hash',
-		basePath: '/',
-		defHome: '/',
-		def404: '/',
+		basePath:  '/',
+		defHome:   '/',
+		def404:    '/',
 		routes: [
 			{
-				id: '/',
+				id:   '/',
 				path: '/',
-				meta: {
-					component: 'pwa-tasks',
-					title: 'Tasks',
-					tab: 'tasks',
-					menu: 1,
-				}
+				meta: { component: 'pwa-tasks',      title: 'Tasks',    tab: 'tasks',    menu: 1 },
 			},
 			{
-				id: '/today',
+				id:   '/today',
 				path: '/today',
-				meta: {
-					component: 'pwa-today',
-					title: 'Today',
-					tab: 'today',
-					menu: 1,
-				}
+				meta: { component: 'pwa-today',      title: 'Today',    tab: 'today',    menu: 1 },
 			},
 			{
-				id: '/tasks/:id',
+				id:   '/tasks/:id',
 				path: '/tasks/:id',
-				meta: {
-					component: 'pwa-task-detail',
-					title: 'Task',
-					tab: null,
-					menu: 0,
-				}
+				meta: { component: 'pwa-task-detail', title: 'Task',    tab: null,       menu: 0 },
 			},
 			{
-				id: '/settings',
+				id:   '/settings',
 				path: '/settings',
-				meta: {
-					component: 'pwa-settings',
-					title: 'Settings',
-					tab: 'settings',
-					menu: 1,
-				}
+				meta: { component: 'pwa-settings',   title: 'Settings', tab: 'settings', menu: 1 },
 			},
-		]
+		],
 	},
 
-	swPreCache: [
-		'./'
-	],
+	swPreCache: ['./'],
 
 	swCachePolicies: {
-		'https://cdn.jsdelivr.net': 'cors'
+		'https://cdn.jsdelivr.net': 'cors',
 	},
 
 	beforeLoad: function(e) {
-		const env = e.get('env');
+		var registry = e.get('registry.defaultRegistry', []);
+		if (!registry) return;
+		
+		var env = registry.get('env');
+
 		if (e.path.startsWith('@capacitor/') && env && env.getFact('platform.hybrid')) {
 			e.path = '';
 		}
 	},
 
 	afterLoad: function(e) {
-		// no-op
+		var def = e.exports && e.exports.default;
+
+		// Auto-register component?
+		if (def && def.tag) {
+			var registry = e.get('registry.defaultRegistry', []);
+			var runtime = registry.get('componentRuntime');
+			if (runtime) runtime.define(def);
+		}
+	},
+
+	afterLoadPreload: function(e) {
+		var registry = e.get('registry.defaultRegistry', []);
+		var debug = e.get('config.debug');
+		var urlParams = new URLSearchParams(window.location.search);
+
+		var env = e.get('env.getEnv', [{
+			preset: debug ? urlParams.get('preset') : null,
+		}]);
+		
+		registry.set('env', env);
 	},
 
 	afterLoadLibs: function(e) {
-		const registry = e.get('registry.defaultRegistry', []);
-		const env      = e.get('env');
+		var registry = e.get('registry.defaultRegistry', []);
+		var env      = registry.get('env');
 
-		const store       = e.get('store.createStore', []);
-		const syncManager = e.get('sync.createSyncManager', []);
+		var routerOpts   = e.get('config.router');
+		routerOpts.history = e.get('history.createBrowserHistory', [routerOpts]);
+		var router       = e.get('router.createRouter', [routerOpts]);
 
-		const routerOpts     = e.get('config.router');
-		routerOpts.history   = e.get('history.createBrowserHistory', [routerOpts]);
-		const router         = e.get('router.createRouter', [routerOpts]);
+		var envPolicy = env.getPolicy();
+		var lit = Object.assign({}, e.get('lit'));
 
-		const envPolicy = env.getPolicy();
+		var store = e.get('store.createStore', []);
+		var syncManager = e.get('sync.createSyncManager',   []);
 
-		// Create animator with platform-appropriate motion policy
-		const animator = e.get('animator.createAnimator', [{
-			policy: envPolicy.motion
+		var animator = e.get('animator.createAnimator', [{
+			policy: envPolicy.motion,
 		}]);
 
-		// Create gesture manager (start() called later in afterLoadApp once DOM is ready)
-		const gestureManager = e.get('gestures.createGestureManager', [{
-			policy: envPolicy.gestures
+		var gestureManager = e.get('gestures.createGestureManager', [{
+			policy: envPolicy.gestures,
 		}]);
 
-		// Create interactions manager — wires static interactions declarations on all components
-		const interactionsManager = e.get('interactions.createInteractionsManager', [{
+		var interactionsManager = e.get('interactions.createInteractionsManager', [{
 			animator,
 			gestureManager,
 		}]);
 
-		registry.set('env',                 env);
-		registry.set('store',               store);
-		registry.set('syncManager',         syncManager);
-		registry.set('router',              router);
-		registry.set('animator',            animator);
-		registry.set('gestureManager',      gestureManager);
-		registry.set('interactionsManager', interactionsManager);
-
-		// Inject into every FsComponent automatically
-		e.get('component.bindComponentDefaults', [{
-			store:                store,
-			registry:             registry,
-			animator:             animator,
-			gestureManager:       gestureManager,
-			interactionsManager:  interactionsManager,
+		var componentRuntime =  e.get('component.createRuntime', [{
+			ctx: { html: lit.html, css: lit.css, svg: lit.svg },
+			baseClass: lit.LitElement,
+			registry,
+			animator,
+			gestureManager,
+			interactionsManager
 		}]);
+
+		registry.set('env', env);
+		registry.set('store', store);
+		registry.set('syncManager', syncManager);
+		registry.set('router', router);
+		registry.set('animator', animator);
+		registry.set('gestureManager', gestureManager);
+		registry.set('interactionsManager', interactionsManager);
+		registry.set('componentRuntime', componentRuntime);
 	},
 
 	afterLoadApp: function(e) {
-		const registry = e.get('registry.defaultRegistry', []);
+		var registry = e.get('registry.defaultRegistry', []);
 
-		const env            = registry.get('env');
-		const store          = registry.get('store');
-		const router         = registry.get('router');
-		const animator       = registry.get('animator');
-		const gestureManager = registry.get('gestureManager');
+		var env              = registry.get('env');
+		var store            = registry.get('store');
+		var router           = registry.get('router');
+		var animator         = registry.get('animator');
+		var gestureManager   = registry.get('gestureManager');
+		var componentRuntime = registry.get('componentRuntime');
 
-		const envPolicy  = env.getPolicy();
-		const appName    = e.get('config.name');
-		const rootEl     = document.querySelector('pwa-main');
+		var envPolicy  = env.getPolicy();
+		var appName    = e.get('config.name');
+		var rootEl     = document.querySelector('pwa-main');
 
-		const screenHost = e.get('transitions.createScreenHost', [{
+		var screenHost = e.get('transitions.createScreenHost', [{
 			el:   rootEl,
 			name: appName,
 		}]);
 
-		const transitions = e.get('transitions.createTransitionEngine', [{
-			animator:   animator,
-			screenHost: screenHost,
+		var transitions = e.get('transitions.createTransitionEngine', [{
+			animator,
+			screenHost,
 		}]);
 
-		// Page-level edge-pan (back gesture) — iOS/Android native feel
+		// Edge-pan back gesture
 		gestureManager.on('edgePan', {
-			el:   rootEl,
-			edge: 'left',
+			target: rootEl,
+			edge:   'left',
 			onStart: async function(e) {
-				const prev = router.peek(-1);
+				var prev = router.peek(-1);
 				if (!prev) return false;
-
 				e.ctl = await transitions.run({
 					screen:   prev.match,
-					location: { direction: 'back', state: prev.state }
+					location: { direction: 'back', state: prev.state },
 				}, { interactive: true });
-
 				if (!e.ctl) return false;
 			},
 			onProgress: function(e) { e.ctl.progress(e.progress); },
-			onCommit:   async function(e) {
+			onCommit: async function(e) {
 				await e.ctl.commit();
-				// Let router.go fire normally so onAfter updates the store.
-				// Set a flag so the transition engine skips the redundant run.
 				transitions._skipNext = true;
 				router.go(-1);
 			},
-			onCancel: function(e) { e.ctl.cancel(); }
+			onCancel: function(e) { e.ctl.cancel(); },
 		});
 
 		router.onAfter(function(match, location) {
 			store.set('route', { match, location });
-			// Skip if a gesture already completed the transition visually
 			if (transitions._skipNext) {
 				transitions._skipNext = false;
 				return;
@@ -221,9 +218,8 @@ globalThis.FSCONFIG = {
 			transitions.run({ screen: match, location });
 		});
 
-		// Bind gesture manager to the main content area
-		gestureManager.start(rootEl);
 		router.start(rootEl);
+		gestureManager.start(rootEl);
 	},
 
 };

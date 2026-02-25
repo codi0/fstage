@@ -1,38 +1,16 @@
-import { FsComponent, html, css } from '@fstage/component';
+function _getTaskId(ctx) {
+	var id = ctx.store.get('route.match.params.id');
+	return id ? String(id) : null;
+}
 
-export class PwaTaskDetail extends FsComponent {
+export default {
 
-	static inject = {
-		tasks: 'store:tasks',
-		route: 'store:route',
-	};
+	tag: 'pwa-task-detail',
 
-	static styles = css`
-		.view-header {
-			display: flex; align-items: center; gap: 8px;
-			padding: calc(var(--safe-top) + 12px) 16px 12px;
-			position: sticky; top: 0; background: var(--bg-secondary); z-index: 10;
-			border-bottom: 1px solid var(--separator);
-		}
+	inject: ['store', 'animator'],
 
-		.back-btn {
-			display: flex; align-items: center; gap: 4px;
-			background: none; border: none; color: var(--color-primary); font-size: 16px;
-			cursor: pointer; padding: 0; -webkit-tap-highlight-color: transparent;
-			min-height: 44px; min-width: 44px; font-family: inherit;
-		}
-		.back-btn svg { width: 20px; height: 20px; stroke: currentColor; stroke-width: 2; fill: none; }
-
-		.header-actions { margin-left: auto; }
-
-		.icon-btn {
-			width: 36px; height: 36px; border-radius: 50%; border: none;
-			background: var(--bg-tertiary); cursor: pointer;
-			display: flex; align-items: center; justify-content: center;
-			color: var(--text-secondary); -webkit-tap-highlight-color: transparent;
-		}
-		.icon-btn.danger { color: var(--color-danger); }
-		.icon-btn svg { width: 17px; height: 17px; stroke: currentColor; stroke-width: 2; stroke-linecap: round; fill: none; }
+	style: (ctx) => ctx.css`
+		:host { display: block; }
 
 		.body { padding: 24px 16px 48px; display: flex; flex-direction: column; gap: 24px; }
 
@@ -46,7 +24,6 @@ export class PwaTaskDetail extends FsComponent {
 		.title-input.done  { color: var(--text-tertiary); text-decoration: line-through; }
 
 		.section { background: var(--bg-base); border-radius: var(--radius-lg); overflow: hidden; }
-
 		.section-row { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--separator); }
 		.section-row:last-child { border-bottom: none; }
 
@@ -91,71 +68,72 @@ export class PwaTaskDetail extends FsComponent {
 		.complete-btn.mark-done { background: var(--color-success); color: #fff; }
 		.complete-btn.mark-open { background: var(--bg-base); color: var(--text-primary); border: 1.5px solid var(--separator); }
 
-		.not-found { padding: 48px 24px; text-align: center; color: var(--text-secondary); }
-	`;
-
-	_getTask() {
-		const id = this.route?.match?.params?.id;
-		if (!id) return null;
-		return (this.tasks || []).find(t => t.id === String(id)) || null;
-	}
-
-	_toggleComplete(t) {
-		this.store.model('tasks').toggle(t.id);
-		if (this.animator) {
-			const btn = this.querySelector('.complete-btn');
-			if (btn) this.animator.animate(btn, 'pop', { duration: 260 });
+		.delete-btn {
+			width: 100%; padding: 14px; border-radius: var(--radius-md);
+			border: 1.5px solid var(--color-danger-subtle); background: var(--color-danger-subtle);
+			color: var(--color-danger); font-size: 16px; font-weight: 600;
+			cursor: pointer; font-family: inherit; -webkit-tap-highlight-color: transparent;
 		}
-	}
 
-	_delete(t) {
-		if (!confirm('Delete this task?')) return;
-		this.store.model('tasks').delete(t.id);
-		// data-back on this button handles navigation after click
-	}
+		.not-found { padding: 48px 24px; text-align: center; color: var(--text-secondary); }
+	`,
 
-	render() {
-		const t = this._getTask();
+	interactions: {
+		'change(.title-input)': function(e, ctx) {
+			var id = _getTaskId(ctx);
+			if (id) ctx.store.model('tasks').update(id, { title: e.matched.value });
+		},
+		'change(.due-input)': function(e, ctx) {
+			var id = _getTaskId(ctx);
+			if (id) ctx.store.model('tasks').update(id, { dueDate: e.matched.value || null });
+		},
+		'click(.pri-btn)': function(e, ctx) {
+			var id = _getTaskId(ctx);
+			if (id) ctx.store.model('tasks').update(id, { priority: e.matched.dataset.priority });
+		},
+		'change(.inline-textarea)': function(e, ctx) {
+			var id = _getTaskId(ctx);
+			if (id) ctx.store.model('tasks').update(id, { description: e.matched.value });
+		},
+		'click(.complete-btn)': function(e, ctx) {
+			var id = _getTaskId(ctx);
+			if (!id) return;
+			ctx.store.model('tasks').toggle(id);
+			ctx.animator.animate(e.matched, 'pop', { duration: 260 });
+		},
+		'click(.delete-btn)': function(e, ctx) {
+			var id = _getTaskId(ctx);
+			if (!id) return;
+			if (!confirm('Delete this task?')) return;
+			ctx.store.model('tasks').delete(id);
+		},
+	},
 
-		const header = html`
-			<div class="view-header">
-				<button class="back-btn" data-back aria-label="Back">
-					<svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
-					Tasks
-				</button>
-				${t ? html`
-					<div class="header-actions">
-						<!-- data-back navigates away after delete -->
-						<button class="icon-btn danger" data-back @click=${() => this._delete(t)} aria-label="Delete task">
-							<svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
-						</button>
-					</div>
-				` : ''}
-			</div>
-		`;
+	render: function(ctx) {
+		var route = ctx.store.get('route');
+		var id    = route && route.match && route.match.params && route.match.params.id;
+		var tasks = ctx.store.get('tasks') || [];
+		var t     = id ? tasks.find(function(task) { return task.id === String(id); }) || null : null;
 
-		if (!t) return html`${header}<div class="not-found">Task not found.</div>`;
+		if (!t) return ctx.html`<div class="not-found">Task not found.</div>`;
 
-		return html`
-			${header}
+		return ctx.html`
 			<div class="body">
 
-				<input class="title-input ${t.completed ? 'done' : ''}"
+				<input
+					class=${'title-input' + (t.completed ? ' done' : '')}
 					type="text" .value=${t.title}
-					@change=${e => this.store.model('tasks').update(t.id, { title: e.target.value })}
 					aria-label="Task title"
 				/>
 
 				<div class="section">
 					<div class="section-row">
-						<div class="row-icon ${t.completed ? 'green' : 'gray'}">
+						<div class=${t.completed ? 'row-icon green' : 'row-icon gray'}>
 							<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
 						</div>
 						<span class="row-label">Status</span>
-						<span>
-							<span class="status-badge ${t.completed ? 'done' : 'open'}">
-								${t.completed ? '✓ Completed' : 'Open'}
-							</span>
+						<span class=${t.completed ? 'status-badge done' : 'status-badge open'}>
+							${t.completed ? '✓ Completed' : 'Open'}
 						</span>
 					</div>
 					<div class="section-row">
@@ -163,9 +141,8 @@ export class PwaTaskDetail extends FsComponent {
 							<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
 						</div>
 						<span class="row-label">Due</span>
-						<input class="inline-input" type="date"
+						<input class="inline-input due-input" type="date"
 							.value=${t.dueDate || ''}
-							@change=${e => this.store.model('tasks').update(t.id, { dueDate: e.target.value || null })}
 						/>
 					</div>
 				</div>
@@ -178,13 +155,14 @@ export class PwaTaskDetail extends FsComponent {
 						<span class="row-label">Priority</span>
 					</div>
 					<div class="priority-row">
-						${['high', 'medium', 'low'].map(p => html`
-							<button class="pri-btn ${p} ${t.priority === p ? 'active' : ''}"
-								@click=${() => this.store.model('tasks').update(t.id, { priority: p })}>
+						${['high', 'medium', 'low'].map(function(p) { return ctx.html`
+							<button
+								class=${t.priority === p ? 'pri-btn ' + p + ' active' : 'pri-btn ' + p}
+								data-priority=${p}>
 								<span class="pri-dot"></span>
 								${p.charAt(0).toUpperCase() + p.slice(1)}
 							</button>
-						`)}
+						`; })}
 					</div>
 				</div>
 
@@ -195,19 +173,20 @@ export class PwaTaskDetail extends FsComponent {
 						</div>
 						<textarea class="inline-textarea" placeholder="Add notes…" rows="3"
 							.value=${t.description || ''}
-							@change=${e => this.store.model('tasks').update(t.id, { description: e.target.value })}
 						></textarea>
 					</div>
 				</div>
 
-				<button class="complete-btn ${t.completed ? 'mark-open' : 'mark-done'}"
-					@click=${() => this._toggleComplete(t)}>
+				<button class=${t.completed ? 'complete-btn mark-open' : 'complete-btn mark-done'}>
 					${t.completed ? 'Mark as Open' : 'Mark as Complete'}
+				</button>
+
+				<button class="delete-btn" data-back>
+					Delete Task
 				</button>
 
 			</div>
 		`;
-	}
-}
+	},
 
-customElements.define('pwa-task-detail', PwaTaskDetail);
+};

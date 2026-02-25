@@ -201,13 +201,18 @@ a {
 	-webkit-overflow-scrolling: touch;
 }
 
-/* Hide scrollbars but keep functionality */
-::-webkit-scrollbar {
-	display: none;
+/* Scrollbars: hidden on touch, thin on desktop */
+@media (pointer: coarse) {
+	::-webkit-scrollbar { display: none; }
+	* { scrollbar-width: none; }
 }
 
-* {
-	scrollbar-width: none;
+@media (pointer: fine) {
+	::-webkit-scrollbar { width: 6px; height: 6px; }
+	::-webkit-scrollbar-track { background: transparent; }
+	::-webkit-scrollbar-thumb { background: var(--separator-heavy); border-radius: 3px; }
+	::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
+	* { scrollbar-width: thin; scrollbar-color: var(--separator-heavy) transparent; }
 }
 
 

@@ -152,9 +152,19 @@ function deviceId(userAgent) {
 // Build env
 // ==============================
 
-function buildEnv() {
+const _cache = {};
 
-	var ua = globalThis.navigator ? navigator.userAgent : '';
+export function getEnv(opts) {
+	opts = opts || {};
+
+	//set user agent
+	const ua = opts.ua || (globalThis.navigator ? navigator.userAgent : '');
+
+	//is cached?
+	if (_cache[ua]) {
+		return _cache[ua];
+	}
+
 	var parsedUa = parseUa(ua);
 
 	var raw = {
@@ -172,7 +182,7 @@ function buildEnv() {
 		},
 
 		platform: {
-			os: parsedUa.os,
+			os: opts.preset || parsedUa.os,
 			hybrid: false,
 			hybridEngine: '',
 			standalone: (globalThis.matchMedia && globalThis.matchMedia('(display-mode: standalone)').matches) || (globalThis.navigator && navigator.standalone === true)
@@ -180,8 +190,8 @@ function buildEnv() {
 
 		capabilities: {
 			notifications: ('Notification' in globalThis),
-			serviceWorker: ('serviceWorker' in (globalThis.navigator || {})),
-			touch: globalThis.navigator && navigator.maxTouchPoints > 0
+			serviceWorker: globalThis.navigator && ('serviceWorker' in globalThis.navigator),
+			touch: (!!opts.preset) || (globalThis.navigator && navigator.maxTouchPoints > 0)
 		},
 
 		location: {
@@ -316,9 +326,6 @@ function buildEnv() {
 		var isTouch = e.getFact('capabilities.touch');
 		var isAndroidIos = ['ios', 'android'].includes(os);
 		var preset = (isTouch && isAndroidIos) ? os : 'default';
-		
-		isTouch = true;
-		preset = 'ios';
 
 		var presetObj = {
 
@@ -435,11 +442,10 @@ function buildEnv() {
 
 	});
 	
-	// Return env object
-	
+	//add to cache
+	_cache[ua] = env;
+
+	//return
 	return env;
 
 }
-
-//export
-export const env = buildEnv();

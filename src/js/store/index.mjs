@@ -2,19 +2,16 @@ import { getType, copy, hash, schedule, nestedKey, diffValues } from '../utils/i
 
 
 export function createStore(config) {
-	config = config || {};
-	
 	config = Object.assign({
 		state: {},
 		copyOnGet: true,
 		diffQuery: true,
 		schedulers: {
 			onChange: 'sync',
-			computed: 'sync',
 			effect: 'micro',
-			trackAccess: 'micro'
+			runAccessHooks: 'micro'
 		}
-	}, config);
+	}, config || {});
 
 	const getCache = {};
 	const modelsCache = {};
@@ -31,9 +28,13 @@ export function createStore(config) {
 	var cycleId = 0;
 
 	function getParentPaths(path) {
-		if (parentPathCache.has(path)) return parentPathCache.get(path);
+		if (parentPathCache.has(path)) {
+			return parentPathCache.get(path);
+		}
 		
+		const orig = path;
 		const parents = [];
+
 		var idx = path.lastIndexOf('.');
 		while (idx > 0) {
 			path = path.substring(0, idx);
@@ -42,7 +43,7 @@ export function createStore(config) {
 		}
 		if (path) parents.push('');
 		
-		parentPathCache.set(path, parents);
+		parentPathCache.set(orig, parents);
 		return parents;
 	}
 
@@ -78,7 +79,7 @@ export function createStore(config) {
 			(function(k) {
 				if (!accessHooks[k]) return;
 
-				// Child key access triggered a parent hook — register tracker on the
+				// Child key access triggered a parent hook -- register tracker on the
 				// parent too, so when api.set('settings') fires, this component is notified
 				if (k !== key) logAccess(k);
 
@@ -99,7 +100,9 @@ export function createStore(config) {
 						query: opts.query || {}
 					};
 
-					if (opts.refresh || !opts.cache.run) cb(e);
+					if (opts.refresh || !opts.cache.run) {
+						cb(e);
+					}
 				}
 
 				if (!e) return;
@@ -107,41 +110,41 @@ export function createStore(config) {
 				opts.cache.run = true;
 				if (opts.refresh) opts.cache.lastRefresh = Date.now();
 
-				const reqId = (opts.cache.reqId || 0) + 1;
-				opts.cache.reqId = reqId;
-
 				if (e.val instanceof Promise) {
-					if (k === key) opts.cache.loading = (opts.val === undefined);
 
-					e.val.then(function(res) {
-						if (opts.cache.reqId !== reqId) return;
-
-						const onSuccess = function(v2) {
+					const processProm = function(p) {
+						return p.then(function(v) {
+							const hasNext = (p.next && p.next instanceof Promise);
+							if (!hasNext || v !== undefined) {
+								if (k === key) {
+									opts.cache.error = null;
+									opts.cache.loading = false;
+								}
+								api[e.merge ? 'merge' : 'set'](k, v, { src: 'get' });
+							}
+							if (hasNext) {
+								processProm(p.next);
+							}
+						}).catch(function(err) {
 							if (k === key) {
-								opts.cache.error = null;
+								opts.cache.error = err;
 								opts.cache.loading = false;
 							}
-							api[e.merge ? 'merge' : 'set'](k, v2, { src: 'get' });
-						};
+							console.error('onAccess', k, err);
+						});
+					};
 
-						onSuccess(res);
+					if (k === key) {
+						opts.cache.loading = (opts.val === undefined);
+					}
 
-						if (e.val.next) {
-							e.val.next.then(function(nextRes) {
-								if (opts.cache.reqId !== reqId) return;
-								onSuccess(nextRes);
-							});
-						}
-					}).catch(function(err) {
-						if (opts.cache.reqId !== reqId) return;
-						if (k === key) {
-							opts.cache.error = err;
-							opts.cache.loading = false;
-						}
-						console.error('onAccess', k, err);
-					});
+					processProm(e.val);
+					
 				} else {
-					api[e.merge ? 'merge' : 'set'](k, e.val, { src: 'get' });
+					schedule(function() {
+						api[e.merge ? 'merge' : 'set'](k, e.val, { src: 'get' });
+					}, config.schedulers.runAccessHooks);
+
 					const re = new RegExp('^' + k.replace(/\./g, '\\.') + '\\.');
 					const rk = (key === k) ? '' : key.replace(re, '');
 					opts.val = nestedKey(e.val, rk);
@@ -154,58 +157,52 @@ export function createStore(config) {
 		return opts.val;
 	}
 
-	function createDiffQuery(diff=[]) {
-		//wrapper function
+	function createDiffQuery(diff) {
+		diff = diff || [];
 		return function(regex, cb) {
-			//set vars
-			var processed = new Set();
-			var length = regex.split('.').length;
-			var regexObj = null;
-			//format regex?
-			if(regex == '*') {
-				regexObj = null;
-			} else if(regex) {
-				regexObj = new RegExp('^' + regex.replace('.', '\\.').replace('*', '(.*?)'));
+			regex = regex || '*';
+
+			const processed = new Set();
+
+			if (regex === '*') {
+				for (var i = 0; i < diff.length; i++) {
+					const key = diff[i].path;
+					if (processed.has(key)) continue;
+					processed.add(key);
+
+					const val = api.get(key, { track: false });
+					const action = (key === diff[i].path) ? diff[i].action : 'update';
+					const res = cb(key, val, action);
+					if (res instanceof Promise) res.then(function(d) { api.set(key, d, { src: 'set' }); });
+				}
+				return;
 			}
-			//loop through diff
-			for(var i=0; i < diff.length; i++) {
-				//set key
-				var key = diff[i].path;
-				//check regex?
-				if(regexObj && !regexObj.test(diff[i].path)) {
-					continue;
-				}
-				//format key
-				if(regexObj) {
-					key = key.split('.').slice(0, length).join('.');
-				}
-				//already processed?
-				if(processed.has(key)) {
-					continue;
-				}
-				//mark processed
+
+			const length = regex.split('.').length;
+			const hasStar = regex.indexOf('*') !== -1;
+
+			// Only build regex when wildcard is present
+			const re = hasStar
+				? new RegExp('^' + regex.replace(/\./g, '\\.').replace(/\*/g, '(.*?)'))
+				: null;
+
+			for (var i = 0; i < diff.length; i++) {
+				const path = diff[i].path;
+
+				if (re && !re.test(path)) continue;
+				if (!re && path !== regex && path.indexOf(regex + '.') !== 0) continue;
+
+				const key = hasStar ? path.split('.').slice(0, length).join('.') : regex;
+
+				if (processed.has(key)) continue;
 				processed.add(key);
-				//get value
-				var val = api.get(key, { track: false });
-				//get action
-				var action = (key == diff[i].path) ? diff[i].action : 'update';
-				//closure
-				(function(key, val, action) {
-					//callback
-					var res = cb(key, val, action);
-					//is promise?
-					if(res instanceof Promise) {
-						//wait for promise
-						res.then(function(data) {
-							//internal update
-							api.set(key, data, {
-								src: 'set'
-							});
-						});
-					}
-				})(key, val, action);
+
+				const val = api.get(key, { track: false });
+				const action = (key === diff[i].path) ? diff[i].action : 'update';
+				const res = cb(key, val, action);
+				if (res instanceof Promise) res.then(function(d) { api.set(key, d, { src: 'set' }); });
 			}
-		}
+		};
 	}
 
 	function updateChangeQueue(path, src, diffRes) {
@@ -240,7 +237,7 @@ export function createStore(config) {
 				if (item.ctx && item.ctx.isUpdatePending) continue;
 
 				const e = { key: path, val: val, loading: (src === 'get'), ctx: item.ctx };
-				schedule(function() { item.cb(e); }, item.scheduler);
+				item.cb(e);
 			}
 		}
 	}
@@ -334,7 +331,7 @@ export function createStore(config) {
 			}
 
 			if (!key && getType(val) !== 'object') {
-				throw new Error('Root state value must be an object');
+				throw new Error('[fstage/store] Root state must be an object');
 			}
 
 			if (val === curVal) return Promise.resolve(val);
@@ -362,7 +359,7 @@ export function createStore(config) {
 							batchDiffList.push({ seq: ++batchSeq, entry: entry });
 						});
 					} else {
-						runChangeHooks(diff, opts.src);
+						runChangeHooks(diff, opts.src || 'set');
 					}
 				}
 			}
@@ -371,9 +368,8 @@ export function createStore(config) {
 		},
 
 		merge: function(key, val, opts) {
-			opts = opts || {};
-			opts.merge = true;
-			return api.set(key, val, opts);
+			// Do not mutate caller's opts -- create a new object
+			return api.set(key, val, Object.assign({}, opts, { merge: true }));
 		},
 
 		del: function(key, opts) {
@@ -382,37 +378,46 @@ export function createStore(config) {
 
 		batch: function(fn) {
 			batchDepth++;
+			var threw = false;
 			try {
 				return fn();
+			} catch(e) {
+				threw = true;
+				batchDiffList = null;
+				throw e;
 			} finally {
 				batchDepth--;
-				if (batchDepth === 0) commitBatch();
+				if (!threw && batchDepth === 0) commitBatch();
 			}
 		},
 
 		computed: function(cb, opts) {
 			opts = opts || {};
-			
+
 			var value;
 			var dirty = true;
 			var computing = false;
 
-			const scheduler = opts.scheduler || config.schedulers.computed;
+			const owner = {};
 
-			function recompute() {
+			const markDirty = function() {
 				dirty = true;
-			}
+			};
 
 			const obj = {
 				get value() {
-					if (computing) return value;
+					if (computing) {
+						return value;
+					}
 					if (dirty) {
 						computing = true;
-						const stop = api.trackAccess(recompute, { ctx: obj, scheduler: scheduler });
-						value = cb(api);
-						dirty = false;
-						computing = false;
-						stop();
+
+						api.trackAccess(owner, function() {
+							value = cb(api);
+							dirty = false;
+							computing = false;
+							return function() { markDirty(); };
+						});
 					}
 					return value;
 				},
@@ -420,14 +425,15 @@ export function createStore(config) {
 					return obj.value;
 				},
 				abort: function() {
-					const item = trackerItems.get(recompute);
+					const item = trackerItems.get(owner);
 					if (item) {
 						detachTracker(item);
-						trackerItems.delete(recompute);
+						trackerItems.delete(owner);
 					}
 				}
 			};
 
+			// prime once
 			obj.value;
 
 			return obj;
@@ -435,29 +441,38 @@ export function createStore(config) {
 
 		effect: function(cb, opts) {
 			opts = opts || {};
-			
+
 			const scheduler = opts.scheduler || config.schedulers.effect;
+			
+			const owner = {};
+			var aborted = false;
 
-			function runner() {
-				const stop = api.trackAccess(runner, { scheduler: scheduler });
-				cb(api);
-				stop();
-			}
+			// run once to establish deps + register invalidation
+			const run = function() {
+				if (aborted) return;
 
-			runner();
+				api.trackAccess(owner, function() {
+					cb(api);
+					return function() { schedule(run, scheduler); };
+				});
+			};
 
+			run();
+
+			// disposer
 			return function() {
-				const item = trackerItems.get(runner);
+				aborted = true;
+				const item = trackerItems.get(owner);
 				if (item) {
 					detachTracker(item);
-					trackerItems.delete(runner);
+					trackerItems.delete(owner);
 				}
 			};
 		},
 
 		onChange: function(key, cb, opts) {
 			if (!key || typeof key !== 'string') {
-				throw new Error("onChange key must be a non-empty string");
+				throw new Error('[fstage/store] onChange key must be a non-empty string');
 			}
 
 			opts = opts || {};
@@ -480,7 +495,7 @@ export function createStore(config) {
 
 		onAccess: function(key, cb) {
 			if (!key || typeof key !== 'string') {
-				throw new Error("onAccess key must be a non-empty string");
+				throw new Error('[fstage/store] onAccess key must be a non-empty string');
 			}
 		
 			accessHooks[key] = accessHooks[key] || new Set();
@@ -494,30 +509,42 @@ export function createStore(config) {
 			};
 		},
 
-		trackAccess: function(cb, opts) {
-			opts = opts || {};
-			
-			var item = trackerItems.get(cb);
-			
+		trackAccess: function(owner, runFn, opts) {
+			if (!owner || typeof runFn !== 'function') return;
+
+			// One tracker item per owner
+			var item = trackerItems.get(owner);
+
 			if (!item) {
 				item = {
-					cb: cb,
-					ctx: opts.ctx || null,
-					scheduler: opts.scheduler || config.schedulers.trackAccess,
+					cb: null,
+					ctx: owner,
 					deps: new Set(),
 					depsRun: new Set(),
-					_cycleId: 0
+					_cycleId: 0,
+					_invalidate: null
 				};
-				trackerItems.set(cb, item);
+
+				// Stable callback registered in trackerPaths
+				item.cb = function(e) {
+					item._invalidate(e);
+				};
+
+				trackerItems.set(owner, item);
 			} else {
-				if (opts.ctx !== undefined) item.ctx = opts.ctx;
-				if (opts.scheduler) item.scheduler = opts.scheduler;
 				item.depsRun.clear();
 			}
 
+			// Begin tracking scope
 			trackerStack.push(item);
 
-			return function() {
+			try {
+				item._invalidate = runFn();
+				if (typeof item._invalidate !== 'function') {
+					throw new Error('[fstage/store] trackAccess runFn must return a function');
+				}
+			} finally {
+				// End tracking scope
 				if (trackerStack.length && trackerStack[trackerStack.length - 1] === item) {
 					trackerStack.pop();
 				} else {
@@ -525,6 +552,7 @@ export function createStore(config) {
 					if (idx > -1) trackerStack.splice(idx, 1);
 				}
 
+				// Replace-on-run: unsubscribe removed deps
 				for (const oldPath of item.deps) {
 					if (!item.depsRun.has(oldPath)) {
 						const m = trackerPaths[oldPath];
@@ -535,9 +563,10 @@ export function createStore(config) {
 					}
 				}
 
+				// Replace current deps with deps from this run
 				item.deps = new Set(item.depsRun);
 				item.depsRun.clear();
-			};
+			}
 		},
 
 		meta: function(key, query) {
@@ -549,7 +578,8 @@ export function createStore(config) {
 			};
 		},
 
-		withMeta: function(key, opts={}) {
+		withMeta: function(key, opts) {
+			opts = opts || {};
 			opts.track = true;
 			var data = this.get(key, opts);
 			var meta = this.meta(key, opts.query || {});
@@ -563,23 +593,17 @@ export function createStore(config) {
 		},
 
 		model: function(key, model) {
-			//set model?
 			if (model) {
-				//already exists?
 				if (modelsCache[key]) {
-					throw new Error("store.model key already exists: " + key);
+					throw new Error('[fstage/store] model key already exists: ' + key);
 				}
-				//check type
 				const type = getType(model);
-				const allowed = [ 'object', 'function' ];
-				//valid type?
+				const allowed = ['object', 'function'];
 				if (!allowed.includes(type)) {
-					throw new Error("store.model model must be: " + allowed.join(', '));
+					throw new Error('[fstage/store] model must be an object or function');
 				}
-				//add to cache
 				modelsCache[key] = model;
 			}
-			//return model
 			return modelsCache[key] || null;
 		}
 

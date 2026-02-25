@@ -1,14 +1,14 @@
 import { defaultRegistry } from '@fstage/registry';
 
 
-// SERVICES
+// -- Services -----------------------------------------------------------------
 
 const registry    = defaultRegistry();
 const store       = registry.get('store');
 const syncManager = registry.get('syncManager');
 
 
-// TASKS
+// -- Tasks ---------------------------------------------------------------------
 
 store.onAccess('tasks', function(e) {
 	e.val = syncManager.read('tasks', {
@@ -17,7 +17,7 @@ store.onAccess('tasks', function(e) {
 		remote: {
 			uri:         'api/tasks.json',
 			resDataPath: 'records',
-		}
+		},
 	});
 });
 
@@ -29,13 +29,14 @@ store.onChange('tasks', function(e) {
 				uri:         'api/tasks.json',
 				reqDataPath: 'record',
 				resIdPath:   'data.id',
-			}
+			},
 		});
 	});
 });
 
 store.model('tasks', {
-	add: function(data) {
+
+	add(data) {
 		store.set('tasks', function(tasks) {
 			return [{
 				id:          String(Date.now()),
@@ -48,29 +49,61 @@ store.model('tasks', {
 			}, ...(tasks || [])];
 		});
 	},
-	toggle: function(id) {
+
+	toggle(id) {
 		store.set('tasks', function(tasks) {
-			return (tasks || []).map(function(t) {
-				return t.id === String(id) ? Object.assign({}, t, { completed: !t.completed }) : t;
-			});
+			return (tasks || []).map(t =>
+				t.id === String(id) ? { ...t, completed: !t.completed } : t
+			);
 		});
 	},
-	update: function(id, data) {
+
+	update(id, data) {
 		store.set('tasks', function(tasks) {
-			return (tasks || []).map(function(t) {
-				return t.id === String(id) ? Object.assign({}, t, data) : t;
-			});
+			return (tasks || []).map(t =>
+				t.id === String(id) ? { ...t, ...data } : t
+			);
 		});
 	},
-	delete: function(id) {
+
+	delete(id) {
 		store.set('tasks', function(tasks) {
-			return (tasks || []).filter(function(t) { return t.id !== String(id); });
+			return (tasks || []).filter(t => t.id !== String(id));
 		});
 	},
+
+	grouped() {
+		const tasks = store.get('tasks') || [];
+		const today = new Date().toISOString().split('T')[0];
+		const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
+
+		const buckets = {
+			overdue:  { key: 'overdue', label: 'Overdue', tasks: [] },
+			today:    { key: 'today', label: 'Today', tasks: [] },
+			tomorrow: { key: 'tomorrow', label: 'Tomorrow', tasks: [] },
+			future:   { key: 'upcoming', label: 'Upcoming', tasks: [] },
+			none:     { key: 'none', label: 'No Date', tasks: [] },
+		};
+
+		for (const task of tasks) {
+			if (task.completed) continue;
+			const d = task.dueDate;
+			if (!d)            buckets.none.tasks.push(task);
+			else if (d < today) buckets.overdue.tasks.push(task);
+			else if (d === today)    buckets.today.tasks.push(task);
+			else if (d === tomorrow) buckets.tomorrow.tasks.push(task);
+			else                     buckets.future.tasks.push(task);
+		}
+
+		return ['overdue', 'today', 'tomorrow', 'future', 'none']
+			.map(k => buckets[k])
+			.filter(g => g.tasks.length > 0);
+	},
+
 });
 
 
-// SETTINGS
+// -- Settings ------------------------------------------------------------------
 
 store.onAccess('settings', function(e) {
 	e.val = syncManager.read('settings', {
@@ -84,7 +117,7 @@ store.onChange('settings', function(e) {
 });
 
 store.model('settings', {
-	setTheme: function(theme) {
+	setTheme(theme) {
 		store.merge('settings', { theme });
 	},
 });

@@ -1,28 +1,64 @@
-import { FsComponent, html, css } from '@fstage/component';
+function _dateFor(daysOffset) {
+	return new Date(Date.now() + daysOffset * 86400000).toISOString().split('T')[0];
+}
 
-export class PwaTasks extends FsComponent {
+function _submitForm(e, ctx) {
+	var title = ctx.state.newTitle.trim();
+	if (!title) return;
+	ctx.store.model('tasks').add({
+		title:    title,
+		dueDate:  ctx.state.newDate || null,
+		priority: ctx.state.newPriority,
+	});
+	ctx.state.sheetOpen = false;
+}
 
-	static shadowDom = false;
+function _runOverlay(ctx) {
+	var addBtn = document.createElement('button');
+	addBtn.classList.add('pwa-add-btn');
+	addBtn.ariaLabel = 'Add task';
+	addBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+	addBtn.addEventListener('click', function() {
+		ctx.state.sheetOpen   = true;
+		ctx.state.newTitle    = '';
+		ctx.state.newDate     = _dateFor(0);
+		ctx.state.newPriority = 'medium';
+	});
 
-	static inject = {
-		tasks: 'store:tasks',
-	};
-
-	static styles = css`
-		pwa-tasks { display: block; padding: 0; width: 100%; }
-
-		.view-header {
-			display: flex; align-items: center; gap: 8px;
-			padding: calc(var(--safe-top) + 12px) 16px 12px;
-			position: sticky; top: 0; background: var(--bg-secondary); z-index: 10;
-			border-bottom: 1px solid var(--separator);
+	var addStyle = document.createElement('style');
+	addStyle.innerText = `
+		.pwa-add-btn {
+			position: fixed; right: 20px; bottom: calc(var(--tab-height) + 16px);
+			width: 56px; height: 56px; border-radius: 50%; background: var(--color-primary);
+			border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;
+			box-shadow: 0 4px 16px rgba(0,0,0,0.2); -webkit-tap-highlight-color: transparent;
+			transition: transform 0.15s ease, box-shadow 0.15s ease; z-index: 50;
 		}
+		.pwa-add-btn:active { transform: scale(0.92); box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+		.pwa-add-btn svg { width: 24px; height: 24px; stroke: #fff; stroke-width: 2.5; stroke-linecap: round; fill: none; }
+	`;
 
-		.view-title-row { display: flex; width: 100%; align-items: flex-end; justify-content: space-between; padding: 12px 0 8px; }
-		.view-title { font-size: 28px; font-weight: 700; color: var(--text-primary); line-height: 1; }
-		.task-count { font-size: 13px; color: var(--text-secondary); padding-bottom: 2px; }
+	var overlay = document.querySelector('pwa-overlay');
+	overlay.mount('add-btn', addBtn);
+	overlay.mount('add-btn-style', addStyle);
 
-		.list-body { padding: 8px 16px 100px; }
+	ctx.cleanup(function() {
+		overlay.unmount('add-btn');
+		overlay.unmount('add-btn-style');
+	});
+}
+
+
+export default {
+
+	tag: 'pwa-tasks',
+
+	inject: ['store'],
+
+	style: (ctx) => ctx.css`
+		:host { display: block; width: 100%; }
+
+		.list-body { padding: 8px 16px 32px; }
 
 		.section-header { font-size: 13px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.06em; padding: 20px 0 8px; }
 		.section-header:first-child { padding-top: 8px; }
@@ -31,16 +67,6 @@ export class PwaTasks extends FsComponent {
 		.empty-state { text-align: center; padding: 48px 24px; color: var(--text-tertiary); }
 		.empty-icon  { font-size: 48px; margin-bottom: 12px; opacity: 0.5; }
 		.empty-title { font-size: 17px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; }
-
-		.fab {
-			position: fixed; right: 16px; bottom: 16px;
-			width: 56px; height: 56px; border-radius: 50%; background: var(--color-primary);
-			border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;
-			box-shadow: 0 4px 16px rgba(0,0,0,0.2); -webkit-tap-highlight-color: transparent;
-			transition: transform 0.15s ease, box-shadow 0.15s ease; z-index: 50;
-		}
-		.fab:active { transform: scale(0.92); box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
-		.fab svg { width: 24px; height: 24px; stroke: #fff; stroke-width: 2.5; stroke-linecap: round; fill: none; }
 
 		.add-form { display: flex; flex-direction: column; gap: 16px; }
 		.form-field { display: flex; flex-direction: column; gap: 6px; }
@@ -75,7 +101,7 @@ export class PwaTasks extends FsComponent {
 		.priority-btn.active.high   { background: var(--color-danger-subtle);  border-color: var(--color-danger);  }
 		.priority-btn.active.medium { background: var(--color-warning-subtle); border-color: var(--color-warning); }
 		.priority-btn.active.low    { background: var(--bg-tertiary);          border-color: var(--text-secondary); }
-		.priority-dot-sm { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+		.priority-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
 
 		.submit-btn {
 			width: 100%; padding: 14px; border-radius: var(--radius-md); border: none;
@@ -83,118 +109,65 @@ export class PwaTasks extends FsComponent {
 			cursor: pointer; -webkit-tap-highlight-color: transparent; font-family: inherit; transition: opacity 0.15s ease;
 		}
 		.submit-btn:disabled { opacity: 0.4; }
-	`;
+	`,
 
-	constructor() {
-		super();
-		this.tasks        = [];
-		this._sheetOpen   = false;
-		this._newTitle    = '';
-		this._newDate     = '';
-		this._newPriority = 'medium';
-	}
+	interactions: {
+		'bottomSheetClosed':    function(e, ctx) { ctx.state.sheetOpen = false; },
+		'input(#task-title)':   function(e, ctx) { ctx.state.newTitle = e.matched.value; },
+		'keydown(#task-title)': function(e, ctx) { if (e.key === 'Enter') _submitForm(e, ctx); },
+		'click(.date-chip)':    function(e, ctx) { ctx.state.newDate = e.matched.dataset.date || ''; },
+		'click(.priority-btn)': function(e, ctx) { ctx.state.newPriority = e.matched.dataset.priority; },
+		'click(.submit-btn)':   function(e, ctx) { _submitForm(e, ctx); },
+	},
 
-	_groupTasks() {
-		const today    = new Date().toISOString().split('T')[0];
-		const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
-		const nextWeek = new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0];
+	state: {
+		sheetOpen:   false,
+		newTitle:    '',
+		newDate:     '',
+		newPriority: 'medium',
+	},
 
-		const groups = [
-			{ key: 'overdue',  label: 'Overdue',  tasks: [] },
-			{ key: 'today',    label: 'Today',    tasks: [] },
-			{ key: 'tomorrow', label: 'Tomorrow', tasks: [] },
-			{ key: 'thisWeek', label: 'This Week',tasks: [] },
-			{ key: 'later',    label: 'Later',    tasks: [] },
-			{ key: 'noDate',   label: 'No Date',  tasks: [] },
-		];
+	connected: function(ctx) {
+		_runOverlay(ctx);
+	},
 
-		for (const task of (this.tasks || []).filter(t => !t.completed)) {
-			const d = task.dueDate;
-			if      (!d)             groups[5].tasks.push(task);
-			else if (d < today)      groups[0].tasks.push(task);
-			else if (d === today)    groups[1].tasks.push(task);
-			else if (d === tomorrow) groups[2].tasks.push(task);
-			else if (d <= nextWeek)  groups[3].tasks.push(task);
-			else                     groups[4].tasks.push(task);
-		}
+	render: function(ctx) {
+		var groups      = ctx.store.model('tasks').grouped();
+		var sheetOpen   = ctx.state.sheetOpen;
+		var newTitle    = ctx.state.newTitle;
+		var newDate     = ctx.state.newDate;
+		var newPriority = ctx.state.newPriority;
+		var rowIndex    = 0;
+		var dateToday    = _dateFor(0);
+		var dateTomorrow = _dateFor(1);
+		var dateNextWeek = _dateFor(7);
 
-		return groups.filter(g => g.tasks.length > 0);
-	}
-
-	_openSheet() {
-		this._newTitle    = '';
-		this._newDate     = new Date().toISOString().split('T')[0];
-		this._newPriority = 'medium';
-		this._sheetOpen   = true;
-		this.requestUpdate();
-	}
-
-	_closeSheet() {
-		this._sheetOpen = false;
-		this.requestUpdate();
-	}
-
-	_setDateShortcut(daysOffset) {
-		this._newDate = new Date(Date.now() + daysOffset * 86400000).toISOString().split('T')[0];
-		this.requestUpdate();
-	}
-
-	_dateShortcutActive(daysOffset) {
-		return this._newDate === new Date(Date.now() + daysOffset * 86400000).toISOString().split('T')[0];
-	}
-
-	_submit() {
-		const title = (this._newTitle || '').trim();
-		if (!title) return;
-		this.store.model('tasks').add({ title, dueDate: this._newDate || null, priority: this._newPriority });
-		this._sheetOpen = false;
-		this.requestUpdate();
-	}
-
-	render() {
-		const groups = this._groupTasks();
-		const total  = (this.tasks || []).filter(t => !t.completed).length;
-		let rowIndex = 0;
-
-		return html`
-			<div class="view-header">
-				<div class="view-title-row">
-					<span class="view-title">Tasks</span>
-					<span class="task-count">${total} remaining</span>
-				</div>
-			</div>
-
+		return ctx.html`
 			<div class="list-body">
-				${groups.length === 0 ? html`
+				${groups.length === 0 ? ctx.html`
 					<div class="empty-state">
 						<div class="empty-icon">✓</div>
 						<div class="empty-title">All done!</div>
 						<div>Tap + to add a task</div>
 					</div>
-				` : groups.map(group => html`
+				` : groups.map(function(group) { return ctx.html`
 					<div class="section-header">${group.label}</div>
-					<div class="task-group">
-						${group.tasks.map(task => html`
-							<pwa-task-row .task=${task} .index=${rowIndex++}></pwa-task-row>
-						`)}
+					<div key=${group.key} class="task-group">
+						${group.tasks.map(function(task) { return ctx.html`
+							<pwa-task-row key=${task.id} .task=${task} .index=${rowIndex++}></pwa-task-row>
+						`; })}
 					</div>
-				`)}
+				`; })}
 			</div>
 
-			<button class="fab" @click=${this._openSheet} aria-label="Add task">
-				<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-			</button>
-
-			<pwa-bottom-sheet title="New Task" ?open=${this._sheetOpen} @close=${this._closeSheet}>
+			<pwa-bottom-sheet .title=${'New Task'} .open=${sheetOpen}>
 				<div class="add-form">
 
 					<div class="form-field">
 						<label class="form-label" for="task-title">Title</label>
 						<input id="task-title" class="form-input" type="text"
 							placeholder="What needs doing?"
-							.value=${this._newTitle}
-							@input=${e => { this._newTitle = e.target.value; this.requestUpdate(); }}
-							@keydown=${e => e.key === 'Enter' && this._submit()}
+							.value=${newTitle}
 							autocomplete="off"
 						/>
 					</div>
@@ -202,33 +175,32 @@ export class PwaTasks extends FsComponent {
 					<div class="form-field">
 						<span class="form-label">Due date</span>
 						<div class="date-shortcuts">
-							<button class="date-chip ${this._dateShortcutActive(0) ? 'active' : ''}" @click=${() => this._setDateShortcut(0)}>Today</button>
-							<button class="date-chip ${this._dateShortcutActive(1) ? 'active' : ''}" @click=${() => this._setDateShortcut(1)}>Tomorrow</button>
-							<button class="date-chip ${this._dateShortcutActive(7) ? 'active' : ''}" @click=${() => this._setDateShortcut(7)}>Next week</button>
-							<button class="date-chip ${!this._newDate ? 'active' : ''}" @click=${() => { this._newDate = ''; this.requestUpdate(); }}>None</button>
+							<button class=${newDate === dateToday    ? 'date-chip active' : 'date-chip'} data-date=${dateToday}>Today</button>
+							<button class=${newDate === dateTomorrow ? 'date-chip active' : 'date-chip'} data-date=${dateTomorrow}>Tomorrow</button>
+							<button class=${newDate === dateNextWeek ? 'date-chip active' : 'date-chip'} data-date=${dateNextWeek}>Next week</button>
+							<button class=${!newDate ? 'date-chip active' : 'date-chip'} data-date="">None</button>
 						</div>
 					</div>
 
 					<div class="form-field">
 						<span class="form-label">Priority</span>
 						<div class="priority-btns">
-							${['high', 'medium', 'low'].map(p => html`
-								<button class="priority-btn ${p} ${this._newPriority === p ? 'active' : ''}"
-									@click=${() => { this._newPriority = p; this.requestUpdate(); }}>
-									<span class="priority-dot-sm"></span>
-									${p.charAt(0).toUpperCase() + p.slice(1)}
+							${['high', 'medium', 'low'].map(function(p) { return ctx.html`
+								<button class=${p === newPriority ? 'priority-btn ' + p + ' active' : 'priority-btn ' + p} data-priority=${p}>
+									<span class="priority-dot"></span>
+									${p[0].toUpperCase() + p.slice(1)}
 								</button>
-							`)}
+							`; })}
 						</div>
 					</div>
 
-					<button class="submit-btn" ?disabled=${!this._newTitle.trim()} @click=${this._submit}>
+					<button class="submit-btn" ?disabled=${!newTitle.trim()}>
 						Add Task
 					</button>
+
 				</div>
 			</pwa-bottom-sheet>
 		`;
-	}
-}
+	},
 
-customElements.define('pwa-tasks', PwaTasks);
+};
