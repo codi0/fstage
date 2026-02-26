@@ -77,35 +77,6 @@ export default {
 		},
 	},
 
-	rendered: function(ctx, changed) {
-		if (!('open' in changed)) return;
-
-		var open     = ctx.props.open;
-		var panel    = ctx.root.querySelector('.sheet-panel');
-		var backdrop = ctx.root.querySelector('.sheet-backdrop');
-		if (!panel || !backdrop) return;
-
-		if (open) {
-			panel.classList.remove('is-open');
-			backdrop.classList.add('visible');
-			var anim = ctx.animator.animate(panel, 'slideUpSheet', { duration: 320 });
-			anim.finished.then(function() {
-				panel.classList.add('is-open');
-				panel.style.transform = '';
-				anim.cancel();
-			});
-			var slot  = ctx.root.querySelector('slot');
-			var first = slot && slot.assignedElements({ flatten: true }).reduce(function(found, el) { return found || el.querySelector('input, textarea, [autofocus]'); }, null);
-			if (first) first.focus();
-		} else {
-			var anim = ctx.animator.animate(panel, 'slideDownSheet', { duration: 260 });
-			anim.finished.then(function() {
-				panel.classList.remove('is-open');
-				backdrop.classList.remove('visible');
-			});
-		}
-	},
-
 	render: function(ctx) {
 		return ctx.html`
 			<div class="sheet-backdrop"></div>
@@ -133,5 +104,34 @@ export default {
 			</div>
 		`;
 	},
+
+	rendered: function(ctx, changed) {
+		if (!('open' in changed)) return;
+
+		var open     = ctx.props.open;
+		var panel    = ctx.root.querySelector('.sheet-panel');
+		var backdrop = ctx.root.querySelector('.sheet-backdrop');
+		if (!panel || !backdrop) return;
+
+		if (open) {
+			panel.classList.remove('is-open');
+			backdrop.classList.add('visible');
+			var anim = ctx.animator.animate(panel, 'slideUpSheet', { duration: 320 });
+			anim.finished.then(function() {
+				panel.classList.add('is-open');
+				panel.style.transform = '';
+				anim.cancel();
+			});
+			var slot  = ctx.root.querySelector('slot');
+			var first = slot && slot.assignedElements({ flatten: true }).reduce(function(found, el) { return found || el.querySelector('input, textarea, [autofocus]'); }, null);
+			if (first) first.focus();
+		} else {
+			var anim = ctx.animator.animate(panel, 'slideDownSheet', { duration: 260 });
+			anim.finished.then(function() {
+				panel.classList.remove('is-open');
+				backdrop.classList.remove('visible');
+			});
+		}
+	}
 
 };

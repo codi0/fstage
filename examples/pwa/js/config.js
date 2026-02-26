@@ -17,7 +17,7 @@ globalThis.FSCONFIG = {
 		libs: [
 			'lit',
 			'@fstage/component',
-			'@fstage/store',
+			'@fstage/store/signals.mjs',
 			'@fstage/sync',
 			'@fstage/history',
 			'@fstage/router',
@@ -128,7 +128,7 @@ globalThis.FSCONFIG = {
 		var envPolicy = env.getPolicy();
 		var lit = Object.assign({}, e.get('lit'));
 
-		var store = e.get('store.createStore', []);
+		var store = e.get('store/signals.createStore', []);
 		var syncManager = e.get('sync.createSyncManager',   []);
 
 		var animator = e.get('animator.createAnimator', [{
@@ -152,6 +152,14 @@ globalThis.FSCONFIG = {
 			gestureManager,
 			interactionsManager
 		}]);
+		
+		componentRuntime.extendCtx('watch', function(ctx, cleanupFns) {
+			if (!ctx.store) return;
+
+			return function(key, cb) {
+				cleanupFns.push(ctx.store.onChange(key, cb));
+			};
+		});
 
 		registry.set('env', env);
 		registry.set('store', store);

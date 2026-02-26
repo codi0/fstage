@@ -22,7 +22,7 @@ A component definition is a plain object. All fields are optional except `tag`.
 | `inject` | `InjectSpec` | Registry services to inject. See §4. |
 | `style` | `string \| (ctx) => CSS` | Component-scoped styles. |
 | `interactions` | `InteractionMap` | Declarative event and interaction handlers. See §5. |
-| `init(ctx)` | `function` | Called once per instance after `ctx` is ready, before DOM exists. |
+| `constructed(ctx)` | `function` | Called once per instance after `ctx` is ready, before DOM exists. |
 | `connected(ctx)` | `function` | Called on each connection of the component to the DOM. |
 | `disconnected(ctx)` | `function` | Called on each disconnection, after cleanup functions have run. |
 | `render(ctx)` | `function` | Returns renderable output. See §7. |
@@ -147,11 +147,13 @@ interactions: {
 | `ctx.css` | Tagged template literal for styles. |
 | `ctx.svg` | Tagged template literal for inline SVG. |
 | `ctx.host` | The custom element node. |
-| `ctx.root` | The render root (`shadowRoot` or `host` for light DOM). `null` during `init` and `connected` — available from the first render onward. |
+| `ctx.root` | The render root (`shadowRoot` or `host` for light DOM). Only guaranteed to be available from the first render onward. |
 | `ctx.props` | Current prop values. Read-only. |
 | `ctx.state` | Local mutable state. Top-level key assignments trigger re-render. |
 | `ctx.emit(type, detail?, opts?)` | Dispatches a `CustomEvent` from `host` (`bubbles: true`, `composed: true`). |
 | `ctx.cleanup(fn)` | Registers a teardown function, called on disconnect in reverse order before `disconnected`. |
+
+Additional `ctx` properties may be registered via `extendCtx` — see §9.
 
 ---
 
@@ -159,8 +161,8 @@ interactions: {
 
 ### Per-instance setup
 
-1. Create `ctx`; apply `props` defaults; initialise `state`; resolve `inject`.
-2. Call `init(ctx)`.
+1. Create `ctx`; apply `props` defaults; initialise `state`; resolve `inject`; resolve `extendCtx` extensions.
+2. Call `constructed(ctx)`.
 
 ### Connect
 
@@ -222,9 +224,8 @@ export default {
   },
 
   connected(ctx) {
-    // Example of connected: subscribe to an external event source and register cleanup
-    const off = ctx.store.on('sync', () => ctx.host.classList.add('synced'));
-    ctx.cleanup(off);
+    // ctx.watch is registered via extendCtx at app setup time
+    ctx.watch('tasks', (e) => { ctx.state.tasks = e.val; });
   },
 
   render(ctx) {
@@ -251,3 +252,19 @@ A conforming runtime must implement the behaviour defined in §7 and expose the 
 - Document its reactivity model for props and state.
 - Document any runtime-extended interaction key formats and their handler signatures.
 - Document any additional `ctx` fields it exposes beyond those defined in §6.
+
+### `extendCtx(key, fn)`
+
+Runtimes must expose an `extendCtx` method allowing additional properties to be registered on `ctx` at application setup time. This enables store-specific or app-specific helpers to be made available in component definitions without coupling them to a concrete implementation.
+
+```js
+runtime.extendCtx('watch', function(ctx, cleanupFns) {
+	if (!ctx.store) return;
+	
+	return function(key, cb) {
+		cleanupFns.push(ctx.store.onChange(key, cb));
+	};
+});
+```
+
+The factory function receives `ctx` and `cleanupFns` for the instance and must return the value to assign to `ctx[key]`. Extensions are resolved after `inject` at construction time. The runtime must throw if the key conflicts with an existing `ctx` property or a reserved key.

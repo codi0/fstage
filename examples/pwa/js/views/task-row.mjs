@@ -104,10 +104,6 @@ export default {
 		},
 	},
 
-	rendered: function(ctx) {
-		ctx.host.style.setProperty('--row-index', ctx.props.index);
-	},
-
 	render: function(ctx) {
 		var t = ctx.props.task;
 		if (!t) return ctx.html``;
@@ -149,6 +145,10 @@ export default {
 			</div>
 		`;
 	},
+
+	rendered: function(ctx) {
+		ctx.host.style.setProperty('--row-index', ctx.props.index);
+	}
 
 };
 

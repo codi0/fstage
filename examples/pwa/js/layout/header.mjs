@@ -74,6 +74,6 @@ export default {
 				${subtitle ? ctx.html`<span class="header-subtitle">${subtitle}</span>` : ''}
 			</div>
 		`;
-	},
+	}
 
 };

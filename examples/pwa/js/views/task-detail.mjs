@@ -187,6 +187,6 @@ export default {
 
 			</div>
 		`;
-	},
+	}
 
 };

@@ -31,6 +31,7 @@ export default {
 	render: function(ctx) {
 		var theme = ctx.store.get('settings.theme') || 'auto';
 		ctx.host.setAttribute('data-theme', theme);
+
 		return ctx.html`
 			<pwa-header></pwa-header>
 			<pwa-main></pwa-main>

@@ -1,47 +1,19 @@
 // @fstage/component
 //
-// Definition-based web component runtime.
+// Definition-based web component runtime, based on LitElement for maximum compatibility.
 //
 // Accepts component definition objects (per the Fstage Component Definition Standard) and registers them as custom elements.
 
-import { getGlobalCss, stylesToString } from '../utils/index.mjs';
+import { adoptStyleSheet, getGlobalCss } from '../utils/index.mjs';
 
-
-// --- Helpers
-
-const compSheets = new Map();
-
-function adoptSheet(root, sheet) {
-	if (root.adoptedStyleSheets && !root.adoptedStyleSheets.includes(sheet)) {
-		root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
-	}
-}
-
-function cssToSheet(css) {
-	var sheet = null;
-	var cssText = stylesToString(css);
-	if (cssText) {
-		sheet = new CSSStyleSheet();
-		sheet.replaceSync(cssText);
-	}
-	return sheet;
-}
-
-function doDispatchEvent(el, type, details, opts) {
-	opts = opts || {};
-	var event = new CustomEvent(type, Object.assign({ bubbles: true, composed: true, detail: details || null }, opts));
-	return el.dispatchEvent(event);
-}
-
-
-// --- Runtime Factory
 
 export function createRuntime(config) {
 
 	config = config || {};
 
+	const extensions = {};
 	const helpers = config.ctx || {};
-	const baseClass = config.baseClass || HTMLElement;
+	const baseClass = config.baseClass || null;
 
 	const registry = config.registry;
 	const interactionsManager = config.interactionsManager;
@@ -49,18 +21,15 @@ export function createRuntime(config) {
 	// All reserved definition keys — not copied to the prototype
 	const reserved = [
 		'tag', 'shadow', 'globalStyles', 'props', 'state', 'inject', 'style', 'render',
-		'interactions', 'init', 'connected', 'disconnected', 'rendered', 'onError'
+		'interactions', 'constructed', 'connected', 'disconnected', 'rendered', 'onError'
 	];
 
 	return {
 
 		define: function(def) {
-			if (!def.tag || def.tag.indexOf('-') === -1) throw new Error('[fstage/component] Invalid tag: ' + def.tag);
-			if (customElements.get(def.tag)) throw new Error('[fstage/component] Already defined: ' + def.tag);
-			
 			const defaults = {
 				shadow: true,
-				globalStyles: true,
+				globalStyles: !!config.globalStyles,
 				inject: [],
 				props: {},
 				state: {},
@@ -73,22 +42,43 @@ export function createRuntime(config) {
 				}
 			}
 
+			if (!baseClass) throw new Error('[fstage/component] baseClass required');
+			if (!def.tag || def.tag.indexOf('-') === -1) throw new Error('[fstage/component] Invalid tag: ' + def.tag);
+			if (customElements.get(def.tag)) throw new Error('[fstage/component] Already defined: ' + def.tag);
+
 			class Component extends baseClass {
 
 				static get properties() {
 					const props = {};
+
 					for (var k in (def.props || {})) {
 						const ps = def.props[k];
 						props[k] = {
 							attribute: ps.attr || false,
 							reflect:   ps.reflect || false,
-							// Accept constructor references (Number, Boolean) or legacy strings
+							// Accept string or constructor reference (String, Number, Boolean)
 							type: ps.type === Boolean || ps.type === 'boolean' ? Boolean
 							    : ps.type === Number  || ps.type === 'number'  ? Number
 							    : String
 						};
 					}
+
 					return props;
+				}
+				
+				static get styles() {
+						if (!def.style) return;
+
+						const res = typeof def.style === 'function' ? def.style(helpers) : def.style;
+						if (!res) return;
+
+						// Already a CSSResult (from css`` tag) — pass straight through
+						if (res.cssText !== undefined) return res;
+
+						// Plain string — wrap it
+						if (typeof res === 'string') return helpers.unsafeCSS(res);
+
+						throw new Error('[fstage/component] def.style must be a string or css template literal (or a function returning one)');
 				}
 
 				constructor() {
@@ -137,8 +127,9 @@ export function createRuntime(config) {
 					});
 
 					// ctx.emit — dispatch a composed, bubbling CustomEvent from the host
-					ctx.emit = function(type, detail, opts) {
-						return doDispatchEvent(self, type, detail, opts);
+					ctx.emit = (type, detail, opts) => {
+						var event = new CustomEvent(type, Object.assign({ bubbles: true, composed: true, detail: detail || null }, opts || {}));
+						return this.dispatchEvent(event);
 					};
 
 					// ctx.cleanup — register a teardown function run on disconnectedCallback
@@ -158,47 +149,37 @@ export function createRuntime(config) {
 						ctx[key] = service;
 					});
 
-					if (def.init) def.init(ctx);
+					// Resolve extensions
+					for (var key in extensions) {
+						if (ctx[key] !== undefined) {
+							throw new Error('[fstage/component] ctx.' + key + ' already exists');
+						}
+						var fn = extensions[key](ctx, cleanupFns);
+						if (typeof fn === 'function') {
+							ctx[key] = fn;
+						}
+					}
+
+					if (def.constructed) def.constructed(ctx);
 				}
 
 				createRenderRoot() {
-					const ctx = this.__ctx;
-					if (ctx.root) return ctx.root;
+						const ctx = this.__ctx;
+						if (ctx.root) return ctx.root;
 
-					if (!compSheets.has(def.tag)) {
-						const styleText  = (typeof def.style === 'function') ? def.style(ctx) : (def.style || '');
-						compSheets.set(def.tag, cssToSheet(styleText));
-					}
-					
-					const styleSheet = compSheets.get(def.tag);
+						if (def.shadow) {
+								ctx.root = super.createRenderRoot();
+								if (def.globalStyles) getGlobalCss().forEach(function(s) { adoptStyleSheet(ctx.root, s); });
+						} else {
+								ctx.root = this;
+								if (!this.constructor.__adopted) {
+										this.constructor.__adopted = true;
+										const styles = this.constructor.styles;
+										if (styles) adoptStyleSheet(document, styles, def.tag);
+								}
+						}
 
-					if (def.shadow) {
-						ctx.root = super.createRenderRoot();
-						if (def.globalStyles) getGlobalCss().forEach(function(s) { adoptSheet(ctx.root, s); });
-						if (styleSheet) adoptSheet(ctx.root, styleSheet);
-					} else {
-						ctx.root = this;
-						if (styleSheet) adoptSheet(document, styleSheet);
-					}
-					return ctx.root;
-				}
-
-				connectedCallback() {
-					const ctx = this.__ctx;
-					super.connectedCallback();
-					if (def.connected) def.connected(ctx);
-				}
-
-				disconnectedCallback() {
-					const ctx        = this.__ctx;
-					const cleanupFns = this.__cleanupFns;
-					super.disconnectedCallback();
-
-					while (cleanupFns.length > 0) {
-						cleanupFns.pop()();
-					}
-
-					if (def.disconnected) def.disconnected(ctx);
+						return ctx.root;
 				}
 
 				render() {
@@ -216,17 +197,40 @@ export function createRuntime(config) {
 					}
 				}
 
+				connectedCallback() {
+					const ctx = this.__ctx;
+					super.connectedCallback();
+					
+					if (def.connected) def.connected(ctx);
+				}
+
+				disconnectedCallback() {
+					const ctx        = this.__ctx;
+					const cleanupFns = this.__cleanupFns;
+
+					while (cleanupFns.length > 0) {
+						cleanupFns.pop()();
+					}
+
+					if (def.disconnected) def.disconnected(ctx);
+				}
+
 				performUpdate() {
+					if (!this.isUpdatePending) {
+						return;
+					}
+
 					const ctx = this.__ctx;
 
 					if (!ctx.store || !ctx.store.trackAccess) {
-						return super.performUpdate();
+						super.performUpdate();
+						return;
 					}
 
-					ctx.store.trackAccess(this, () => {
+					ctx.cleanup(ctx.store.trackAccess(this, () => {
 						super.performUpdate();
 						return () => this.requestUpdate();
-					});
+					}));
 				}
 
 				firstUpdated(changedProperties) {
@@ -265,6 +269,16 @@ export function createRuntime(config) {
 
 			customElements.define(def.tag, Component);
 		},
+
+    extendCtx: function(key, fn) {
+        if (reserved.includes(key)) {
+					throw new Error('[fstage/component] extendCtx key reserved: ' + key);
+				}
+				if (typeof fn !== 'function') {
+					throw new Error('[fstage/component] extendCtx fn must be a function');
+				}
+        extensions[key] = fn;
+    }
 
 	};
 

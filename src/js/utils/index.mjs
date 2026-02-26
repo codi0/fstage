@@ -191,37 +191,6 @@ export function capitalize(input) {
 	return input ? input.charAt(0).toUpperCase() + input.slice(1) : '';
 }
 
-//vertical page scroll
-export function scroll(position=null, opts={}) {
-	//set opts
-	opts = Object.assign({
-		parent: document.body,
-		scroller: '.scroller',
-		bottom: '.bottom'
-	}, opts);
-	//has scroller?
-	if(opts.scroller) {
-		opts.parent = opts.parent.querySelector(opts.scroller) || opts.parent;
-	}
-	//scroll to bottom?
-	if(opts.bottom && !position) {
-		if(opts.parent === opts.parent.closest(opts.bottom)) {
-			position = opts.parent.scrollHeight;
-		}
-	}
-	//calculate scroll position?
-	if(position && position.nodeType) {
-		var tmp = 0;
-		while(position && position !== opts.parent) {
-			tmp += position.offsetTop;
-			position = position.parentNode;
-		}
-		position = tmp;
-	}
-	//set scroll position
-	opts.parent.scrollTop = Number(position) + (opts.adjust || 0);
-}
-
 //parse html
 export function parseHTML(input, first=false) {
 	//parse html string?
@@ -552,10 +521,49 @@ export function schedule(fn, type) {
 		var fns = Array.from(schedule.__queued[type]);
 		schedule.__queued[type].clear();
 		schedule.__flushing[type] = false;
-		for(var i=0; i < fns.length; i++) {
-			fns[i]();
+		for (var i = 0; i < fns.length; i++) {
+			// FIX: isolate each callback so a throw doesn't abort
+			// subsequent callbacks in the same flush batch.
+			try {
+				fns[i]();
+			} catch(e) {
+				console.error('[schedule] Error in scheduled callback:', e);
+			}
 		}
 	});
+}
+
+// css to string
+export function cssToString(css, tagName) {
+    if (Array.isArray(css)) {
+        return css.map(s => cssToString(s, tagName)).join('\n');
+    }
+    if (typeof css === 'object' && css !== null && 'cssText' in css) {
+        css = css.cssText;
+    }
+    css = (css || '').trim();
+    if (css && tagName) {
+        css = css.replace(/:host\(([^)]*)\)/g, tagName + '$1');
+        css = css.replace(/:host/g, tagName);
+    }
+    return css;
+}
+
+// css to sheet
+export function cssToSheet(css, tagName) {
+    const cssText = cssToString(css, tagName);
+    if (!cssText) return null;
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync(cssText);
+    return sheet;
+}
+
+// adopt css stylesheet
+export function adoptStyleSheet(root, css, tagName) {
+    const sheet = cssToSheet(css, tagName);
+    if (sheet && root.adoptedStyleSheets && !root.adoptedStyleSheets.includes(sheet)) {
+        root.adoptedStyleSheets = [...root.adoptedStyleSheets, sheet];
+    }
 }
 
 //get global css
@@ -563,24 +571,19 @@ export function getGlobalCss(useCache=true) {
 	//generate cache?
 	if(!useCache || !getGlobalCss.__$cache) {
 		getGlobalCss.__$cache = Array.from(document.styleSheets).map(function(s) {
-			var css = Array.from(s.cssRules).map(rule => rule.cssText).join(' ');
-			var sheet = new CSSStyleSheet();
-			sheet.replaceSync(css);
-			return sheet;
-		});
+			var rules = null;
+			try {
+				rules = s && s.cssRules ? Array.from(s.cssRules) : null;
+			} catch (e) {
+				rules = null;
+			}
+			if(!rules || !rules.length) return null;
+			var css = rules.map(rule => rule.cssText).join(' ');
+			return cssToSheet(css);
+		}).filter(Boolean);
 	}
 	//return
 	return getGlobalCss.__$cache;
-}
-
-//styles to string
-export function stylesToString(styles) {
-	if('cssText' in styles) {
-		styles = styles.cssText;
-	} else if(Array.isArray(styles)) {
-		styles = styles.map(s => stylesToString(s)).join('\n');
-	}
-	return (styles || '').trim();
 }
 
 //emulate calling class 'super'

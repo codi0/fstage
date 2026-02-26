@@ -160,13 +160,6 @@
 					return false;
 				}					
 			},
-			importMapCan: function() {
-				try {
-					return !!(HTMLScriptElement.supports && HTMLScriptElement.supports('importmap'));
-				} catch (err) {
-					return false;
-				}
-			},
 			lsCan: function(){
 				var test = 1;
 				try {
@@ -212,7 +205,7 @@
 				}, opts);
 				//set message?
 				if(!opts.message) {
-					if(!tests.importMapCan() || !tests.lsCan()) {
+					if(!tests.es6Can() || !tests.lsCan()) {
 						opts.mode = 'text';
 						opts.message = '<div class="pwa-unsupported">Unfortunately this device is not supported</div>';
 					} else if(!tests.online() && !tests.swHas()) {
@@ -301,7 +294,7 @@
 		splash.show();
 		
 		//stop here?
-		if(!tests.importMapCan() || !tests.lsCan()) {
+		if(!tests.es6Can() || !tests.lsCan()) {
 			return;
 		}
 

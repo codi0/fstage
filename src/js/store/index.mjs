@@ -234,8 +234,6 @@ export function createStore(config) {
 				if (item._cycleId === cycleId) continue;
 				item._cycleId = cycleId;
 
-				if (item.ctx && item.ctx.isUpdatePending) continue;
-
 				const e = { key: path, val: val, loading: (src === 'get'), ctx: item.ctx };
 				item.cb(e);
 			}
@@ -295,16 +293,16 @@ export function createStore(config) {
 			opts = opts || {};
 			
 			var val = nestedKey(config.state, key, { default: opts.default });
+			var hasTracking = trackerStack.length || Object.keys(accessHooks).length;
+			var h = createHash(key, opts.query);
 			
 			if (config.copyOnGet && opts.copy !== false) {
 				val = copy(val, true);
 			}
 
-			if (opts.track !== false && (trackerStack.length || Object.keys(accessHooks).length)) {
-				const argsHash = createHash(key, opts.query);
-
-				if (!getCache[argsHash]) {
-					getCache[argsHash] = {};
+			if (hasTracking && opts.track !== false) {
+				if (!getCache[h]) {
+					getCache[h] = {};
 					if (opts.refresh === undefined) opts.refresh = true;
 				}
 
@@ -314,11 +312,25 @@ export function createStore(config) {
 					val: val,
 					query: opts.query,
 					refresh: opts.refresh,
-					cache: getCache[argsHash]
+					cache: getCache[h]
 				});
 			}
 
+			if (opts.meta) {
+				val = {
+					data: val,
+					loading: (getCache[h] || {}).loading || false,
+					error: (getCache[h] || {}).error || null
+				};
+			}
+
 			return val;
+		},
+
+		query: function(key, opts) {
+			opts = opts || {};
+			opts.meta = true;
+			return api.get(key, opts);
 		},
 
 		set: function(key, val, opts) {
@@ -377,13 +389,16 @@ export function createStore(config) {
 		},
 
 		batch: function(fn) {
+			const prevDiffList = batchDiffList;
+
 			batchDepth++;
 			var threw = false;
 			try {
 				return fn();
 			} catch(e) {
 				threw = true;
-				batchDiffList = null;
+				// Restore outer snapshot rather than nulling unconditionally.
+				batchDiffList = prevDiffList;
 				throw e;
 			} finally {
 				batchDepth--;
@@ -407,15 +422,19 @@ export function createStore(config) {
 			const obj = {
 				get value() {
 					if (computing) {
+						console.warn('[fstage/store] computed: self-referencing computed detected, returning current value');
 						return value;
 					}
 					if (dirty) {
 						computing = true;
 
 						api.trackAccess(owner, function() {
-							value = cb(api);
-							dirty = false;
-							computing = false;
+							try {
+								value = cb(api);
+								dirty = false;
+							} finally {
+								computing = false;
+							}
 							return function() { markDirty(); };
 						});
 					}
@@ -527,13 +546,21 @@ export function createStore(config) {
 
 				// Stable callback registered in trackerPaths
 				item.cb = function(e) {
-					item._invalidate(e);
+					if (item._invalidate) item._invalidate(e);
 				};
 
 				trackerItems.set(owner, item);
 			} else {
 				item.depsRun.clear();
 			}
+
+			// Snapshot deps before the run so we can restore them if runFn throws.
+			// Without this, a mid-execution throw would leave item.deps as a partial
+			// set -- paths accessed before the throw subscribed, paths after silently
+			// dropped -- causing missed invalidations until the next successful render.
+			const prevDeps = new Set(item.deps);
+			const prevInvalidate = item._invalidate;
+			var threw = false;
 
 			// Begin tracking scope
 			trackerStack.push(item);
@@ -543,6 +570,25 @@ export function createStore(config) {
 				if (typeof item._invalidate !== 'function') {
 					throw new Error('[fstage/store] trackAccess runFn must return a function');
 				}
+			} catch(e) {
+				threw = true;
+				// Restore the previous complete dep set and invalidator so the tracker
+				// remains correctly wired until the next successful render.
+				item.deps = prevDeps;
+				item._invalidate = prevInvalidate;
+				// Re-register any deps that depsRun may have partially added to
+				// trackerPaths but which are not in the restored prevDeps.
+				for (const path of item.depsRun) {
+					if (!prevDeps.has(path)) {
+						const m = trackerPaths[path];
+						if (m) {
+							m.delete(item.cb);
+							if (!m.size) delete trackerPaths[path];
+						}
+					}
+				}
+				item.depsRun.clear();
+				throw e;
 			} finally {
 				// End tracking scope
 				if (trackerStack.length && trackerStack[trackerStack.length - 1] === item) {
@@ -552,44 +598,23 @@ export function createStore(config) {
 					if (idx > -1) trackerStack.splice(idx, 1);
 				}
 
-				// Replace-on-run: unsubscribe removed deps
-				for (const oldPath of item.deps) {
-					if (!item.depsRun.has(oldPath)) {
-						const m = trackerPaths[oldPath];
-						if (m) {
-							m.delete(item.cb);
-							if (!m.size) delete trackerPaths[oldPath];
+				if (!threw) {
+					// Replace-on-run: unsubscribe removed deps
+					for (const oldPath of item.deps) {
+						if (!item.depsRun.has(oldPath)) {
+							const m = trackerPaths[oldPath];
+							if (m) {
+								m.delete(item.cb);
+								if (!m.size) delete trackerPaths[oldPath];
+							}
 						}
 					}
+
+					// Replace current deps with deps from this run
+					item.deps = new Set(item.depsRun);
+					item.depsRun.clear();
 				}
-
-				// Replace current deps with deps from this run
-				item.deps = new Set(item.depsRun);
-				item.depsRun.clear();
 			}
-		},
-
-		meta: function(key, query) {
-			const argsHash = createHash(key, query);
-			const cache = getCache[argsHash] || {};
-			return {
-				error: cache.error || null,
-				loading: cache.loading || false
-			};
-		},
-
-		withMeta: function(key, opts) {
-			opts = opts || {};
-			opts.track = true;
-			var data = this.get(key, opts);
-			var meta = this.meta(key, opts.query || {});
-			meta.data = data;
-			return meta;
-		},
-
-		raw: function(path) {
-			const val = nestedKey(config.state, path);
-			return copy(val, true);
 		},
 
 		model: function(key, model) {

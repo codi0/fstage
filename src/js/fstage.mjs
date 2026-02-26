@@ -201,20 +201,24 @@ var load = function(path, type='') {
 			type: type,
 			path: path
 		};
+		//set default scope?
+		if(_modules.includes(e.path)) {
+			e.path = scope + '/' + e.path;
+		}
 		//set name
 		var name = e.path;
 		//format name?
 		if(name.indexOf(scope + '/') === 0) {
-			name = name.replace(scope + '/', '').replace(/\/index.mjs$/, '');
+			name = name.replace(scope + '/', '').replace(/\/index\.mjs$/, '');
+		}
+		//remove extension?
+		if(name.indexOf('://') === -1) {
+			name = name.replace('@', '').replace(/\.m?js$/, '');
 		}
 		//is cached?
 		if(_exports[name]) {
 			resolve(_exports[name]);
 			return;
-		}
-		//set default scope?
-		if(_modules.includes(e.path)) {
-			e.path = scope + '/' + e.path;
 		}
 		//before load hook
 		_cb(_config['beforeLoad'], [ e ]);

@@ -1,17 +1,6 @@
-// ==============================
-// Helpers: path formatting
-// ==============================
+// Helpers
 
-function formatPath(path) {
-	return path.split('#')[0].split('?')[0];
-}
-
-function formatBasePath(path) {
-	path = formatPath(path);
-	var parts = path.replace(/\/$/g, '').split('/');
-	if(parts[parts.length-1].indexOf('.') !== -1) parts.pop();
-	return parts.join('/') + '/';
-}
+const _cache = {};
 
 function merge(target, src) {
 	for (var k in src) {
@@ -35,13 +24,18 @@ function merge(target, src) {
 	return target;
 }
 
+function formatPath(path) {
+	return path.split('#')[0].split('?')[0];
+}
 
-// ==============================
-// Helpers: user-agent parsing
-// ==============================
+function formatBasePath(path) {
+	path = formatPath(path);
+	var parts = path.replace(/\/$/g, '').split('/');
+	if(parts[parts.length-1].indexOf('.') !== -1) parts.pop();
+	return parts.join('/') + '/';
+}
 
 function parseUa(ua) {
-
 	var res = {
 		os: '',
 		class: 'desktop'
@@ -74,85 +68,7 @@ function parseUa(ua) {
 }
 
 
-// ==============================
-// Helpers: device id
-// ==============================
-
-function canvasUrl() {
-
-	var res = '';
-	var canvas = globalThis.document ? document.createElement('canvas') : null;
-	var ctx = (canvas && canvas.getContext) ? canvas.getContext('2d') : null;
-
-	if(ctx) {
-		ctx.textBaseline = "alphabetic";
-		ctx.font = "14px 'Arial'";
-		ctx.fillStyle = "#f60";
-		ctx.fillRect(125, 1, 62, 20);
-		ctx.fillStyle = "#069";
-		ctx.fillText('cd', 2, 15);
-		ctx.fillStyle = "rgba(102,204,0,0.7)";
-		ctx.fillText('cd', 4, 17);
-		res = canvas.toDataURL();
-	}
-
-	return res;
-}
-
-function cyrb53(str, seed) {
-
-	if(!seed) seed = 0;
-
-	var h1 = 0xdeadbeef ^ seed;
-	var h2 = 0x41c6ce57 ^ seed;
-
-	for(var i=0,ch;i<str.length;i++) {
-		ch = str.charCodeAt(i);
-		h1 = Math.imul(h1 ^ ch, 2654435761);
-		h2 = Math.imul(h2 ^ ch, 1597334677);
-	}
-
-	h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507);
-	h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
-	h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507);
-	h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
-
-	return 4294967296 * (2097151 & h2) + (h1 >>> 0);
-}
-
-function deviceId(userAgent) {
-
-	var parts = [];
-
-	if(userAgent) {
-		parts.push((userAgent || '').toLowerCase().replace(/[^a-z]/g,''));
-	}
-
-	if(globalThis.navigator) {
-		parts.push((navigator.language || '').toLowerCase());
-	}
-
-	if(globalThis.screen) {
-		parts.push(screen.colorDepth || 0);
-		parts.push(
-			(screen.height > screen.width)
-			? screen.height+'x'+screen.width
-			: screen.width+'x'+screen.height
-		);
-	}
-
-	parts.push(new Date().getTimezoneOffset() || 0);
-	parts.push(canvasUrl());
-
-	return 'ID.' + cyrb53(parts.join(','));
-}
-
-
-// ==============================
 // Build env
-// ==============================
-
-const _cache = {};
 
 export function getEnv(opts) {
 	opts = opts || {};
@@ -177,7 +93,6 @@ export function getEnv(opts) {
 
 		device: {
 			userAgent: ua,
-			id: deviceId(ua),
 			class: parsedUa.class
 		},
 
@@ -223,10 +138,7 @@ export function getEnv(opts) {
 	// format base path
 	raw.location.basePath = formatBasePath(raw.location.basePath);
 
-	// ==============================
-	// POLICY LAYERING
-	// ==============================
-
+	// policy layering
 	var policyStack = []; // [{ fnOrObj, priority }]
 	var resolvedPolicy = null;
 
@@ -315,10 +227,7 @@ export function getEnv(opts) {
 	
 	};
 
-	// ==============================
-	// DEFAULT POLICY LAYERS
-	// ==============================
-
+	// default policy
 	env.registerPolicy(function(e) {
 
 		var os = e.getFact('platform.os');

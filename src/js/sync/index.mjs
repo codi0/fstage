@@ -36,7 +36,7 @@ export function createSyncManager(config={}) {
 	}, config);
 
 	//create queue
-	var queue = {};
+	var queue = [];
 
 	//remote handler
 	config.remoteHandler = config.remoteHandler || {

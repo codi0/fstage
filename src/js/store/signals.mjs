@@ -94,7 +94,15 @@ export function createStore(config) {
 
 	function readPath(path, tracked) {
 		const sig = getSig(path);
-		return tracked ? sig.value : config.ctx.untracked(function() { return sig.value; });
+		return tracked ? sig() : config.ctx.untracked(function() { return sig(); });
+	}
+
+	// Produce a shallow copy of an object or array, or return the value as-is
+	// for primitives. Used to break reference equality on ancestor signals so
+	// alien-signals always propagates to subscribers after a nested write.
+	function shallowBreak(val) {
+		if (!val || typeof val !== "object") return val;
+		return Array.isArray(val) ? val.slice() : Object.assign({}, val);
 	}
 
 	function writePath(path, val) {
@@ -122,19 +130,29 @@ export function createStore(config) {
 		}
 
 		// Ancestors -- walk up the path, including root ''
+		//
+		// alien-signals uses strict reference equality (pendingValue !== newValue) to decide
+		// whether to propagate. Because nestedKey mutates config.state in place, ancestor
+		// objects are the same reference they were before the write -- so assigning them back
+		// into their signal would be a no-op and subscribers would never be notified.
+		//
+		// Shallow-copying each ancestor value before assigning it breaks the reference
+		// equality, guaranteeing propagation while keeping the copy cost minimal (one level).
 		var p = path;
 		var dot = p.lastIndexOf('.');
 		while (dot >= 0) {
 			p = p.slice(0, dot);
 			if (signals.has(p)) {
-				const fresh = config.ctx.untracked(function() { return nestedKey(config.state, p); });
+				const raw = config.ctx.untracked(function() { return nestedKey(config.state, p); });
+				const fresh = shallowBreak(raw);
 				updates.push([ signals.get(p), fresh ]);
 			}
 			dot = p.lastIndexOf('.');
 		}
 		// ensure root is included for top-level keys too
 		if (path && signals.has('')) {
-			const fresh = config.ctx.untracked(function() { return nestedKey(config.state, ''); });
+			const raw = config.ctx.untracked(function() { return nestedKey(config.state, ''); });
+			const fresh = shallowBreak(raw);
 			updates.push([ signals.get(''), fresh ]);
 		}
 
@@ -142,7 +160,7 @@ export function createStore(config) {
 		//    after all affected signals settle, not once per signal update.
 		config.ctx.batch(function() {
 			for (var i = 0; i < updates.length; i++) {
-				updates[i][0].value = updates[i][1];
+				updates[i][0](updates[i][1]);
 			}
 		});
 	}
@@ -303,8 +321,8 @@ export function createStore(config) {
 				? new RegExp('^' + regex.replace(/\./g, '\\.').replace(/\*/g, '(.*?)'))
 				: null;
 
-			for (var i = 0; i < diff.length; i++) {
-				const path = diff[i].path;
+			for (var j = 0; j < diff.length; j++) {
+				const path = diff[j].path;
 
 				if (re && !re.test(path)) continue;
 				if (!re && path !== regex && path.indexOf(regex + '.') !== 0) continue;
@@ -315,13 +333,17 @@ export function createStore(config) {
 				processed.add(key);
 
 				const val = api.get(key, { track: false });
-				const action = (key === diff[i].path) ? diff[i].action : 'update';
+				const action = (key === diff[j].path) ? diff[j].action : 'update';
 				const res = cb(key, val, action);
 				if (res instanceof Promise) res.then(function(d) { api.set(key, d, { src: 'set' }); });
 			}
 		};
 	}
 
+	function createHash(key, query) {
+		var hasQuery = query && Object.keys(query).length;
+		return hasQuery ? hash(key, query) : key;
+	}
 
 	// ── Public API ────────────────────────────────────────────────────────────
 
@@ -335,23 +357,42 @@ export function createStore(config) {
 			opts = opts || {};
 
 			var val = readPath(key, opts.track !== false);
-
+			var h = createHash(key, opts.query);
+				
 			if (config.copyOnGet && opts.copy !== false) {
 				val = copy(val, true);
 			}
 
-			if (Object.keys(accessHooks).length) {
-				const h = opts.query ? hash(key, opts.query) : key;
+			// Only run access hooks when tracking is active
+			if (opts.track !== false && Object.keys(accessHooks).length) {
 				if (!accessCache[h]) {
 					accessCache[h] = {};
 					if (opts.refresh === undefined) opts.refresh = true;
 				}
+				
 				val = runAccessHooks(key, {
-					val: val, query: opts.query, refresh: opts.refresh, cache: accessCache[h],
+					val: val,
+					query: opts.query,
+					refresh: opts.refresh,
+					cache: accessCache[h],
 				});
 			}
 
+			if (opts.meta) {
+				val = {
+					data: val,
+					loading: (accessCache[h] || {}).loading || false,
+					error: (accessCache[h] || {}).error || null
+				};
+			}
+
 			return val;
+		},
+
+		query: function(key, opts) {
+			opts = opts || {};
+			opts.meta = true;
+			return api.get(key, opts);
 		},
 
 		set: function(key, val, opts) {
@@ -404,9 +445,10 @@ export function createStore(config) {
 
 		// Batches both signal propagation (via ctx.batch) and onChange notifications.
 		// onChange hooks fire once per path after the batch, with the final value.
-		// On exception, accumulated diffs are discarded (state was partially mutated
-		// but we do not notify -- the caller is responsible for recovery).
 		batch: function(fn) {
+			// Snapshot outer diffs so a throwing inner batch can't corrupt them.
+			const prevDiffs = batchDiffs;
+
 			batchDepth++;
 			config.ctx.startBatch();
 			var threw = false;
@@ -414,18 +456,21 @@ export function createStore(config) {
 				return fn();
 			} catch(e) {
 				threw = true;
-				batchDiffs = null;
+				// Restore to the snapshot rather than nulling unconditionally,
+				// so a caller who catches this exception keeps their outer diffs intact.
+				batchDiffs = prevDiffs;
 				throw e;
 			} finally {
 				config.ctx.endBatch();
 				batchDepth--;
 				if (!threw && batchDepth === 0) {
 					if (batchDiffs && batchDiffs.length) {
-						// Deduplicate by path, keeping first-seen seq for ordering
+						// Deduplicate by path, keeping the *last*-seen entry so the
+						// final action and value are what onChange callbacks observe.
 						const map = new Map();
 						for (var i = 0; i < batchDiffs.length; i++) {
 							const it = batchDiffs[i];
-							if (!map.has(it.entry.path)) map.set(it.entry.path, it);
+							map.set(it.entry.path, it);
 						}
 						const diff = Array.from(map.values())
 							.sort(function(a, b) { return a.seq - b.seq; })
@@ -442,15 +487,15 @@ export function createStore(config) {
 		// Derived computed value that reads from the store.
 		// Re-evaluates lazily when any accessed store path changes.
 		computed: function(fn, opts) {
-			opts = opts || {};
-			const sig = config.ctx.computed(function() { return fn(api); });
-			return {
-				get value() { return sig.value; },
-				get: function() { return sig.value; },
-				abort: function() {
-					// No explicit dispose; noop acceptable
-				}
-			};
+				const sig = config.ctx.computed(function() { return fn(api); });
+				let _dispose = config.ctx.effect(function() { sig(); });
+				return {
+						get value() { return sig(); },
+						get: function() { return sig(); },
+						abort: function() {
+								if (_dispose) { _dispose(); _dispose = null; }
+						}
+				};
 		},
 
 		// Reactive side effect that re-runs when accessed store paths change.
@@ -498,9 +543,7 @@ export function createStore(config) {
 
 		// trackAccess: runs runFn once in a signals-tracked context to establish
 		// reactive dependencies. When any accessed path changes, the returned
-		// invalidate callback is called (not runFn itself). This preserves
-		// the same contract as index.mjs: runFn runs exactly once per call to
-		// trackAccess, and the returned function handles invalidation.
+		// invalidate callback is called (not runFn itself).
 		//
 		// Implementation: use an effect with a "first run" guard.
 		// - First effect run: runFn() is called (e.g. performUpdate), dep signals
@@ -535,25 +578,8 @@ export function createStore(config) {
 			});
 
 			trackerItems.set(owner, { dispose: dispose });
-		},
-
-		meta: function(key, query) {
-			const h = query && Object.keys(query).length ? hash(key, query) : key;
-			const cache = accessCache[h] || {};
-			return { error: cache.error || null, loading: cache.loading || false };
-		},
-
-		withMeta: function(key, opts) {
-			opts = opts || {};
-			opts.track = true;
-			var data = this.get(key, opts);
-			var meta = this.meta(key, opts.query || {});
-			meta.data = data;
-			return meta;
-		},
-
-		raw: function(path) {
-			return config.ctx.untracked(function() { return copy(readPath(path, false), true); });
+			
+			return dispose;
 		},
 
 		model: function(key, model) {

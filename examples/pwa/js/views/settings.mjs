@@ -77,6 +77,6 @@ export default {
 				<div class="version-note">Built with Fstage</div>
 			</div>
 		`;
-	},
+	}
 
 };
