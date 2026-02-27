@@ -482,15 +482,21 @@ export 	function diffValues(oldVal, newVal, path='', processed=[]) {
 }
 
 //schedule helper
-export function schedule(fn, type) {
+export function schedule(fn, type, allowDupes) {
 	//setup caches?
 	if (!schedule.__queued) {
 		schedule.__queued = {};
 		schedule.__flushing = {};
 		schedule.__types = {
 			micro: function(fn) { queueMicrotask(fn); },
-			macro: function(fn) { setTimeout(fn, 0); }
+			macro: function(fn) { setTimeout(fn, 0); },
+			frame: function(fn) { requestAnimationFrame(fn); },
+			frame2: function(fn) { requestAnimationFrame(function() { requestAnimationFrame(fn) }); }
 		};
+	}
+	//valid function?
+	if (typeof fn !== 'function') {
+		throw new Error("[utils/schedule] fn must be a function");
 	}
 	//is sync?
 	if (type === 'sync') {
@@ -498,36 +504,38 @@ export function schedule(fn, type) {
 	}
 	//valid type?
 	if (!schedule.__types[type]) {
-		throw new Error("Invalid schedule type: " + type);
+		throw new Error("[utils/schedule] type must be one of: micro, macro, frame");
 	}
-	//create set?
-	if (!schedule.__queued[type]) {
-		schedule.__queued[type] = new Set();
+	//create key
+	var key = type + ':' + (allowDupes ? 'arr' : 'set');
+	//create queue?
+	if (!schedule.__queued[key]) {
+		schedule.__queued[key] = allowDupes ? [] : new Set();
 	}
 	//already in queue?
-	if (schedule.__queued[type].has(fn)) {
+	if (!allowDupes && schedule.__queued[key].has(fn)) {
 		return;
 	}
 	//add to queue
-	schedule.__queued[type].add(fn);
+	schedule.__queued[key][allowDupes ? 'push' : 'add'](fn);
 	//in progress?
-	if (schedule.__flushing[type]) {
+	if (schedule.__flushing[key]) {
 		return;
 	}
 	//mark as in progress
-	schedule.__flushing[type] = true;
-	//run queue
+	schedule.__flushing[key] = true;
+	//run scheduler
 	schedule.__types[type](function() {
-		var fns = Array.from(schedule.__queued[type]);
-		schedule.__queued[type].clear();
-		schedule.__flushing[type] = false;
+		var fns = schedule.__queued[key];
+		if (!allowDupes) fns = Array.from(fns);
+		schedule.__queued[key] = allowDupes ? [] : new Set();
+		schedule.__flushing[key] = false;
+		//start loop
 		for (var i = 0; i < fns.length; i++) {
-			// FIX: isolate each callback so a throw doesn't abort
-			// subsequent callbacks in the same flush batch.
 			try {
 				fns[i]();
-			} catch(e) {
-				console.error('[schedule] Error in scheduled callback:', e);
+			} catch (err) {
+				console.error("[utils/schedule] scheduled callback failed", err);
 			}
 		}
 	});
