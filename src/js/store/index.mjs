@@ -84,9 +84,7 @@ export function createStore(config) {
 				const hasNext = p.next instanceof Promise;
 				if (!hasNext || v !== undefined) {
 					if (k === key) {
-						const m = metaCache[h] || (metaCache[h] = {});
-						m.error = null;
-						m.loading = false;
+						delete metaCache[h]; // defaults suffice now
 					}
 					api[e.merge ? 'merge' : 'set'](k, v, { src: 'get' });
 				}
@@ -433,7 +431,7 @@ export function createStore(config) {
 				if (aborted) return;
 				api.trackAccess(owner, () => {
 					cb(api);
-					return () => schedule(run, scheduler);
+					return () => schedule(run, scheduler); //relies on schedule de-dupe
 				});
 			};
 
