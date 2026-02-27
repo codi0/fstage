@@ -17,25 +17,43 @@ A component definition is a plain object. All fields are optional except `tag`.
 | `tag` | `string` | Custom element tag name. Must contain a hyphen. Required. |
 | `shadow` | `boolean` | Render into a shadow root. Default: `true`. |
 | `globalStyles` | `boolean` | Adopt registered global styles into the shadow root. Default: `true` (opt-out model). Has no effect when `shadow: false`. |
-| `props` | `PropsSpec` | Public inputs. See §2. |
-| `state` | `object` | Initial local state values. See §3. |
-| `inject` | `InjectSpec` | Registry services to inject. See §4. |
+| `props` | `PropsSpec` | Public inputs. See §3. |
+| `state` | `object` | Initial local state values. See §4. |
+| `inject` | `InjectSpec` | Registry services to inject. See §5. |
 | `style` | `string \| (ctx) => CSS` | Component-scoped styles. |
-| `interactions` | `InteractionMap` | Declarative event and interaction handlers. See §5. |
-| `constructed(ctx)` | `function` | Called once per instance after `ctx` is ready, before DOM exists. |
-| `connected(ctx)` | `function` | Called on each connection of the component to the DOM. |
-| `disconnected(ctx)` | `function` | Called on each disconnection, after cleanup functions have run. |
-| `render(ctx)` | `function` | Returns renderable output. See §7. |
-| `rendered(ctx, changed)` | `function` | Called after every committed render, coalesced to at most once per frame. `changed` is `{ key: previousValue }` for every prop or state key that differed; empty on the first call. |
-| `onError(err, ctx)` | `function` | Called when `render` throws. See §7. |
-
-Any additional function-valued keys not in the above list are copied to the element's prototype as instance methods.
-
-Return values from all lifecycle methods are ignored.
+| `interactions` | `InteractionMap` | Declarative event and interaction handlers. See §6. |
+| `constructed(ctx)` | `function` | Lifecycle Method: Called once per instance after `ctx` is ready, before DOM exists. |
+| `connected(ctx)` | `function` | Lifecycle Method: Called on each connection of the component to the DOM. |
+| `disconnected(ctx)` | `function` | Lifecycle Method: Called on each disconnection of the component from the DOM, after cleanup functions have run. |
+| `render(ctx)` | `function` | Lifecycle Method: Returns renderable output. See §8. |
+| `rendered(ctx, changed, isFirst)` | Lifecycle Method: `function` | Called after every committed render. `changed` is { key: oldVal } for every declared prop or state key that changed. `isFirst` is true on the first render only. |
+| `onError(err, ctx)` | `function` | Lifecycle Method: Called when `render` throws. See §8. |
 
 ---
 
-## 2. PropsSpec
+## 2. Definition Object Methods
+
+A component definition object can have 3 types of methods:
+
+- Lifecycle Methods: Defined in §1
+- Host Methods: Any method that begins with __ is automatically copied to the host element's prototype as an instance method.
+- Helper Methods: Any other method on the definition object, to assist with code organisation.
+
+Return values from Lifecycle Methods are ignored, unless explicitly defined in §1.
+
+In LifeCycle and Helper Methods, `this` refers to the definition object. Definitions must treat `this` as read-only and should not mutate it.
+
+### Host Method example
+
+A method named `__mount` becomes the `mount` method of the host element (ctx.host).
+
+In Host Methods, `this` refers to the host element.
+
+To call a Host Method from within a lifecycle method, use ctx.host.mount().
+
+---
+
+## 3. PropsSpec
 
 Props declare the component's public interface — values supplied by a parent. Props are read-only from inside the component. To signal a change upward, use `ctx.emit`. To track local interaction state, use `ctx.state`.
 
@@ -59,7 +77,7 @@ Prop changes must trigger re-render. How the runtime tracks prop access is runti
 
 ---
 
-## 3. State
+## 4. State
 
 `state` declares the component's local mutable state with initial values:
 
@@ -77,24 +95,29 @@ State is accessed and mutated via `ctx.state`. Only top-level key assignments tr
 ctx.state.filters = { ...ctx.state.filters, active: true };
 ```
 
+Runtimes must initialise ctx.state per instance (no shared state between instances). Copy depth is runtime-defined.
+
 Undeclared keys may be written as an escape hatch, but declared state is preferred — it makes the component self-describing.
 
 ---
 
-## 4. InjectSpec
+## 5. InjectSpec
 
 `inject` declares registry services the component depends on. The runtime resolves them per instance at construction time and exposes them directly on `ctx`.
 
 ```js
-inject: ['store', 'animator']
-// → ctx.store, ctx.animator
+inject: {
+	store: 'store',
+	anim: 'animator' //short-hand ctx key example
+}
+// → ctx.store, ctx.anim
 ```
 
 If a name cannot be resolved or a duplicate key on ctx already exists, the runtime must throw at construction time.
 
 ---
 
-## 5. Interactions
+## 6. Interactions
 
 `interactions` maps declarative interaction declarations to handlers or configuration objects.
 
@@ -137,27 +160,28 @@ interactions: {
 
 ---
 
-## 6. The `ctx` object
+## 7. The `ctx` object
 
 `ctx` is the per-instance object passed to every lifecycle method and interaction handler.
 
 | Key | Description |
 |---|---|
-| `ctx.html` | Tagged template literal for renderable output. Arrays render as lists; `null`, `undefined`, `false` clear a position. |
-| `ctx.css` | Tagged template literal for styles. |
-| `ctx.svg` | Tagged template literal for inline SVG. |
 | `ctx.host` | The custom element node. |
-| `ctx.root` | The render root (`shadowRoot` or `host` for light DOM). Only guaranteed to be available from the first render onward. |
+| `ctx.root` | The render root (`shadowRoot` or `host` for light DOM). Only guaranteed to be available by the time interactions are activated. |
 | `ctx.props` | Current prop values. Read-only. |
 | `ctx.state` | Local mutable state. Top-level key assignments trigger re-render. |
 | `ctx.emit(type, detail?, opts?)` | Dispatches a `CustomEvent` from `host` (`bubbles: true`, `composed: true`). |
 | `ctx.cleanup(fn)` | Registers a teardown function, called on disconnect in reverse order before `disconnected`. |
+| `ctx.requestUpdate()` | Allows a manual re-render request to be triggered from within the definition object. |
+| `ctx.html` | Optional: Tagged template literal for renderable output. Arrays render as lists; `null`, `undefined`, `false` clear a position. |
+| `ctx.css` | Optional: Tagged template literal for styles. |
+| `ctx.svg` | Optional: Tagged template literal for inline SVG. |
 
-Additional `ctx` properties may be registered via `extendCtx` — see §9.
+Additional `ctx` properties may be registered via `extendCtx` — see §10.
 
 ---
 
-## 7. Normative semantics
+## 8. Normative semantics
 
 ### Per-instance setup
 
@@ -169,11 +193,11 @@ Additional `ctx` properties may be registered via `extendCtx` — see §9.
 1. Call `connected(ctx)`.
 2. Begin render loop — call `render(ctx)`, re-invoking whenever output may have changed.
 3. After the first render: activate `interactions` handlers; run `animate.enter` if declared.
-4. Call `rendered(ctx, changed)` after each committed render (coalesced).
+4. Call `rendered(ctx, changed, isFirst)` after each committed render.
 
 ### Disconnect
 
-1. Stop the render loop; cancel any pending `rendered` call.
+1. Stop the render loop.
 2. Call all `ctx.cleanup` functions in reverse order.
 3. Call `disconnected(ctx)`.
 
@@ -183,7 +207,7 @@ If `render` throws, the runtime must catch the error and call `onError(err, ctx)
 
 ---
 
-## 8. Example
+## 9. Example
 
 ```js
 export default {
@@ -195,7 +219,10 @@ export default {
     index: { default: 0,   attr: 'index', type: 'number' },
   },
 
-  inject: ['store', 'animator'],
+	inject: {
+		store: 'store',
+		animator: 'animator'
+	},
 
   style: (ctx) => ctx.css`
     :host { display: block; }
@@ -244,14 +271,14 @@ export default {
 
 ---
 
-## 9. Runtime responsibilities
+## 10. Runtime responsibilities
 
-A conforming runtime must implement the behaviour defined in §7 and expose the `ctx` fields defined in §6. Additionally it must:
+A conforming runtime must implement the behaviour defined in §8 and expose the `ctx` fields defined in §7. Additionally it must:
 
 - Throw at construction time when an `inject` key already exists or cannot be resolved.
 - Document its reactivity model for props and state.
 - Document any runtime-extended interaction key formats and their handler signatures.
-- Document any additional `ctx` fields it exposes beyond those defined in §6.
+- Document any additional `ctx` fields it exposes beyond those defined in §7.
 
 ### `extendCtx(key, fn)`
 

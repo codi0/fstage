@@ -4,7 +4,7 @@ import { getType, copy, hash, schedule, nestedKey, diffValues } from '../utils/i
 export function createStore(config) {
 	config = Object.assign({
 		state: {},
-		copyOnGet: true,
+		copyOnGet: 'deep',
 		diffQuery: true,
 		schedulers: {
 			onChange: 'sync',
@@ -13,236 +13,252 @@ export function createStore(config) {
 		}
 	}, config || {});
 
-	const getCache = {};
-	const modelsCache = {};
-	const changeHooks = {};
-	const accessHooks = {};
+	// accessHooks: key -> Map<cb, hookState>
+	// hookState owns its own run/refresh tracking and bridges the deferred-write
+	// window via pendingWrite/pendingVal, so each registered handler is fully
+	// independent of the access path that triggered it.
+	const accessHooks   = {};
+	const changeHooks   = {};
+	const metaCache     = {};   // hash -> { loading, error } for Promise-based hooks
+	const modelsCache   = {};
 	const parentPathCache = new Map();
-	const trackerPaths = {};
-	const trackerItems = new Map();
-	const trackerStack = [];
+	const trackerPaths  = {};           // path -> Map<cb, trackerItem>
+	const trackerItems  = new Map();    // owner -> trackerItem
+	const trackerStack  = [];
 
-	var batchDepth = 0;
-	var batchSeq = 0;
-	var batchDiffList = null;
-	var cycleId = 0;
+	let batchDepth = 0, batchSeq = 0, batchDiffList = null, cycleId = 0;
+
+	// --- Path / hash helpers ---
 
 	function getParentPaths(path) {
-		if (parentPathCache.has(path)) {
-			return parentPathCache.get(path);
-		}
-		
-		const orig = path;
+		if (parentPathCache.has(path)) return parentPathCache.get(path);
 		const parents = [];
-
-		var idx = path.lastIndexOf('.');
-		while (idx > 0) {
-			path = path.substring(0, idx);
-			parents.push(path);
-			idx = path.lastIndexOf('.');
+		let p = path;
+		let idx = p.lastIndexOf('.');
+		while (idx !== -1) {
+			p = p.slice(0, idx);
+			parents.push(p);
+			idx = p.lastIndexOf('.');
 		}
 		if (path) parents.push('');
-		
-		parentPathCache.set(orig, parents);
+		parentPathCache.set(path, parents);
 		return parents;
 	}
 
-	function detachTracker(item) {
-		if (!item || !item.deps) return;
-		for (const path of item.deps) {
-			const m = trackerPaths[path];
-			if (m) {
-				m.delete(item.cb);
-				if (!m.size) delete trackerPaths[path];
-			}
-		}
-		item.deps.clear();
+	function createHash(key, query) {
+		return (query && Object.keys(query).length) ? hash(key, query) : key;
 	}
+
+	function hasKeys(obj) { for (const k in obj) return true; return false; }
+
+	const _EMPTY   = {};               // shared default for opts -- get() never mutates opts
+	const _NOTRACK = { track: false }; // shared const for untracked api.get() calls
+
+	// --- Tracker helpers ---
 
 	function logAccess(path) {
 		if (!trackerStack.length) return;
 		const item = trackerStack[trackerStack.length - 1];
-		if (!item) return;
+		// Skip if already registered in this tracking run -- avoids redundant
+		// Map/Set writes when the same path is accessed multiple times synchronously
+		if (!item || item.depsRun.has(path)) return;
 		item.depsRun.add(path);
 		if (!trackerPaths[path]) trackerPaths[path] = new Map();
 		trackerPaths[path].set(item.cb, item);
 	}
 
-	function runAccessHooks(key, opts) {
-		if (!Object.keys(accessHooks).length) return opts.val;
-		
-		const segments = key ? key.split('.') : [];
+	function detachTracker(item) {
+		if (!item?.deps) return;
+		for (const path of item.deps) {
+			const m = trackerPaths[path];
+			if (m) { m.delete(item.cb); if (!m.size) delete trackerPaths[path]; }
+		}
+		item.deps.clear();
+	}
 
-		while (segments.length) {
-			const k = segments.join('.');
-			
-			(function(k) {
-				if (!accessHooks[k]) return;
+	// --- Access hooks ---
 
-				// Child key access triggered a parent hook -- register tracker on the
-				// parent too, so when api.set('settings') fires, this component is notified
+	function handlePromise(k, h, key, e) {
+		const processProm = (p) => {
+			p.then(v => {
+				const hasNext = p.next instanceof Promise;
+				if (!hasNext || v !== undefined) {
+					if (k === key) {
+						const m = metaCache[h] || (metaCache[h] = {});
+						m.error = null;
+						m.loading = false;
+					}
+					api[e.merge ? 'merge' : 'set'](k, v, { src: 'get' });
+				}
+				if (hasNext) processProm(p.next);
+			}).catch(err => {
+				if (k === key) {
+					const m = metaCache[h] || (metaCache[h] = {});
+					m.error = err;
+					m.loading = false;
+				}
+				console.error('onAccess', k, err);
+			});
+		};
+		processProm(e.val);
+	}
+
+	function runAccessHooks(key, h, opts) {
+		// Use cached parent paths to avoid O(depth²) split/join work and per-call RegExp.
+		// getParentPaths always appends ''; parentCount excludes it (hooks at '' unsupported).
+		const parents     = key ? getParentPaths(key) : null;
+		const parentCount = parents ? parents.length - 1 : 0;
+
+		for (let pi = -1; pi < parentCount; pi++) {
+			const k     = pi < 0 ? key : parents[pi];
+			const hooks = accessHooks[k];
+
+			if (hooks) {
+				// Register parent path in tracker so a set() higher up the tree
+				// correctly invalidates components that accessed a child key
 				if (k !== key) logAccess(k);
 
-				var e = null;
-				var v = opts.val;
+				// Relative subkey from this hook's root to the accessed path.
+				// e.g. k='user', key='user.profile.name' -> rk='profile.name'
+				const rk = k !== key ? key.slice(k.length + 1) : '';
 
-				if (k !== key) {
-					v = api.get(k, { track: false });
+				// Build a single shared event object for all hooks at this key,
+				// matching original behaviour: cb1 can mutate e.val and cb2 will see it.
+				// Only one deferred write is issued (after all hooks have run), using
+				// the final e.val — preventing multiple competing writes to state.
+				// Single pass: check if any hook needs to run, capture firstRun flag,
+				// and find the most recent lastRefresh across all hooks at this key.
+				let anyNeedsRun = !!opts.refresh, firstRun = false, latestRefresh = null;
+				for (const hs of hooks.values()) {
+					if (!hs.run) { anyNeedsRun = true; firstRun = true; }
+					if (hs.lastRefresh > latestRefresh) latestRefresh = hs.lastRefresh;
 				}
 
-				for (const cb of accessHooks[k]) {
-					e = e || {
-						key: k,
-						val: v,
-						merge: false,
-						refresh: opts.refresh,
-						lastRefresh: opts.cache.lastRefresh,
+				if (anyNeedsRun) {
+					const v = k !== key ? api.get(k, _NOTRACK) : opts.val;
+					const e = {
+						key: k, val: v, merge: false,
+						// firstRun mirrors original behaviour: first access is treated as a refresh
+						refresh: opts.refresh || firstRun,
+						lastRefresh: latestRefresh,
 						query: opts.query || {}
 					};
 
-					if (opts.refresh || !opts.cache.run) {
-						cb(e);
-					}
-				}
-
-				if (!e) return;
-
-				opts.cache.run = true;
-				if (opts.refresh) opts.cache.lastRefresh = Date.now();
-
-				if (e.val instanceof Promise) {
-
-					const processProm = function(p) {
-						return p.then(function(v) {
-							const hasNext = (p.next && p.next instanceof Promise);
-							if (!hasNext || v !== undefined) {
-								if (k === key) {
-									opts.cache.error = null;
-									opts.cache.loading = false;
-								}
-								api[e.merge ? 'merge' : 'set'](k, v, { src: 'get' });
-							}
-							if (hasNext) {
-								processProm(p.next);
-							}
-						}).catch(function(err) {
-							if (k === key) {
-								opts.cache.error = err;
-								opts.cache.loading = false;
-							}
-							console.error('onAccess', k, err);
-						});
-					};
-
-					if (k === key) {
-						opts.cache.loading = (opts.val === undefined);
+					for (const hookState of hooks.values()) {
+						if (opts.refresh || !hookState.run) {
+							hookState.cb(e);
+							hookState.run = true;
+							if (e.refresh) hookState.lastRefresh = Date.now();
+						}
 					}
 
-					processProm(e.val);
-					
+					if (e.val instanceof Promise) {
+						if (k === key) {
+							const m = metaCache[h] || (metaCache[h] = {});
+							m.loading = (opts.val === undefined);
+						}
+						handlePromise(k, h, key, e);
+					} else {
+						// Single deferred write for the resolved e.val after all hooks ran.
+						// pendingVal stored on the first hookState as a stable reference point;
+						// all hooks at this key share the same pending value.
+						const firstHook = hooks.values().next().value;
+						firstHook.pendingVal = e.val;
+						firstHook.pendingWrite = true;
+						const { merge } = e;
+						const writeVal = e.val;
+						schedule(() => {
+							api[merge ? 'merge' : 'set'](k, writeVal, { src: 'get' });
+							firstHook.pendingWrite = false;
+							delete firstHook.pendingVal;
+						}, config.schedulers.runAccessHooks);
+						opts.val = nestedKey(e.val, rk);
+					}
+
 				} else {
-					schedule(function() {
-						api[e.merge ? 'merge' : 'set'](k, e.val, { src: 'get' });
-					}, config.schedulers.runAccessHooks);
-
-					const re = new RegExp('^' + k.replace(/\./g, '\\.') + '\\.');
-					const rk = (key === k) ? '' : key.replace(re, '');
-					opts.val = nestedKey(e.val, rk);
+					// All hooks have already run. If a write is still pending in the
+					// microtask queue, resolve from the pending value so concurrent
+					// synchronous get() calls return the correct value.
+					const firstHook = hooks.values().next().value;
+					if (firstHook.pendingWrite) {
+						opts.val = nestedKey(firstHook.pendingVal, rk);
+					}
 				}
-			})(k);
-			
-			segments.pop();
+			}
 		}
 
 		return opts.val;
 	}
 
+	// --- Change hooks ---
+
 	function createDiffQuery(diff) {
-		diff = diff || [];
 		return function(regex, cb) {
 			regex = regex || '*';
-
 			const processed = new Set();
 
 			if (regex === '*') {
-				for (var i = 0; i < diff.length; i++) {
-					const key = diff[i].path;
-					if (processed.has(key)) continue;
-					processed.add(key);
-
-					const val = api.get(key, { track: false });
-					const action = (key === diff[i].path) ? diff[i].action : 'update';
-					const res = cb(key, val, action);
-					if (res instanceof Promise) res.then(function(d) { api.set(key, d, { src: 'set' }); });
+				for (const entry of diff) {
+					if (processed.has(entry.path)) continue;
+					processed.add(entry.path);
+					const val = api.get(entry.path, _NOTRACK);
+					const res = cb(entry.path, val, entry.action);
+					if (res instanceof Promise) res.then(d => api.set(entry.path, d, { src: 'set' }));
 				}
 				return;
 			}
 
 			const length = regex.split('.').length;
-			const hasStar = regex.indexOf('*') !== -1;
-
-			// Only build regex when wildcard is present
+			const hasStar = regex.includes('*');
 			const re = hasStar
 				? new RegExp('^' + regex.replace(/\./g, '\\.').replace(/\*/g, '(.*?)'))
 				: null;
 
-			for (var i = 0; i < diff.length; i++) {
-				const path = diff[i].path;
-
+			for (const entry of diff) {
+				const { path } = entry;
 				if (re && !re.test(path)) continue;
-				if (!re && path !== regex && path.indexOf(regex + '.') !== 0) continue;
-
+				if (!re && path !== regex && !path.startsWith(regex + '.')) continue;
 				const key = hasStar ? path.split('.').slice(0, length).join('.') : regex;
-
 				if (processed.has(key)) continue;
 				processed.add(key);
-
-				const val = api.get(key, { track: false });
-				const action = (key === diff[i].path) ? diff[i].action : 'update';
+				const val = api.get(key, _NOTRACK);
+				const action = key === path ? entry.action : 'update';
 				const res = cb(key, val, action);
-				if (res instanceof Promise) res.then(function(d) { api.set(key, d, { src: 'set' }); });
+				if (res instanceof Promise) res.then(d => api.set(key, d, { src: 'set' }));
 			}
 		};
 	}
 
-	function updateChangeQueue(path, src, diffRes) {
-		const hasTrackers = !!trackerPaths[path];
+	function updateChangeQueue(path, src, diffQuery) {
 		const hasWatchers = !!changeHooks[path] || !!changeHooks['*'];
-
+		const hasTrackers = !!trackerPaths[path];
 		if (!hasWatchers && !hasTrackers) return;
 
-		const val = api.get(path, { track: false });
+		const val = api.get(path, _NOTRACK);
 
 		if (hasWatchers) {
 			for (const p of [path, '*']) {
 				const hooks = changeHooks[p];
 				if (!hooks) continue;
-
 				for (const item of hooks.values()) {
-					const e = { key: path, val: val, loading: (src === 'get'), abort: item.abort };
-					if (diffRes) e.diff = diffRes;
-					schedule(function() { item.cb(e); }, item.scheduler);
+					const e = { key: path, val, loading: src === 'get', abort: item.abort };
+					if (diffQuery) e.diff = diffQuery;
+					schedule(() => item.cb(e), item.scheduler);
 				}
 			}
 		}
 
 		if (hasTrackers) {
-			const trackers = trackerPaths[path];
-			if (!trackers) return;
-
-			for (const item of trackers.values()) {
+			for (const item of trackerPaths[path].values()) {
 				if (item._cycleId === cycleId) continue;
 				item._cycleId = cycleId;
-
-				const e = { key: path, val: val, loading: (src === 'get'), ctx: item.ctx };
-				item.cb(e);
+				item.cb({ key: path, val, loading: src === 'get', ctx: item.ctx });
 			}
 		}
 	}
 
 	function runChangeHooks(diff, src) {
-		if (!Object.keys(changeHooks).length && !Object.keys(trackerPaths).length) return;
-		
+		if (!hasKeys(changeHooks) && !hasKeys(trackerPaths)) return;
 		cycleId++;
 
 		const parentPaths = new Set();
@@ -250,96 +266,76 @@ export function createStore(config) {
 
 		for (const entry of diff) {
 			updateChangeQueue(entry.path, src, diffQuery);
-
 			if (entry.path) {
-				const parents = getParentPaths(entry.path);
-				parents.forEach(function(p) { parentPaths.add(p); });
+				for (const p of getParentPaths(entry.path)) parentPaths.add(p);
 			}
 		}
 
-		parentPaths.forEach(function(p) { updateChangeQueue(p, src, diffQuery); });
+		for (const p of parentPaths) updateChangeQueue(p, src, diffQuery);
 	}
 
 	function commitBatch() {
-		if (!batchDiffList || !batchDiffList.length) {
-			batchDiffList = null;
-			return;
-		}
-
+		if (!batchDiffList?.length) { batchDiffList = null; return; }
 		const map = new Map();
-		for (const it of batchDiffList) {
-			map.set(it.entry.path, it);
-		}
-
-		const arr = Array.from(map.values()).sort(function(a, b) { return a.seq - b.seq; });
-		const diff = arr.map(function(it) { return it.entry; });
-
+		for (const it of batchDiffList) map.set(it.entry.path, it);
+		const diff = Array.from(map.values())
+			.sort((a, b) => a.seq - b.seq)
+			.map(it => it.entry);
 		batchDiffList = null;
 		runChangeHooks(diff, 'set');
 	}
 
-	function createHash(key, query) {
-		var hasQuery = query && Object.keys(query).length;
-		return hasQuery ? hash(key, query) : key;
-	}
+	// --- Public API ---
 
 	const api = {
 
-		has: function(key) {
+		has(key) {
 			return api.get(key) !== undefined;
 		},
 
-		get: function(key, opts) {
-			opts = opts || {};
-			
-			var val = nestedKey(config.state, key, { default: opts.default });
-			var hasTracking = trackerStack.length || Object.keys(accessHooks).length;
-			var h = createHash(key, opts.query);
-			
+		get(key, opts) {
+			opts = opts || _EMPTY;
+
+			const hasAccessHooks = hasKeys(accessHooks);
+			const isTracking = !!trackerStack.length || hasAccessHooks;
+			const h = createHash(key, opts.query);
+
+			let val = nestedKey(config.state, key, { default: opts.default });
+
 			if (config.copyOnGet && opts.copy !== false) {
-				val = copy(val, true);
+				val = copy(val, config.copyOnGet === 'deep');
 			}
 
-			if (hasTracking && opts.track !== false) {
-				if (!getCache[h]) {
-					getCache[h] = {};
-					if (opts.refresh === undefined) opts.refresh = true;
-				}
-
+			if (isTracking && opts.track !== false) {
 				logAccess(key);
 
-				val = runAccessHooks(key, {
-					val: val,
-					query: opts.query,
-					refresh: opts.refresh,
-					cache: getCache[h]
-				});
+				if (hasAccessHooks) {
+					val = runAccessHooks(key, h, {
+						val,
+						query: opts.query,
+						refresh: opts.refresh
+					});
+				}
 			}
 
 			if (opts.meta) {
-				val = {
-					data: val,
-					loading: (getCache[h] || {}).loading || false,
-					error: (getCache[h] || {}).error || null
-				};
+				const meta = metaCache[h] || {};
+				return { data: val, loading: meta.loading || false, error: meta.error || null };
 			}
 
 			return val;
 		},
 
-		query: function(key, opts) {
-			opts = opts || {};
-			opts.meta = true;
-			return api.get(key, opts);
+		query(key, opts) {
+			return api.get(key, Object.assign({}, opts, { meta: true }));
 		},
 
-		set: function(key, val, opts) {
-			opts = opts || {};
-			
-			var curVal = nestedKey(config.state, key);
+		set(key, val, opts) {
+			opts = opts || _EMPTY;
+			const curVal = nestedKey(config.state, key);
 
 			if (typeof val === 'function') {
-				val = val(copy(curVal, true));
+				val = val(copy(curVal, config.copyOnGet === 'deep'));
 			}
 
 			if (!key && getType(val) !== 'object') {
@@ -352,52 +348,42 @@ export function createStore(config) {
 			const curValType = getType(curVal);
 
 			if (opts.merge && curVal) {
-				if (valType === 'array' && curValType === 'array') {
-					val = curVal.concat(val);
-				} else if (valType === 'object' && curValType === 'object') {
-					val = Object.assign({}, curVal, val);
-				}
+				if (valType === 'array'  && curValType === 'array')  val = curVal.concat(val);
+				if (valType === 'object' && curValType === 'object') val = Object.assign({}, curVal, val);
 			}
 
 			const diff = diffValues(curVal, val, key);
+			if (!diff.length) return Promise.resolve(val);
 
-			if (diff.length) {
-				nestedKey(config.state, key, { val: val });
-
-				if (opts.notify !== false && opts.src !== 'set') {
-					if (batchDepth > 0) {
-						batchDiffList = batchDiffList || [];
-						diff.forEach(function(entry) {
-							batchDiffList.push({ seq: ++batchSeq, entry: entry });
-						});
-					} else {
-						runChangeHooks(diff, opts.src || 'set');
-					}
+			nestedKey(config.state, key, { val });
+			if (opts.notify !== false && opts.src !== 'set') {
+				if (batchDepth > 0) {
+					batchDiffList = batchDiffList || [];
+					for (const entry of diff) batchDiffList.push({ seq: ++batchSeq, entry });
+				} else {
+					runChangeHooks(diff, opts.src || 'set');
 				}
 			}
 
 			return Promise.resolve(val);
 		},
 
-		merge: function(key, val, opts) {
-			// Do not mutate caller's opts -- create a new object
+		merge(key, val, opts) {
 			return api.set(key, val, Object.assign({}, opts, { merge: true }));
 		},
 
-		del: function(key, opts) {
+		del(key, opts) {
 			return api.set(key, undefined, opts);
 		},
 
-		batch: function(fn) {
+		batch(fn) {
 			const prevDiffList = batchDiffList;
-
 			batchDepth++;
-			var threw = false;
+			let threw = false;
 			try {
 				return fn();
 			} catch(e) {
 				threw = true;
-				// Restore outer snapshot rather than nulling unconditionally.
 				batchDiffList = prevDiffList;
 				throw e;
 			} finally {
@@ -406,163 +392,123 @@ export function createStore(config) {
 			}
 		},
 
-		computed: function(cb, opts) {
-			opts = opts || {};
-
-			var value;
-			var dirty = true;
-			var computing = false;
-
+		computed(cb) {
+			let value, dirty = true, computing = false;
 			const owner = {};
-
-			const markDirty = function() {
-				dirty = true;
-			};
 
 			const obj = {
 				get value() {
 					if (computing) {
-						console.warn('[fstage/store] computed: self-referencing computed detected, returning current value');
+						console.warn('[fstage/store] computed: self-referencing computed detected');
 						return value;
 					}
 					if (dirty) {
 						computing = true;
-
-						api.trackAccess(owner, function() {
-							try {
-								value = cb(api);
-								dirty = false;
-							} finally {
-								computing = false;
-							}
-							return function() { markDirty(); };
+						api.trackAccess(owner, () => {
+							try { value = cb(api); dirty = false; }
+							finally { computing = false; }
+							return () => { dirty = true; };
 						});
 					}
 					return value;
 				},
-				get: function() {
-					return obj.value;
-				},
-				abort: function() {
+				get() { return obj.value; },
+				abort() {
 					const item = trackerItems.get(owner);
-					if (item) {
-						detachTracker(item);
-						trackerItems.delete(owner);
-					}
+					if (item) { detachTracker(item); trackerItems.delete(owner); }
 				}
 			};
 
-			// prime once
-			obj.value;
-
+			obj.value; // prime
 			return obj;
 		},
 
-		effect: function(cb, opts) {
-			opts = opts || {};
-
+		effect(cb, opts) {
+			opts = opts || _EMPTY;
 			const scheduler = opts.scheduler || config.schedulers.effect;
-			
 			const owner = {};
-			var aborted = false;
+			let aborted = false;
 
-			// run once to establish deps + register invalidation
-			const run = function() {
+			const run = () => {
 				if (aborted) return;
-
-				api.trackAccess(owner, function() {
+				api.trackAccess(owner, () => {
 					cb(api);
-					return function() { schedule(run, scheduler); };
+					return () => schedule(run, scheduler);
 				});
 			};
 
 			run();
 
-			// disposer
-			return function() {
+			return () => {
 				aborted = true;
 				const item = trackerItems.get(owner);
-				if (item) {
-					detachTracker(item);
-					trackerItems.delete(owner);
-				}
+				if (item) { detachTracker(item); trackerItems.delete(owner); }
 			};
 		},
 
-		onChange: function(key, cb, opts) {
+		onChange(key, cb, opts) {
 			if (!key || typeof key !== 'string') {
 				throw new Error('[fstage/store] onChange key must be a non-empty string');
 			}
-
-			opts = opts || {};
+			opts = opts || _EMPTY;
 			changeHooks[key] = changeHooks[key] || new Map();
 
-			const item = {
-				cb: cb,
-				scheduler: opts.scheduler || config.schedulers.onChange,
-				abort: function() {
-					if (changeHooks[key]) {
-						changeHooks[key].delete(cb);
-						if (!changeHooks[key].size) delete changeHooks[key];
-					}
-				}
+			const abort = () => {
+				changeHooks[key]?.delete(cb);
+				if (!changeHooks[key]?.size) delete changeHooks[key];
 			};
 
-			changeHooks[key].set(cb, item);
-			return item.abort;
+			changeHooks[key].set(cb, {
+				cb,
+				scheduler: opts.scheduler || config.schedulers.onChange,
+				abort
+			});
+
+			return abort;
 		},
 
-		onAccess: function(key, cb) {
+		onAccess(key, cb) {
 			if (!key || typeof key !== 'string') {
 				throw new Error('[fstage/store] onAccess key must be a non-empty string');
 			}
-		
-			accessHooks[key] = accessHooks[key] || new Set();
-			accessHooks[key].add(cb);
 
-			return function() {
-				if (accessHooks[key]) {
-					accessHooks[key].delete(cb);
-					if (!accessHooks[key].size) delete accessHooks[key];
-				}
+			if (!accessHooks[key]) accessHooks[key] = new Map();
+
+			// Each handler gets its own state so hooks at different path depths are
+			// independently controlled and don't interfere with one another.
+			accessHooks[key].set(cb, {
+				cb, run: false, lastRefresh: null, pendingWrite: false
+			});
+
+			return () => {
+				accessHooks[key]?.delete(cb);
+				if (!accessHooks[key]?.size) delete accessHooks[key];
 			};
 		},
 
-		trackAccess: function(owner, runFn, opts) {
+		trackAccess(owner, runFn) {
 			if (!owner || typeof runFn !== 'function') return;
 
-			// One tracker item per owner
-			var item = trackerItems.get(owner);
+			let item = trackerItems.get(owner);
 
 			if (!item) {
 				item = {
-					cb: null,
-					ctx: owner,
-					deps: new Set(),
-					depsRun: new Set(),
-					_cycleId: 0,
-					_invalidate: null
+					cb: null, ctx: owner,
+					deps: new Set(), depsRun: new Set(),
+					_cycleId: 0, _invalidate: null
 				};
-
-				// Stable callback registered in trackerPaths
-				item.cb = function(e) {
-					if (item._invalidate) item._invalidate(e);
-				};
-
+				item.cb = (e) => item._invalidate?.(e);
 				trackerItems.set(owner, item);
 			} else {
 				item.depsRun.clear();
 			}
 
-			// Snapshot deps before the run so we can restore them if runFn throws.
-			// Without this, a mid-execution throw would leave item.deps as a partial
-			// set -- paths accessed before the throw subscribed, paths after silently
-			// dropped -- causing missed invalidations until the next successful render.
+			// Snapshot before the run so a mid-execution throw leaves the tracker
+			// correctly wired to its previous complete dep set
 			const prevDeps = new Set(item.deps);
 			const prevInvalidate = item._invalidate;
-			var threw = false;
+			let threw = false;
 
-			// Begin tracking scope
 			trackerStack.push(item);
 
 			try {
@@ -572,26 +518,18 @@ export function createStore(config) {
 				}
 			} catch(e) {
 				threw = true;
-				// Restore the previous complete dep set and invalidator so the tracker
-				// remains correctly wired until the next successful render.
 				item.deps = prevDeps;
 				item._invalidate = prevInvalidate;
-				// Re-register any deps that depsRun may have partially added to
-				// trackerPaths but which are not in the restored prevDeps.
 				for (const path of item.depsRun) {
-					if (!prevDeps.has(path)) {
-						const m = trackerPaths[path];
-						if (m) {
-							m.delete(item.cb);
-							if (!m.size) delete trackerPaths[path];
-						}
-					}
+					if (prevDeps.has(path)) continue;
+					const m = trackerPaths[path];
+					if (m) { m.delete(item.cb); if (!m.size) delete trackerPaths[path]; }
 				}
 				item.depsRun.clear();
 				throw e;
 			} finally {
-				// End tracking scope
-				if (trackerStack.length && trackerStack[trackerStack.length - 1] === item) {
+				// Fast-path pop for the common case where this item is on top
+				if (trackerStack[trackerStack.length - 1] === item) {
 					trackerStack.pop();
 				} else {
 					const idx = trackerStack.indexOf(item);
@@ -599,39 +537,28 @@ export function createStore(config) {
 				}
 
 				if (!threw) {
-					// Replace-on-run: unsubscribe removed deps
+					// Unsubscribe paths that were not accessed in this run
 					for (const oldPath of item.deps) {
-						if (!item.depsRun.has(oldPath)) {
-							const m = trackerPaths[oldPath];
-							if (m) {
-								m.delete(item.cb);
-								if (!m.size) delete trackerPaths[oldPath];
-							}
-						}
+						if (item.depsRun.has(oldPath)) continue;
+						const m = trackerPaths[oldPath];
+						if (m) { m.delete(item.cb); if (!m.size) delete trackerPaths[oldPath]; }
 					}
-
-					// Replace current deps with deps from this run
 					item.deps = new Set(item.depsRun);
 					item.depsRun.clear();
 				}
 			}
 		},
 
-		model: function(key, model) {
+		model(key, model) {
 			if (model) {
-				if (modelsCache[key]) {
-					throw new Error('[fstage/store] model key already exists: ' + key);
-				}
-				const type = getType(model);
-				const allowed = ['object', 'function'];
-				if (!allowed.includes(type)) {
+				if (modelsCache[key]) throw new Error('[fstage/store] model key already exists: ' + key);
+				if (!['object', 'function'].includes(getType(model))) {
 					throw new Error('[fstage/store] model must be an object or function');
 				}
 				modelsCache[key] = model;
 			}
 			return modelsCache[key] || null;
 		}
-
 	};
 
 	return api;

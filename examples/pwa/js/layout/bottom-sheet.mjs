@@ -2,7 +2,9 @@ export default {
 
 	tag: 'pwa-bottom-sheet',
 
-	inject: ['animator'],
+	inject: {
+		animator: 'animator'
+	},
 
 	props: {
 		open:  { default: false, attr: false },

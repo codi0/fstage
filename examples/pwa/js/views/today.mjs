@@ -2,7 +2,9 @@ export default {
 
 	tag: 'pwa-today',
 
-	inject: ['store'],
+	inject: {
+		store: 'store'
+	},
 
 	style: (ctx) => ctx.css`
 		:host { display: block; }

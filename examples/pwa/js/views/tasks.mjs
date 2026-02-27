@@ -53,7 +53,9 @@ export default {
 
 	tag: 'pwa-tasks',
 
-	inject: ['store'],
+	inject: {
+		store: 'store'
+	},
 
 	style: (ctx) => ctx.css`
 		:host { display: block; width: 100%; }

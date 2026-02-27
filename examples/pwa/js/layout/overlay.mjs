@@ -16,13 +16,13 @@ export default {
 		}
 	`,
 
-	mount(key, node) {
+	__mount(key, node) {
 		this.unmount(key);
 		node.__$overlayKey = key;
 		this.appendChild(node);
 	},
 
-	unmount(key) {
+	__unmount(key) {
 		const existing = Array.from(this.children).find(c => c.__$overlayKey === key);
 		if (existing) existing.remove();
 	}

@@ -15,7 +15,9 @@ export default {
 
 	tag: 'pwa-header',
 
-	inject: ['store'],
+	inject: {
+		store: 'store'
+	},
 
 	style: (ctx) => ctx.css`
 		:host {

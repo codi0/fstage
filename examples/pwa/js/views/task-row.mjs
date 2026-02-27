@@ -7,7 +7,10 @@ export default {
 		index: { default: 0, attr: 'index', type: 'number' },
 	},
 
-	inject: ['store', 'animator'],
+	inject: {
+		store: 'store',
+		animator: 'animator'
+	},
 
 	style: (ctx) => ctx.css`
 		:host {

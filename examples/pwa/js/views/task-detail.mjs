@@ -7,7 +7,10 @@ export default {
 
 	tag: 'pwa-task-detail',
 
-	inject: ['store', 'animator'],
+	inject: {
+		store: 'store',
+		animator: 'animator'
+	},
 
 	style: (ctx) => ctx.css`
 		:host { display: block; }

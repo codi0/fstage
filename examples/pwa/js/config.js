@@ -5,8 +5,7 @@ globalThis.FSCONFIG = {
 
 	importMap: {
 		'lit': 'https://cdn.jsdelivr.net/npm/lit-element@4/+esm',
-		'uhtml': 'https://cdn.jsdelivr.net/npm/uhtml@5/dist/prod/dom.js',
-		'@capacitor/': 'https://cdn.jsdelivr.net/npm/@capacitor/',
+		'@capacitor/': 'https://cdn.jsdelivr.net/npm/@capacitor/'
 	},
 
 	loadAssets: {
@@ -17,7 +16,7 @@ globalThis.FSCONFIG = {
 		libs: [
 			'lit',
 			'@fstage/component',
-			'@fstage/store/signals.mjs',
+			'@fstage/store',
 			'@fstage/sync',
 			'@fstage/history',
 			'@fstage/router',
@@ -128,7 +127,7 @@ globalThis.FSCONFIG = {
 		var envPolicy = env.getPolicy();
 		var lit = Object.assign({}, e.get('lit'));
 
-		var store = e.get('store/signals.createStore', []);
+		var store = e.get('store.createStore', []);
 		var syncManager = e.get('sync.createSyncManager',   []);
 
 		var animator = e.get('animator.createAnimator', [{

@@ -16,32 +16,34 @@ export function createStore(config) {
 	config = Object.assign({
 		ctx: _ctx,
 		state: {},
-		copyOnGet: true,
+		copyOnGet: 'deep',
 		diffQuery: true,
 		schedulers: {
 			onChange: 'sync',
 			effect: 'micro',
 			runAccessHooks: 'micro'
-		},
+		}
 	}, config || {});
 
-	if (!config.ctx || !config.ctx.signal) {
+	const ctx = config.ctx;
+
+	if (!ctx?.signal) {
 		throw new Error('[fstage/store] Requires valid ctx object (signal, computed, effect, setActiveSub, startBatch, endBatch)');
 	}
 
-	if (!config.ctx.untracked && config.ctx.setActiveSub) {
-		config.ctx.untracked = function(fn) {
-			const sub = config.ctx.setActiveSub(void 0);
+	if (!ctx.untracked && ctx.setActiveSub) {
+		ctx.untracked = (fn) => {
+			const sub = ctx.setActiveSub(undefined);
 			try { return fn(); }
-			finally { config.ctx.setActiveSub(sub); }
+			finally { ctx.setActiveSub(sub); }
 		};
 	}
 
-	if (!config.ctx.batch && config.ctx.startBatch) {
-		config.ctx.batch = function(fn) {
-			config.ctx.startBatch();
+	if (!ctx.batch && ctx.startBatch) {
+		ctx.batch = (fn) => {
+			ctx.startBatch();
 			try { return fn(); }
-			finally { config.ctx.endBatch(); }
+			finally { ctx.endBatch(); }
 		};
 	}
 
@@ -52,127 +54,34 @@ export function createStore(config) {
 	const childIndex   = new Map();   // path → Set<childPath> (for O(depth+desc) writes)
 	const modelsCache  = {};
 	const changeHooks  = {};          // path → Map<cb, item>
-	const accessHooks  = {};          // path → Set<cb>
-	const accessCache  = {};          // hash → { run, loading, error, lastRefresh }
+	// accessHooks: path → Map<cb, hookState>
+	// Per-hook state means each registered handler tracks its own run/refresh
+	// independently, regardless of which child path triggered the access.
+	const accessHooks  = {};
+	const metaCache    = {};          // hash → { loading, error } for Promise-based hooks
 	const parentCache  = new Map();
-	const trackerItems = new Map();
+	const trackerItems = new Map();   // owner → { dispose }
 
-	var batchDepth = 0;
-	var batchSeq   = 0;
-	var batchDiffs = null;            // accumulated diffs during api.batch()
+	let batchDepth = 0, batchSeq = 0, batchDiffs = null;
 
 
-	// ── Signal helpers ────────────────────────────────────────────────────────
-	//
-	// One signal per accessed path - getSig('user.name') and getSig('user') are separate signals,
-	// so a write to user.age only invalidates components that read user.age or user, never user.name.
-	//
-	// Signals are created lazily on first read. On write we update every existing
-	// signal whose path is affected: the exact path, all ancestors, all descendants.
+	// ── Helpers ───────────────────────────────────────────────────────────────
 
-	function getSig(path) {
-		if (!signals.has(path)) {
-			// nestedKey returns undefined for missing paths; signal(undefined) is valid --
-			const initial = nestedKey(config.state, path);
-			signals.set(path, config.ctx.signal(initial));
-			// Register this path under each ancestor in the children index
-			var p = path;
-			var dot = p.lastIndexOf('.');
-			while (dot !== -1) {
-				const parent = p.slice(0, dot);
-				if (!childIndex.has(parent)) childIndex.set(parent, new Set());
-				childIndex.get(parent).add(path);
-				p = parent;
-				dot = p.lastIndexOf('.');
-			}
-			// Register under root '' as well
-			if (!childIndex.has('')) childIndex.set('', new Set());
-			childIndex.get('').add(path);
-		}
-		return signals.get(path);
+	// Avoids Object.keys(x).length allocation on hot paths
+	function hasKeys(obj) { for (const k in obj) return true; return false; }
+
+	const _EMPTY   = {};               // shared default for opts -- get() never mutates opts
+	const _NOTRACK = { track: false }; // shared const for untracked api.get() calls
+
+	function createHash(key, query) {
+		return (query && Object.keys(query).length) ? hash(key, query) : key;
 	}
-
-	function readPath(path, tracked) {
-		const sig = getSig(path);
-		return tracked ? sig() : config.ctx.untracked(function() { return sig(); });
-	}
-
-	// Produce a shallow copy of an object or array, or return the value as-is
-	// for primitives. Used to break reference equality on ancestor signals so
-	// alien-signals always propagates to subscribers after a nested write.
-	function shallowBreak(val) {
-		if (!val || typeof val !== "object") return val;
-		return Array.isArray(val) ? val.slice() : Object.assign({}, val);
-	}
-
-	function writePath(path, val) {
-		// 1. Write canonical value into config.state
-		nestedKey(config.state, path, { val: val });
-
-		// 2. Collect affected signals via index -- O(depth + descendants)
-		//    rather than O(all signals). We snapshot before touching any signal
-		//    to prevent mid-iteration renders from adding new Map entries.
-		const updates = [];
-
-		// Exact match
-		if (signals.has(path)) {
-			updates.push([ signals.get(path), val ]);
-		}
-
-		// Descendants -- all paths registered under this path in the index
-		if (childIndex.has(path)) {
-			for (const descPath of childIndex.get(path)) {
-				if (signals.has(descPath)) {
-					const fresh = config.ctx.untracked(function() { return nestedKey(config.state, descPath); });
-					updates.push([ signals.get(descPath), fresh ]);
-				}
-			}
-		}
-
-		// Ancestors -- walk up the path, including root ''
-		//
-		// alien-signals uses strict reference equality (pendingValue !== newValue) to decide
-		// whether to propagate. Because nestedKey mutates config.state in place, ancestor
-		// objects are the same reference they were before the write -- so assigning them back
-		// into their signal would be a no-op and subscribers would never be notified.
-		//
-		// Shallow-copying each ancestor value before assigning it breaks the reference
-		// equality, guaranteeing propagation while keeping the copy cost minimal (one level).
-		var p = path;
-		var dot = p.lastIndexOf('.');
-		while (dot >= 0) {
-			p = p.slice(0, dot);
-			if (signals.has(p)) {
-				const raw = config.ctx.untracked(function() { return nestedKey(config.state, p); });
-				const fresh = shallowBreak(raw);
-				updates.push([ signals.get(p), fresh ]);
-			}
-			dot = p.lastIndexOf('.');
-		}
-		// ensure root is included for top-level keys too
-		if (path && signals.has('')) {
-			const raw = config.ctx.untracked(function() { return nestedKey(config.state, ''); });
-			const fresh = shallowBreak(raw);
-			updates.push([ signals.get(''), fresh ]);
-		}
-
-		// 3. Apply all updates atomically -- components only re-render once
-		//    after all affected signals settle, not once per signal update.
-		config.ctx.batch(function() {
-			for (var i = 0; i < updates.length; i++) {
-				updates[i][0](updates[i][1]);
-			}
-		});
-	}
-
-
-	// ── Parent path cache ─────────────────────────────────────────────────────
 
 	function getParentPaths(path) {
 		if (parentCache.has(path)) return parentCache.get(path);
 		const parents = [];
-		var p = path;
-		var idx = p.lastIndexOf('.');
+		let p = path;
+		let idx = p.lastIndexOf('.');
 		while (idx !== -1) {
 			p = p.slice(0, idx);
 			parents.push(p);
@@ -184,223 +93,313 @@ export function createStore(config) {
 	}
 
 
-	// ── Access hooks (async data loading) ────────────────────────────────────
+	// ── Signal helpers ────────────────────────────────────────────────────────
+	//
+	// One signal per accessed path. getSig('user.name') and getSig('user') are
+	// separate signals, so a write to user.age only invalidates components that
+	// read user.age or user, never user.name.
+	//
+	// Signals are created lazily on first read. On write we update every existing
+	// signal whose path is affected: the exact path, all ancestors, all descendants.
 
-	function runAccessHooks(key, opts) {
-		if (!Object.keys(accessHooks).length) return opts.val;
+	function getSig(path) {
+		if (!signals.has(path)) {
+			signals.set(path, ctx.signal(nestedKey(config.state, path)));
+			// Register this path under each ancestor so writePath can find all
+			// descendants via the index in O(depth + descendants).
+			let p = path;
+			let dot = p.lastIndexOf('.');
+			while (dot !== -1) {
+				const parent = p.slice(0, dot);
+				if (!childIndex.has(parent)) childIndex.set(parent, new Set());
+				childIndex.get(parent).add(path);
+				p = parent;
+				dot = p.lastIndexOf('.');
+			}
+			if (!childIndex.has('')) childIndex.set('', new Set());
+			childIndex.get('').add(path);
+		}
+		return signals.get(path);
+	}
 
-		const segments = key ? key.split('.') : [];
+	function readPath(path, tracked) {
+		const sig = getSig(path);
+		return tracked ? sig() : ctx.untracked(() => sig());
+	}
 
-		while (segments.length) {
-			const k     = segments.join('.');
-			const hooks = accessHooks[k];
+	// Shallow-copy objects/arrays before assigning to ancestor signals.
+	// alien-signals uses strict reference equality to decide propagation; because
+	// nestedKey mutates config.state in-place, ancestor values are the same
+	// reference as before the write. Breaking the reference guarantees propagation.
+	function shallowBreak(val) {
+		if (!val || typeof val !== 'object') return val;
+		return Array.isArray(val) ? val.slice() : Object.assign({}, val);
+	}
 
-			if (hooks) {
-				var e = null;
-				const v = (k !== key) ? api.get(k, { track: false }) : opts.val;
+	function writePath(path, val) {
+		nestedKey(config.state, path, { val });
 
-				for (const cb of hooks) {
-					e = e || {
-						key:         k,
-						val:         v,
-						merge:       false,
-						refresh:     opts.refresh,
-						lastRefresh: opts.cache.lastRefresh,
-						query:       opts.query || {},
-					};
-					if (opts.refresh || !opts.cache.run) cb(e);
-				}
+		// Snapshot all signal updates before touching any signal to prevent
+		// mid-iteration renders from adding new Map entries.
+		// Single ctx.untracked() wrapper covers the whole collection phase
+		// instead of one closure per ancestor/descendant read.
+		const updates = [];
 
-				if (e) {
-					opts.cache.run = true;
-					if (opts.refresh) opts.cache.lastRefresh = Date.now();
+		ctx.untracked(() => {
+			if (signals.has(path)) updates.push([signals.get(path), val]);
 
-					if (e.val instanceof Promise) {
-
-						const processProm = function(p) {
-							return p.then(function(v) {
-								const hasNext = (p.next && p.next instanceof Promise);
-								if (!hasNext || v !== undefined) {
-									if (k === key) {
-										opts.cache.error = null;
-										opts.cache.loading = false;
-									}
-									api[e.merge ? 'merge' : 'set'](k, v, { src: 'get' });
-								}
-								if (hasNext) {
-									processProm(p.next);
-								}
-							}).catch(function(err) {
-								if (k === key) {
-									opts.cache.error = err;
-									opts.cache.loading = false;
-								}
-								console.error('onAccess', k, err);
-							});
-						};
-
-						if (k === key) {
-							opts.cache.loading = (opts.val === undefined);
-						}
-
-						processProm(e.val);
-
-					} else {
-						schedule(function() {
-							api[e.merge ? 'merge' : 'set'](k, e.val, { src: 'get' });
-						}, config.schedulers.runAccessHooks);
-
-						const re = new RegExp('^' + k.replace(/\./g, '\\.') + '\\.');
-						const rk = (key === k) ? '' : key.replace(re, '');
-						opts.val = nestedKey(e.val, rk);
-					}
+			if (childIndex.has(path)) {
+				for (const descPath of childIndex.get(path)) {
+					if (signals.has(descPath))
+						updates.push([signals.get(descPath), nestedKey(config.state, descPath)]);
 				}
 			}
 
-			segments.pop();
+			// Walk ancestors, shallow-breaking to guarantee alien-signals propagates.
+			let p = path;
+			let dot = p.lastIndexOf('.');
+			while (dot >= 0) {
+				p = p.slice(0, dot);
+				if (signals.has(p))
+					updates.push([signals.get(p), shallowBreak(nestedKey(config.state, p))]);
+				dot = p.lastIndexOf('.');
+			}
+			// Root signal: ancestor walk stops before '' for top-level keys.
+			if (path && signals.has(''))
+				updates.push([signals.get(''), shallowBreak(nestedKey(config.state, ''))]);
+		});
+
+
+		// Apply all updates atomically -- components re-render once after all
+		// affected signals settle, not once per signal update.
+		ctx.batch(() => {
+			for (const [sig, v] of updates) sig(v);
+		});
+	}
+
+
+	// ── Access hooks (async data loading) ────────────────────────────────────
+
+	function runAccessHooks(key, h, opts) {
+		// Use cached parent paths to avoid O(depth²) split/join and per-call RegExp.
+		// getParentPaths always appends ''; parentCount excludes it.
+		const parents     = key ? getParentPaths(key) : null;
+		const parentCount = parents ? parents.length - 1 : 0;
+
+		for (let pi = -1; pi < parentCount; pi++) {
+			const k     = pi < 0 ? key : parents[pi];
+			const hooks = accessHooks[k];
+
+			if (hooks) {
+				// Relative subkey: e.g. k='user', key='user.profile.name' -> rk='profile.name'
+				const rk = k !== key ? key.slice(k.length + 1) : '';
+
+				// Single pass: check if any hook needs to run, capture firstRun,
+				// and find the most recent lastRefresh across all hooks at this key.
+				let anyNeedsRun = !!opts.refresh, firstRun = false, latestRefresh = null;
+				for (const hs of hooks.values()) {
+					if (!hs.run) { anyNeedsRun = true; firstRun = true; }
+					if (hs.lastRefresh > latestRefresh) latestRefresh = hs.lastRefresh;
+				}
+
+				if (anyNeedsRun) {
+					const v = k !== key ? api.get(k, _NOTRACK) : opts.val;
+					// Shared event object: cb1 can mutate e.val and cb2 will see it.
+					// One deferred write after all hooks run -- no competing writes.
+					const e = {
+						key: k, val: v, merge: false,
+						// firstRun mirrors original behaviour: first access is treated as a refresh
+						refresh: opts.refresh || firstRun,
+						lastRefresh: latestRefresh,
+						query: opts.query || {}
+					};
+
+					for (const hookState of hooks.values()) {
+						if (opts.refresh || !hookState.run) {
+							hookState.cb(e);
+							hookState.run = true;
+							if (e.refresh) hookState.lastRefresh = Date.now();
+						}
+					}
+
+					if (e.val instanceof Promise) {
+						if (k === key) {
+							const m = metaCache[h] || (metaCache[h] = {});
+							m.loading = (opts.val === undefined);
+						}
+						handlePromise(k, h, key, e);
+					} else {
+						// Defer the write to prevent re-entrant signal propagation mid-get.
+						// Store resolved value on the first hookState so concurrent synchronous
+						// get() calls see the correct value during the microtask window.
+						const firstHook = hooks.values().next().value;
+						firstHook.pendingVal = e.val;
+						firstHook.pendingWrite = true;
+						const { merge } = e;
+						const writeVal = e.val;
+						schedule(() => {
+							api[merge ? 'merge' : 'set'](k, writeVal, { src: 'get' });
+							firstHook.pendingWrite = false;
+							delete firstHook.pendingVal;
+						}, config.schedulers.runAccessHooks);
+						opts.val = nestedKey(e.val, rk);
+					}
+
+				} else {
+					// Hook already fired; write still queued. Resolve from pending so
+					// concurrent synchronous get() calls return the correct value.
+					const firstHook = hooks.values().next().value;
+					if (firstHook?.pendingWrite) opts.val = nestedKey(firstHook.pendingVal, rk);
+				}
+			}
 		}
 
 		return opts.val;
+	}
+
+	function handlePromise(k, h, key, e) {
+		const processProm = (p) => {
+			p.then(v => {
+				const hasNext = p.next instanceof Promise;
+				if (!hasNext || v !== undefined) {
+					if (k === key) {
+						const m = metaCache[h] || (metaCache[h] = {});
+						m.error = null;
+						m.loading = false;
+					}
+					api[e.merge ? 'merge' : 'set'](k, v, { src: 'get' });
+				}
+				if (hasNext) processProm(p.next);
+			}).catch(err => {
+				if (k === key) {
+					const m = metaCache[h] || (metaCache[h] = {});
+					m.error = err;
+					m.loading = false;
+				}
+				console.error('onAccess', k, err);
+			});
+		};
+		processProm(e.val);
 	}
 
 
 	// ── onChange notification ─────────────────────────────────────────────────
 
 	function notifyChangeHooks(diff, src) {
-		if (!Object.keys(changeHooks).length) return;
+		if (!hasKeys(changeHooks)) return;
 
 		const diffFn = config.diffQuery ? createDiffQuery(diff) : null;
 		const paths  = new Set();
 
 		for (const entry of diff) {
 			paths.add(entry.path);
-			const parents = getParentPaths(entry.path);
-			for (var i = 0; i < parents.length; i++) paths.add(parents[i]);
+			for (const p of getParentPaths(entry.path)) paths.add(p);
 		}
 
 		for (const path of paths) {
-			for (var i = 0; i < 2; i++) {
-				const bucket = i === 0 ? changeHooks[path] : changeHooks['*'];
+			// Guard: only read the value (and lazily create a signal) when a hook
+			// actually exists for this path. Without this, api.get on parent paths
+			// like 'items' or '' creates signals for them, causing writePath to
+			// shallowBreak the entire items object or state on every write -- O(n²).
+			if (!changeHooks[path] && !changeHooks['*']) continue;
+			const val = api.get(path, _NOTRACK);
+			for (const bucket of [changeHooks[path], changeHooks['*']]) {
 				if (!bucket) continue;
-				const val = api.get(path, { track: false });
 				for (const item of bucket.values()) {
-					const e = { key: path, val: val, loading: src === 'get', abort: item.abort };
+					const e = { key: path, val, loading: src === 'get', abort: item.abort };
 					if (diffFn) e.diff = diffFn;
-					schedule(function() { item.cb(e); }, item.scheduler);
+					schedule(() => item.cb(e), item.scheduler);
 				}
 			}
 		}
 	}
 
 	function createDiffQuery(diff) {
-		diff = diff || [];
-		return function(regex, cb) {
+		return (regex, cb) => {
 			regex = regex || '*';
-
 			const processed = new Set();
 
 			if (regex === '*') {
-				for (var i = 0; i < diff.length; i++) {
-					const key = diff[i].path;
-					if (processed.has(key)) continue;
-					processed.add(key);
-
-					const val = api.get(key, { track: false });
-					const action = (key === diff[i].path) ? diff[i].action : 'update';
-					const res = cb(key, val, action);
-					if (res instanceof Promise) res.then(function(d) { api.set(key, d, { src: 'set' }); });
+				for (const entry of diff) {
+					if (processed.has(entry.path)) continue;
+					processed.add(entry.path);
+					const val = api.get(entry.path, _NOTRACK);
+					const res = cb(entry.path, val, entry.action);
+					if (res instanceof Promise) res.then(d => api.set(entry.path, d, { src: 'set' }));
 				}
 				return;
 			}
 
 			const length = regex.split('.').length;
-			const hasStar = regex.indexOf('*') !== -1;
-
-			// Only build regex when wildcard is present
+			const hasStar = regex.includes('*');
 			const re = hasStar
 				? new RegExp('^' + regex.replace(/\./g, '\\.').replace(/\*/g, '(.*?)'))
 				: null;
 
-			for (var j = 0; j < diff.length; j++) {
-				const path = diff[j].path;
-
+			for (const entry of diff) {
+				const { path } = entry;
 				if (re && !re.test(path)) continue;
-				if (!re && path !== regex && path.indexOf(regex + '.') !== 0) continue;
-
+				if (!re && path !== regex && !path.startsWith(regex + '.')) continue;
 				const key = hasStar ? path.split('.').slice(0, length).join('.') : regex;
-
 				if (processed.has(key)) continue;
 				processed.add(key);
-
-				const val = api.get(key, { track: false });
-				const action = (key === diff[j].path) ? diff[j].action : 'update';
+				const val = api.get(key, _NOTRACK);
+				const action = key === path ? entry.action : 'update';
 				const res = cb(key, val, action);
-				if (res instanceof Promise) res.then(function(d) { api.set(key, d, { src: 'set' }); });
+				if (res instanceof Promise) res.then(d => api.set(key, d, { src: 'set' }));
 			}
 		};
 	}
 
-	function createHash(key, query) {
-		var hasQuery = query && Object.keys(query).length;
-		return hasQuery ? hash(key, query) : key;
-	}
 
 	// ── Public API ────────────────────────────────────────────────────────────
 
 	const api = {
 
-		has: function(key) {
+		has(key) {
 			return api.get(key) !== undefined;
 		},
 
-		get: function(key, opts) {
-			opts = opts || {};
+		get(key, opts) {
+			opts = opts || _EMPTY;
 
-			var val = readPath(key, opts.track !== false);
-			var h = createHash(key, opts.query);
-				
+			const hasAccessHooks = hasKeys(accessHooks);
+			const h = createHash(key, opts.query);
+
+			let val = readPath(key, opts.track !== false);
+
 			if (config.copyOnGet && opts.copy !== false) {
-				val = copy(val, true);
+				val = copy(val, config.copyOnGet === 'deep');
 			}
 
-			// Only run access hooks when tracking is active
-			if (opts.track !== false && Object.keys(accessHooks).length) {
-				if (!accessCache[h]) {
-					accessCache[h] = {};
-					if (opts.refresh === undefined) opts.refresh = true;
-				}
-				
-				val = runAccessHooks(key, {
-					val: val,
+			if (opts.track !== false && hasAccessHooks) {
+				val = runAccessHooks(key, h, {
+					val,
 					query: opts.query,
-					refresh: opts.refresh,
-					cache: accessCache[h],
+					refresh: opts.refresh
 				});
 			}
 
 			if (opts.meta) {
-				val = {
-					data: val,
-					loading: (accessCache[h] || {}).loading || false,
-					error: (accessCache[h] || {}).error || null
-				};
+				const meta = metaCache[h] || {};
+				return { data: val, loading: meta.loading || false, error: meta.error || null };
 			}
 
 			return val;
 		},
 
-		query: function(key, opts) {
-			opts = opts || {};
-			opts.meta = true;
-			return api.get(key, opts);
+		query(key, opts) {
+			return api.get(key, Object.assign({}, opts, { meta: true }));
 		},
 
-		set: function(key, val, opts) {
-			opts = opts || {};
+		set(key, val, opts) {
+			opts = opts || _EMPTY;
 
-			const curVal = config.ctx.untracked(function() { return readPath(key, false); });
+			const curVal = ctx.untracked(() => getSig(key)());
 
-			if (typeof val === 'function') val = val(copy(curVal, true));
+			if (typeof val === 'function') {
+				val = val(copy(curVal, config.copyOnGet === 'deep'));
+			}
 
 			if (!key && getType(val) !== 'object') {
 				throw new Error('[fstage/store] Root state must be an object');
@@ -421,11 +420,8 @@ export function createStore(config) {
 
 			if (opts.notify !== false && opts.src !== 'set') {
 				if (batchDepth > 0) {
-					// Accumulate during batch -- onChange hooks fire once per path on commit
 					batchDiffs = batchDiffs || [];
-					for (var i = 0; i < diff.length; i++) {
-						batchDiffs.push({ seq: ++batchSeq, entry: diff[i] });
-					}
+					for (const entry of diff) batchDiffs.push({ seq: ++batchSeq, entry });
 				} else {
 					notifyChangeHooks(diff, opts.src || 'set');
 				}
@@ -434,166 +430,155 @@ export function createStore(config) {
 			return Promise.resolve(val);
 		},
 
-		merge: function(key, val, opts) {
-			// Do not mutate caller's opts -- create a new object
+		merge(key, val, opts) {
 			return api.set(key, val, Object.assign({}, opts, { merge: true }));
 		},
 
-		del: function(key, opts) {
+		del(key, opts) {
 			return api.set(key, undefined, opts);
 		},
 
 		// Batches both signal propagation (via ctx.batch) and onChange notifications.
 		// onChange hooks fire once per path after the batch, with the final value.
-		batch: function(fn) {
-			// Snapshot outer diffs so a throwing inner batch can't corrupt them.
+		batch(fn) {
 			const prevDiffs = batchDiffs;
-
 			batchDepth++;
-			config.ctx.startBatch();
-			var threw = false;
+			ctx.startBatch();
+			let threw = false;
 			try {
 				return fn();
 			} catch(e) {
 				threw = true;
-				// Restore to the snapshot rather than nulling unconditionally,
-				// so a caller who catches this exception keeps their outer diffs intact.
 				batchDiffs = prevDiffs;
 				throw e;
 			} finally {
-				config.ctx.endBatch();
+				ctx.endBatch();
 				batchDepth--;
 				if (!threw && batchDepth === 0) {
-					if (batchDiffs && batchDiffs.length) {
-						// Deduplicate by path, keeping the *last*-seen entry so the
-						// final action and value are what onChange callbacks observe.
+					const pending = batchDiffs;
+					batchDiffs = null;
+					if (pending?.length) {
+						// Deduplicate by path, keeping the last-seen entry so onChange
+						// callbacks observe the final action and value.
 						const map = new Map();
-						for (var i = 0; i < batchDiffs.length; i++) {
-							const it = batchDiffs[i];
-							map.set(it.entry.path, it);
-						}
+						for (const it of pending) map.set(it.entry.path, it);
 						const diff = Array.from(map.values())
-							.sort(function(a, b) { return a.seq - b.seq; })
-							.map(function(it) { return it.entry; });
-						batchDiffs = null;
+							.sort((a, b) => a.seq - b.seq)
+							.map(it => it.entry);
 						notifyChangeHooks(diff, 'set');
-					} else {
-						batchDiffs = null;
 					}
 				}
 			}
 		},
 
-		// Derived computed value that reads from the store.
-		// Re-evaluates lazily when any accessed store path changes.
-		computed: function(fn, opts) {
-				const sig = config.ctx.computed(function() { return fn(api); });
-				let _dispose = config.ctx.effect(function() { sig(); });
-				return {
-						get value() { return sig(); },
-						get: function() { return sig(); },
-						abort: function() {
-								if (_dispose) { _dispose(); _dispose = null; }
-						}
-				};
+		// Derived value that re-evaluates lazily when any accessed store path changes.
+		computed(fn) {
+			const sig = ctx.computed(() => fn(api));
+			// The effect keeps the lazy computed alive in alien-signals until abort().
+			let dispose = ctx.effect(() => { sig(); });
+			return {
+				get value() { return sig(); },
+				get() { return sig(); },
+				abort() {
+					if (dispose) { dispose(); dispose = null; }
+				}
+			};
 		},
 
 		// Reactive side effect that re-runs when accessed store paths change.
-		// Returns a dispose function.
-		effect: function(fn, opts) {
-			return config.ctx.effect(function() { return fn(api); });
+		effect(fn) {
+			return ctx.effect(() => fn(api));
 		},
 
-		onChange: function(key, cb, opts) {
+		onChange(key, cb, opts) {
 			if (!key || typeof key !== 'string') {
 				throw new Error('[fstage/store] onChange key must be a non-empty string');
 			}
-			opts = opts || {};
+			opts = opts || _EMPTY;
 			if (!changeHooks[key]) changeHooks[key] = new Map();
 
-			const item = {
-				cb: cb,
-				scheduler: opts.scheduler || config.schedulers.onChange,
-				abort: function() {
-					if (changeHooks[key]) {
-						changeHooks[key].delete(cb);
-						if (!changeHooks[key].size) delete changeHooks[key];
-					}
-				},
+			const abort = () => {
+				changeHooks[key]?.delete(cb);
+				if (!changeHooks[key]?.size) delete changeHooks[key];
 			};
 
-			changeHooks[key].set(cb, item);
-			return item.abort;
+			changeHooks[key].set(cb, {
+				cb,
+				scheduler: opts.scheduler || config.schedulers.onChange,
+				abort
+			});
+
+			return abort;
 		},
 
-		onAccess: function(key, cb) {
+		onAccess(key, cb) {
 			if (!key || typeof key !== 'string') {
 				throw new Error('[fstage/store] onAccess key must be a non-empty string');
 			}
-			if (!accessHooks[key]) accessHooks[key] = new Set();
-			accessHooks[key].add(cb);
+			if (!accessHooks[key]) accessHooks[key] = new Map();
 
-			return function() {
-				if (accessHooks[key]) {
-					accessHooks[key].delete(cb);
-					if (!accessHooks[key].size) delete accessHooks[key];
-				}
+			// Per-hook state: each handler independently tracks whether it has run,
+			// its lastRefresh, and any pending deferred write value. This prevents
+			// a hook at one path depth from silencing hooks at other depths.
+			accessHooks[key].set(cb, {
+				cb, run: false, lastRefresh: null, pendingWrite: false
+			});
+
+			return () => {
+				accessHooks[key]?.delete(cb);
+				if (!accessHooks[key]?.size) delete accessHooks[key];
 			};
 		},
 
-		// trackAccess: runs runFn once in a signals-tracked context to establish
-		// reactive dependencies. When any accessed path changes, the returned
-		// invalidate callback is called (not runFn itself).
+		// Runs runFn once in a signals-tracked context to establish reactive
+		// dependencies. When any accessed path changes, the returned invalidate
+		// callback fires (not runFn itself).
 		//
-		// Implementation: use an effect with a "first run" guard.
-		// - First effect run: runFn() is called (e.g. performUpdate), dep signals
-		//   are tracked automatically. The returned invalidate fn is stored.
-		// - Subsequent effect runs (dep change): only invalidate() is called
-		//   (e.g. requestUpdate). The component will call trackAccess again on
-		//   its next render, which disposes this effect and creates a fresh one.
-		trackAccess: function(owner, runFn, opts) {
+		// Pattern: alien-signals effect with a first-run guard.
+		// - First effect run: runFn() executes (e.g. LitElement performUpdate),
+		//   dep signals are auto-tracked, returned invalidate fn is stored.
+		// - Subsequent runs (dep changed): invalidate() fires (e.g. requestUpdate).
+		//   The component re-renders and calls trackAccess again, disposing this effect
+		//   and creating a fresh one with the new dep set.
+		trackAccess(owner, runFn) {
 			if (!owner || typeof runFn !== 'function') return;
 
-			var rec = trackerItems.get(owner);
-			if (rec) {
-				rec.dispose();
-				trackerItems.delete(owner);
-			}
+			// Dispose any previous tracker for this owner
+			trackerItems.get(owner)?.dispose();
+			trackerItems.delete(owner);
 
-			var initialized = false;
-			var invalidate = null;
+			let invalidate = null;
+			let initialized = false;
 
-			const dispose = config.ctx.effect(function() {
+			const dispose = ctx.effect(() => {
 				if (!initialized) {
-					initialized = true;
+					// Set initialized AFTER runFn succeeds so a throw leaves the
+					// flag false -- the next dep change will retry the full runFn
+					// rather than calling a null invalidate.
 					invalidate = runFn();
 					if (typeof invalidate !== 'function') {
 						throw new Error('[fstage/store] trackAccess runFn must return a function');
 					}
+					initialized = true;
 				} else {
-					// Dep changed -- call invalidate to schedule a re-render.
-					// The next render will call trackAccess again, disposing this effect.
-					if (invalidate) invalidate();
+					invalidate();
 				}
 			});
 
-			trackerItems.set(owner, { dispose: dispose });
-			
+			trackerItems.set(owner, { dispose });
 			return dispose;
 		},
 
-		model: function(key, model) {
+		model(key, model) {
 			if (model) {
 				if (modelsCache[key]) throw new Error('[fstage/store] model key already exists: ' + key);
-				const type = getType(model);
-				if (!['object', 'function'].includes(type)) {
+				if (!['object', 'function'].includes(getType(model))) {
 					throw new Error('[fstage/store] model must be an object or function');
 				}
 				modelsCache[key] = model;
 			}
 			return modelsCache[key] || null;
-		},
-
+		}
 	};
 
 	return api;

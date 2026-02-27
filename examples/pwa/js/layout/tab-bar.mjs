@@ -2,7 +2,9 @@ export default {
 
 	tag: 'pwa-tab-bar',
 
-	inject: ['store'],
+	inject: {
+		store: 'store'
+	},
 
 	style: (ctx) => ctx.css`
 		:host {

@@ -4,7 +4,9 @@ export default {
 
 	shadow: false,
 
-	inject: ['store'],
+	inject: {
+		store: 'store'
+	},
 
 	style: (ctx) => ctx.css`
 		pwa-app {

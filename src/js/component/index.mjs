@@ -4,7 +4,46 @@
 //
 // Accepts component definition objects (per the Fstage Component Definition Standard) and registers them as custom elements.
 
-import { adoptStyleSheet, getGlobalCss } from '../utils/index.mjs';
+import { copy, adoptStyleSheet, getGlobalCss } from '../utils/index.mjs';
+
+
+function createProxy(target, label, onSet) {
+  function err(op, prop) {
+		if (onSet) {
+			throw new Error(label + ' does not support ' + op + ' ("' + String(prop) + '")');
+		} else {
+			throw new Error(label + ' is read-only (' + op + ' "' + String(prop) + '")');
+		}
+  }
+
+  return new Proxy(target, {
+    get: function (t, p, r) { return Reflect.get(t, p, r); },
+    has: function (t, p) { return Reflect.has(t, p); },
+    ownKeys: function (t) { return Reflect.ownKeys(t); },
+    getOwnPropertyDescriptor: function (t, p) { return Reflect.getOwnPropertyDescriptor(t, p); },
+
+    defineProperty: function (t, p) { err('defineProperty', p); },
+    setPrototypeOf: function () { err('setPrototypeOf', '__proto__'); },
+    preventExtensions: function () { err('preventExtensions', ''); },
+
+		set: function (t, p, v) {
+			if (!onSet) err('set', p);
+			const o = t[p];
+			const ok = Reflect.set(t, p, v);
+			if (ok && o !== v) onSet(p, o, v);
+			return ok;
+		},
+
+    deleteProperty: function (t, p) {
+      if (!onSet) err('deleteProperty', p);
+      if (!(p in t)) return true;
+      const o = t[p];
+			const ok = Reflect.deleteProperty(t, p);
+      if (ok) onSet(p, o, undefined);
+      return ok;
+    }
+  });
+}
 
 
 export function createRuntime(config) {
@@ -14,6 +53,7 @@ export function createRuntime(config) {
 	const extensions = {};
 	const helpers = config.ctx || {};
 	const baseClass = config.baseClass || null;
+	const deepCopy = !!config.deepCopy;
 
 	const registry = config.registry;
 	const interactionsManager = config.interactionsManager;
@@ -30,7 +70,7 @@ export function createRuntime(config) {
 			const defaults = {
 				shadow: true,
 				globalStyles: !!config.globalStyles,
-				inject: [],
+				inject: {},
 				props: {},
 				state: {},
 				interactions: {}
@@ -85,79 +125,68 @@ export function createRuntime(config) {
 					super();
 
 					// Per-instance context and cleanup store
-					const self       = this;
 					const ctx        = this.__ctx = {};
 					const cleanupFns = this.__cleanupFns = [];
-
-					// Template helpers forwarded from runtime config
-					ctx.html = helpers.html;
-					ctx.css  = helpers.css;
-					ctx.svg  = helpers.svg;
 
 					// Host element and render root
 					ctx.host = this;
 					ctx.root = null;
 
-					// ctx.props — thin alias for the host element; external props are already
-					// reactive properties on the instance so no wrapper is needed
-					ctx.props = this;
+					// Helpers forwarded from runtime config
+					[ 'html', 'css', 'svg' ].forEach(function(key) {
+						if (helpers[key]) ctx[key] = helpers[key];
+					});
 
-					// Initialise declared props with defaults
-					for (var k in def.props) {
-						this[k] = def.props[k].default;
-					}
-
-					// ctx.state — Proxy for local component state, seeded from def.state defaults.
-					// Any write calls requestUpdate(key, oldValue) so LitElement's shouldUpdate
-					// guard is satisfied and a re-render is triggered.
-					const stateTarget = {};
-					for (var k in (def.state || {})) {
-						stateTarget[k] = def.state[k];
-					}
-					ctx.state = new Proxy(stateTarget, {
-						get(target, key) {
-							return target[key];
-						},
-						set(target, key, value) {
-							var oldValue = target[key];
-							target[key] = value;
-							self.requestUpdate(key, oldValue);
-							return true;
-						}
+					// ctx.props — read only proxy
+					ctx.props = createProxy(this, 'ctx.props');
+					
+					// ctx.state - writable proxy
+					ctx.state = createProxy(copy(def.state, deepCopy), 'ctx.state', (key, oldVal, newVal) => {
+						this.requestUpdate(key, oldVal);
 					});
 
 					// ctx.emit — dispatch a composed, bubbling CustomEvent from the host
 					ctx.emit = (type, detail, opts) => {
-						var event = new CustomEvent(type, Object.assign({ bubbles: true, composed: true, detail: detail || null }, opts || {}));
+						const event = new CustomEvent(type, Object.assign({ bubbles: true, composed: true, detail: detail || null }, opts || {}));
 						return this.dispatchEvent(event);
+					};
+					
+					// ctx.requestUpdate - request manual render
+					ctx.requestUpdate = () => {
+						this.requestUpdate();
 					};
 
 					// ctx.cleanup — register a teardown function run on disconnectedCallback
-					ctx.cleanup = function(fn) {
+					ctx.cleanup = (fn) => {
 						if (typeof fn === 'function') cleanupFns.push(fn);
 					};
 
+					// Resolve props defaults
+					for (var k in def.props) {
+						this[k] = def.props[k].default;
+					}
+
 					// Resolve registry services
-					def.inject.forEach(function(key) {
-						if (ctx[key] !== undefined) {
-							throw new Error('[fstage/component] ctx.' + key + ' already exists');
+					for (var ctxKey in def.inject) {
+						const regKey = def.inject[ctxKey];
+						if (ctx[ctxKey] !== undefined) {
+							throw new Error('[fstage/component] ctx.' + ctxKey + ' already exists');
 						}
-						var service = registry ? registry.get(key) : undefined;
+						
+						const service = registry.get(regKey);
 						if (service === undefined || service === null) {
-							throw new Error('[fstage/component] inject key not found in registry: ' + key);
+							throw new Error('[fstage/component] inject key not found in registry: ' + regKey);
 						}
-						ctx[key] = service;
-					});
+
+						ctx[ctxKey] = service;
+					}
 
 					// Resolve extensions
 					for (var key in extensions) {
 						if (ctx[key] !== undefined) {
 							throw new Error('[fstage/component] ctx.' + key + ' already exists');
 						}
-						var fn = extensions[key](ctx, cleanupFns);
-						if (typeof fn === 'function') {
-							ctx[key] = fn;
-						}
+						ctx[key] = extensions[key](ctx, cleanupFns);
 					}
 
 					if (def.constructed) def.constructed(ctx);
@@ -207,9 +236,17 @@ export function createRuntime(config) {
 				disconnectedCallback() {
 					const ctx        = this.__ctx;
 					const cleanupFns = this.__cleanupFns;
+					const dispose = this.__disposeTracker;
+					
+					super.disconnectedCallback();
 
 					while (cleanupFns.length > 0) {
 						cleanupFns.pop()();
+					}
+
+					if (dispose) {
+						dispose();
+						this.__disposeTracker = null;
 					}
 
 					if (def.disconnected) def.disconnected(ctx);
@@ -227,15 +264,17 @@ export function createRuntime(config) {
 						return;
 					}
 
-					ctx.cleanup(ctx.store.trackAccess(this, () => {
+					// trackAccess: automatically triggers any previous dispose
+					this.__disposeTracker = ctx.store.trackAccess(this, () => {
 						super.performUpdate();
 						return () => this.requestUpdate();
-					}));
+					});
 				}
 
 				firstUpdated(changedProperties) {
 					const ctx        = this.__ctx;
 					const cleanupFns = this.__cleanupFns;
+
 					super.firstUpdated(changedProperties);
 
 					if (interactionsManager && Object.keys(def.interactions).length) {
@@ -250,21 +289,30 @@ export function createRuntime(config) {
 
 					if (def.rendered) {
 						// Convert LitElement's changedProperties Map { key → previousValue }
-						// into a plain object for ergonomic access in definition code
-						var changed = {};
+						// into a plain object for ergonomic access in definition code.
+						// Note: only declared props and state appear here — store reads
+						// and other reactive sources are never reflected in changed.
+						const changed = {};
 						changedProperties.forEach(function(oldVal, key) { changed[key] = oldVal; });
-						def.rendered(ctx, changed);
+						const isFirst = !this.__hasRendered;
+						this.__hasRendered = true;
+						def.rendered(ctx, changed, isFirst);
 					}
 				}
 
 			}
 
-			// Copy any non-reserved, function-valued def keys onto the prototype
-			// so imperative methods (e.g. overlay.mount) are available on the element
+			// Copy any special methods function onto the prototype
+			// Allows imperative methods to be available on the element
 			for (var i in def) {
-				if (reserved.includes(i)) continue;
+				if (i.indexOf('__') !== 0) continue;
 				if (typeof def[i] !== 'function') continue;
-				Component.prototype[i] = def[i];
+
+				(function(name, fn) {
+					Component.prototype[name] = function() {
+						return fn.apply(this, arguments);
+					};
+				})(i.slice(2), def[i]);
 			}
 
 			customElements.define(def.tag, Component);
