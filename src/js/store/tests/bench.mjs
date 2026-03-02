@@ -1,37 +1,17 @@
-<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>Store Benchmark - Comprehensive</title>
-  <style>
-    body { font-family: monospace; padding: 20px; }
-    #log { white-space: pre-line; margin-top: 10px; }
-    .section { margin-top: 20px; font-weight: bold; }
-  </style>
-</head>
-<body>
-<h2>Store Benchmark - Comprehensive</h2>
-<div id="status">Initialising...</div>
-<div id="log"></div>
-
-<script type="module">
 import { createStore as reduxCreateStore } from "https://esm.sh/redux@5";
 import { atom as nanoAtom } from "https://esm.sh/nanostores";
 import { observable, autorun, computed as mobxComputed } from "https://esm.sh/mobx@6";
 
-import { createStore as fstageCreateStore } from './index.mjs';
-import { createStore as fstageCreateStoreSignals } from './signals.mjs';
+import { createStore as fstageCreateStore } from '../index.mjs';
+import { createStore as fstageCreateStoreSignals } from '../signals.mjs';
 
-const status = document.getElementById('status');
-const logEl = document.getElementById('log');
-
-function log(msg) {
-  console.log(msg);
-  logEl.textContent += msg + "\n";
-}
 
 const now = () => performance.now();
 const fmt = n => n.toFixed(2);
+
+function log(msg) {
+  console.log(msg);
+}
 
 function measure(label, fn) {
   const t0 = now();
@@ -380,12 +360,8 @@ function benchNano() {
   return { name:"NanoStores", reads, writes, computedReads: 0, batch, listOp, deep, memory };
 }
 
-// ==================================================
-// RUN ALL
-// ==================================================
-setTimeout(function() {
-  status.textContent = "Running benchmarks...";
 
+export function runBenchmarks() {
   const results = [];
   
   log("=".repeat(60));
@@ -421,10 +397,4 @@ setTimeout(function() {
       }
     });
   });
-
-  status.textContent = "Done.";
-}, 0);
-
-</script>
-</body>
-</html>
+}

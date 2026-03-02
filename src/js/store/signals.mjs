@@ -469,6 +469,50 @@ export function createStore(config) {
 			}
 		},
 
+		// Runs runFn once in a signals-tracked context to establish reactive
+		// dependencies. When any accessed path changes, the returned invalidate
+		// callback fires (not runFn itself).
+		//
+		// Pattern: alien-signals effect with a first-run guard.
+		// - First effect run: runFn() executes (e.g. LitElement performUpdate),
+		//   dep signals are auto-tracked, returned invalidate fn is stored.
+		// - Subsequent runs (dep changed): invalidate() fires (e.g. requestUpdate).
+		//   The component re-renders and calls track again, disposing this effect
+		//   and creating a fresh one with the new dep set.
+		track(owner, runFn) {
+			if (!owner || typeof runFn !== 'function') return;
+
+			// Dispose any previous tracker for this owner
+			trackerItems.get(owner)?.dispose();
+			trackerItems.delete(owner);
+
+			let invalidate = null;
+			let initialized = false;
+
+			const dispose = ctx.effect(() => {
+				if (!initialized) {
+					// Set initialized AFTER runFn succeeds so a throw leaves the
+					// flag false -- the next dep change will retry the full runFn
+					// rather than calling a null invalidate.
+					invalidate = runFn();
+					if (typeof invalidate !== 'function') {
+						throw new Error('[fstage/store] track runFn must return a function');
+					}
+					initialized = true;
+				} else {
+					invalidate();
+				}
+			});
+
+			trackerItems.set(owner, { dispose });
+			return dispose;
+		},
+
+		// Reactive side effect that re-runs when accessed store paths change.
+		effect(fn) {
+			return ctx.effect(() => fn(api));
+		},
+
 		// Derived value that re-evaluates lazily when any accessed store path changes.
 		computed(fn) {
 			const sig = ctx.computed(() => fn(api));
@@ -481,32 +525,6 @@ export function createStore(config) {
 					if (dispose) { dispose(); dispose = null; }
 				}
 			};
-		},
-
-		// Reactive side effect that re-runs when accessed store paths change.
-		effect(fn) {
-			return ctx.effect(() => fn(api));
-		},
-
-		onChange(key, cb, opts) {
-			if (!key || typeof key !== 'string') {
-				throw new Error('[fstage/store] onChange key must be a non-empty string');
-			}
-			opts = opts || _EMPTY;
-			if (!changeHooks[key]) changeHooks[key] = new Map();
-
-			const abort = () => {
-				changeHooks[key]?.delete(cb);
-				if (!changeHooks[key]?.size) delete changeHooks[key];
-			};
-
-			changeHooks[key].set(cb, {
-				cb,
-				scheduler: opts.scheduler || config.schedulers.onChange,
-				abort
-			});
-
-			return abort;
 		},
 
 		onAccess(key, cb) {
@@ -528,43 +546,25 @@ export function createStore(config) {
 			};
 		},
 
-		// Runs runFn once in a signals-tracked context to establish reactive
-		// dependencies. When any accessed path changes, the returned invalidate
-		// callback fires (not runFn itself).
-		//
-		// Pattern: alien-signals effect with a first-run guard.
-		// - First effect run: runFn() executes (e.g. LitElement performUpdate),
-		//   dep signals are auto-tracked, returned invalidate fn is stored.
-		// - Subsequent runs (dep changed): invalidate() fires (e.g. requestUpdate).
-		//   The component re-renders and calls trackAccess again, disposing this effect
-		//   and creating a fresh one with the new dep set.
-		trackAccess(owner, runFn) {
-			if (!owner || typeof runFn !== 'function') return;
+		onChange(key, cb, opts) {
+			if (!key || typeof key !== 'string') {
+				throw new Error('[fstage/store] onChange key must be a non-empty string');
+			}
+			opts = opts || _EMPTY;
+			if (!changeHooks[key]) changeHooks[key] = new Map();
 
-			// Dispose any previous tracker for this owner
-			trackerItems.get(owner)?.dispose();
-			trackerItems.delete(owner);
+			const abort = () => {
+				changeHooks[key]?.delete(cb);
+				if (!changeHooks[key]?.size) delete changeHooks[key];
+			};
 
-			let invalidate = null;
-			let initialized = false;
-
-			const dispose = ctx.effect(() => {
-				if (!initialized) {
-					// Set initialized AFTER runFn succeeds so a throw leaves the
-					// flag false -- the next dep change will retry the full runFn
-					// rather than calling a null invalidate.
-					invalidate = runFn();
-					if (typeof invalidate !== 'function') {
-						throw new Error('[fstage/store] trackAccess runFn must return a function');
-					}
-					initialized = true;
-				} else {
-					invalidate();
-				}
+			changeHooks[key].set(cb, {
+				cb,
+				scheduler: opts.scheduler || config.schedulers.onChange,
+				abort
 			});
 
-			trackerItems.set(owner, { dispose });
-			return dispose;
+			return abort;
 		},
 
 		model(key, model) {
