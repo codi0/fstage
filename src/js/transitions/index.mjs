@@ -299,69 +299,106 @@ export function createTransitionEngine(options) {
 
 export function createScreenHost(options = {}) {
   options.el = options.el || document.body;
+  options.actions = options.actions || {};
   options.name = options.name || '';
   options.inlineCss = (options.inlineCss !== false);
-
-  return {
-
-    async mount(e) {
+  
+  const events = {};
+  const dispatch = function(name, e) {
+		(events[name] || []).forEach(function(fn) { fn(e); });
+  };
+  
+  const actions = Object.assign({
+		mount(e, opts) {
+			//get route data
       const routeConf = e.screen && e.screen.meta;
       const state = e.location && e.location.state;
-
+			//valid route?
       if (!routeConf || !routeConf.component) {
         throw new Error('screenHost.mount: entry.screen.meta.component missing');
       }
-
-      // Transition wrapper (animated) + inner scroller (scroll state)
+      //transition wrapper
       const wrap = document.createElement('div');
       wrap.setAttribute('data-screen', routeConf.component);
-
+			//inner scroller
       const scroller = document.createElement('div');
 			scroller.setAttribute('data-scroller', '');
-			
+			//use inline css?
 			if (options.inlineCss) {
+				//on wrap
 				wrap.style.position = 'absolute';
 				wrap.style.inset = '0';
 				wrap.style.background = 'inherit';
 				wrap.style.overflow = 'hidden';
-
+				//on scroller
 				scroller.style.position = 'absolute';
 				scroller.style.inset = '0';
 				scroller.style.overflowY = 'auto';
 				scroller.style.webkitOverflowScrolling = 'touch';
 				scroller.style.overscrollBehaviorY = 'contain';
 			}
-
+			//create component
       const view = document.createElement(routeConf.component);
-
+			//add to DOM
       scroller.appendChild(view);
       wrap.appendChild(scroller);
       options.el.appendChild(wrap);
-
+			//set event target
       e.target = wrap;
-
+			//set scroll position?
       if (state && state.scroll > 0) {
         requestAnimationFrame(() => {
           scroller.scrollTop = state.scroll;
         });
       }
-    },
-
-    async unmount(e) {
+		},
+		
+		unmount(e) {
+			//remove element
 			e.target.remove();
+		},
+		
+		activate(e) {
+			//get screen
+			const screen = e.screen && e.screen.meta;
+			//update title?
+			if (screen && screen.title) {
+				document.title = screen.title + (options.name ? ' | ' + options.name : '');
+			}
+		},
+		
+		deactivate(e) {
+			//no-op
+		}
+  }, options.actions);
+
+  return {
+    mount(e) {
+			actions.mount(e);
+			dispatch('mount', e);
     },
 
-    async activate(e) {
-      const screen = e.screen && e.screen.meta;
-
-      if (screen && screen.title) {
-        document.title = screen.title + (options.name ? ' | ' + options.name : '');
-      }
+    unmount(e) {
+			actions.unmount(e);
+			dispatch('unmount', e);
     },
 
-    async deactivate(e) {
-      // for handling animations visuals
-    }
+    activate(e) {
+			actions.activate(e);
+      dispatch('activate', e);
+    },
+
+    deactivate(e) {
+			actions.deactivate(e);
+      dispatch('deactivate', e);
+    },
+
+		on(name, fn) {
+			events[name] = events[name] || new Set();
+			events[name].add(fn);
+			return function() {
+				events[name].delete(fn);
+			};
+		}
   };
-
 }

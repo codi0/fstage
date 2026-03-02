@@ -2,9 +2,9 @@ export default {
 
 	tag: 'pwa-task-row',
 
-	props: {
-		task:  { default: null, attr: false },
-		index: { default: 0, attr: 'index', type: 'number' },
+	state: {
+		task: { $src: 'prop', default: null },
+		index: { $src: 'prop', default: 0 }
 	},
 
 	inject: {
@@ -37,6 +37,19 @@ export default {
 			padding: 14px 16px; background: var(--bg-base);
 			border-radius: var(--radius-md); position: relative; z-index: 1;
 			will-change: transform;
+			/* Press feedback: quick scale-down, spring back */
+			transition: transform 0.08s ease, background 0.1s ease;
+			-webkit-tap-highlight-color: transparent;
+			cursor: pointer;
+		}
+
+		/* Native-feel press state.
+		   The swipe gesture's inline style.transform overrides this when swiping,
+		   so there's no conflict — the scale simply goes away once the swipe claims. */
+		.row-content:active {
+			transform: scale(0.98);
+			background: var(--bg-secondary);
+			transition: transform 0.0s, background 0.0s;
 		}
 
 		.check-btn {
@@ -75,9 +88,10 @@ export default {
 
 		'click(.check-btn)': function(e, ctx) {
 			e.stopPropagation();
-			var t = ctx.props.task;
+			var t = ctx.state.task;
+			var tasksModel = ctx.store.model('tasks');
 			if (!t) return;
-			ctx.store.model('tasks').toggle(t.id);
+			tasksModel.toggle(t.id);
 			ctx.animator.animate(e.matched, 'pop', { duration: 300 });
 		},
 
@@ -93,10 +107,14 @@ export default {
 				hide.style.opacity = '0';
 			},
 			onCommit: function(e, ctx) {
-				var t = ctx.props.task;
+				var t = ctx.state.task;
+				var tasksModel = ctx.store.model('tasks');
 				if (!t) return;
-				if (e.direction === 'right') ctx.store.model('tasks').toggle(t.id);
-				else                          ctx.store.model('tasks').delete(t.id);
+				if (e.direction === 'right') {
+					tasksModel.toggle(t.id);
+				} else {
+					tasksModel.delete(t.id);
+				}
 			},
 			onCancel: function(e, ctx) {
 				var right = ctx.root.querySelector('.reveal-right');
@@ -108,7 +126,7 @@ export default {
 	},
 
 	render: function(ctx) {
-		var t = ctx.props.task;
+		var t = ctx.state.task;
 		if (!t) return ctx.html``;
 
 		var dateInfo = _formatDate(t.dueDate);
@@ -150,7 +168,7 @@ export default {
 	},
 
 	rendered: function(ctx) {
-		ctx.host.style.setProperty('--row-index', ctx.props.index);
+		ctx.host.style.setProperty('--row-index', ctx.state.index);
 	}
 
 };

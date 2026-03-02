@@ -3,7 +3,6 @@ import { atom as nanoAtom } from "https://esm.sh/nanostores";
 import { observable, autorun, computed as mobxComputed } from "https://esm.sh/mobx@6";
 
 import { createStore as fstageCreateStore } from '../index.mjs';
-import { createStore as fstageCreateStoreSignals } from '../signals.mjs';
 
 
 const now = () => performance.now();
@@ -49,11 +48,14 @@ function benchmark(label, fn, iterations = ITERATIONS) {
 // ==================================================
 // FSTAGE
 // ==================================================
-function benchFstage(createStore, label='') {
-	var name = 'Fstage' + (label ? ' (' + label + ')' : '') + ':';
+function benchFstage(useProxy) {
+	const label = useProxy ? 'proxy' : 'plain';
+	const name = 'Fstage' + (label ? ' (' + label + ')' : '') + ':';
   log(name);
+  
+  const state = { items: {}, list: [] };
 
-  const s = createStore({ state: { items: {}, list: [] } });
+  const s = fstageCreateStore({ state, useProxy, prefix: '' });
 
   for (let i = 0; i < ITEMS; i++) {
     s.set(`items.${i}`, { value: 0, status: "ok" });
@@ -368,8 +370,8 @@ export function runBenchmarks() {
   log("BASIC OPERATIONS");
   log("=".repeat(60));
   
-  results.push(benchFstage(fstageCreateStore, 'core'));
-  results.push(benchFstage(fstageCreateStoreSignals, 'signals'));
+  results.push(benchFstage(false));
+  results.push(benchFstage(true));
   results.push(benchRedux());
   results.push(benchMobx());
   results.push(benchNano());

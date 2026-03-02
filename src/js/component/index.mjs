@@ -4,44 +4,222 @@
 //
 // Accepts component definition objects (per the Fstage Component Definition Standard) and registers them as custom elements.
 
-import { copy, adoptStyleSheet, getGlobalCss } from '../utils/index.mjs';
+import { getType, copy, nestedKey, adoptStyleSheet, getGlobalCss } from '../utils/index.mjs';
 
 
-function createProxy(target, label, onSet) {
-  function err(op, prop) {
-		if (onSet) {
-			throw new Error(label + ' does not support ' + op + ' ("' + String(prop) + '")');
-		} else {
-			throw new Error(label + ' is read-only (' + op + ' "' + String(prop) + '")');
+function formatStateMap(stateMap, stores) {
+	const allowed = [ 'prop', 'local', 'store' ];
+	for (var i in stateMap) {
+		const def = stateMap[i];
+		if (!def || !def.$src) {
+			stateMap[i] = { $src: 'local', default: def };
+			continue;
 		}
+		if (!allowed.includes(def.$src)) {
+			throw new Error("[fstage/component] component definition state." + i + " has invalid $src: " + def.$src);
+		}
+		def.key = def.key || i;
+		if (def.$src === 'store') {
+			def.store = def.store || 'default';
+			def.storeObj = stores[stateMap[i].store];
+			if (!def.storeObj) {
+				throw new Error("[fstage/component] No store named '" + def.store + "' present");
+			}
+		}
+		if (def.$src === 'prop') {
+			if (!def.type) {
+				const t = getType(def.default);
+				if (t === 'boolean') {
+					def.type = Boolean;
+				} else if (t === 'number') {
+					def.type = Number;
+				} else {
+					def.type = String;
+					def.default = String(def.default || '');
+				}
+			}
+		}
+		stateMap[i] = def;
+	}
+	return stateMap;
+}
+
+export function createComponentState(config) {
+	config = config || {};
+	
+	// Assignments
+
+	const map = config.map || {};
+	const props = config.props || {};
+	const stores = config.stores || {};
+	const callbacks = config.callbacks || {};
+	const cleanup = config.cleanup || null;
+	const label = config.label || 'ctx.state';
+
+  const local = {};
+  const watchers = new Map();
+  const reserved = [ '$set', '$status', '$watch' ];
+
+	// Helpers
+
+  function na(action, msg) {
+		msg = msg ? '. ' + msg : '';
+		throw new Error('[fstage/component] ' + label + ' does not allow ' + action + msg);
   }
 
-  return new Proxy(target, {
-    get: function (t, p, r) { return Reflect.get(t, p, r); },
-    has: function (t, p) { return Reflect.has(t, p); },
-    ownKeys: function (t) { return Reflect.ownKeys(t); },
-    getOwnPropertyDescriptor: function (t, p) { return Reflect.getOwnPropertyDescriptor(t, p); },
+	function getKeyParts(key) {
+		const dot = key.indexOf('.');
+		if (dot === -1) {
+			return { root: key, sub: null };
+		}
+		return {
+			root: key.slice(0, dot),
+			sub: key.slice(dot + 1)
+		};
+	}
 
-    defineProperty: function (t, p) { err('defineProperty', p); },
-    setPrototypeOf: function () { err('setPrototypeOf', '__proto__'); },
-    preventExtensions: function () { err('preventExtensions', ''); },
+  function notifyWatchers(key, newVal, oldVal) {
+    var fns = watchers.get(key);
+    if (fns) fns.forEach(function(fn) { fn(newVal, oldVal); });
+  }
 
-		set: function (t, p, v) {
-			if (!onSet) err('set', p);
-			const o = t[p];
-			const ok = Reflect.set(t, p, v);
-			if (ok && o !== v) onSet(p, o, v);
-			return ok;
-		},
+  function $set(path, val) {
+    const keyParts = getKeyParts(path);
+    const src = map[keyParts.root];
+    if (!src) throw new Error('[fstage/component] ctx.state.$set cannot be used on an undeclared state key');
 
-    deleteProperty: function (t, p) {
-      if (!onSet) err('deleteProperty', p);
-      if (!(p in t)) return true;
-      const o = t[p];
-			const ok = Reflect.deleteProperty(t, p);
-      if (ok) onSet(p, o, undefined);
-      return ok;
+    if (src.$src === 'store') {
+			const storeKey = src.key + (keyParts.sub ? '.' + keyParts.sub : '');
+      src.storeObj.set(storeKey, val);
+      return;
+		}
+
+    const data = (src.$src === 'prop') ? props : local;
+		const oldVal = data[keyParts.root];
+		var newVal = copy(oldVal);
+
+		if (keyParts.sub) {
+			nestedKey(newVal, keyParts.sub, { val: val });
+		} else {
+			newVal = val;
+		}
+
+		data[keyParts.root] = newVal;
+		notifyWatchers(keyParts.root, data[keyParts.root], oldVal);
+		if (callbacks[src.$src]) callbacks[src.$src](keyParts.root, data[keyParts.root], oldVal);
+	}
+
+  function $watch(key, fn, opts) {
+		opts = opts || {};
+    const src = map[key]
+    if (!src) throw new Error('[fstage/component] ctx.state.$watch only accepts top-level declared state keys');
+
+    if (src.$src === 'store') {
+      const off = src.storeObj.onChange(src.key, function(e) {
+        fn(e.val, e.oldVal);
+      }, { oldVal: true, immediate: opts.immediate });
+      if (off && cleanup) {
+				cleanup(off);
+			}
+			return off;
+		}
+
+		var fns = watchers.get(key);
+		if (!fns) {
+			fns = new Set();
+			watchers.set(key, fns);
+		}
+		const off = function() {
+			fns.delete(fn);
+		};
+		if (!fns.has(fn)) {
+			fns.add(fn);
+			if (cleanup) {
+				cleanup(off);
+			}
+		}
+		if (opts.immediate) {
+			const val = (src.$src === 'prop') ? props[key] : local[key];
+			fn(val, undefined);
+		}
+		return off;
+  }
+
+  function $status(key) {
+		const src = map[key];
+		const status = { loading: false, error: null };
+		if (!src) throw new Error('[fstage/component] ctx.state.$status only accepts top-level declared state keys');
+    if (src.$src === 'store' && src.storeObj.query) {
+			const q = src.storeObj.query(src.key);
+			status.loading = q.loading;
+			status.error = q.error;
     }
+    return status;
+  }
+  
+  // INIT
+
+  for (var i in map) {
+		//get source
+		const src = map[i];
+  
+		//set local default?
+    if (src.$src === 'local') {
+      local[i] = src.default;
+      continue;
+    }
+    
+    //set store watcher?
+    if (src.$src === 'store') {
+			if (callbacks.store && !src.storeObj.track) {
+				const off = src.storeObj.onChange(src.key, function(e) {
+					if (callbacks.store) callbacks.store(i, e.val, e.oldVal);
+				}, { oldVal: true });
+				if (off && cleanup) {
+					cleanup(off);
+				}
+			}
+		}
+	}
+
+	return new Proxy({}, {
+
+    has: function(t, key) {
+      return reserved.includes(key) || (key in map);
+    },
+
+    ownKeys: function() {
+      return Object.keys(map).concat(reserved);
+    },
+
+    get: function(t, key) {
+      if (typeof key === 'symbol') return undefined;
+      if (key === '$status') return $status;
+      if (key === '$set') return $set;
+      if (key === '$watch') return $watch;
+
+			var res;
+      const src = map[key];
+      if (!src) throw new Error('[fstage/component] ctx.state.' + key + ' is not declared');
+
+      if (src.$src === 'prop') {
+				res = props[key];
+			} else if (src.$src === 'store') {
+				res = src.storeObj.get(src.key);
+			} else {
+				res = local[key];
+			}
+			
+			if (res === undefined) res = src.default;
+			return res;
+    },
+
+    set: function(t, key) { na('set', 'Use ctx.state.$set instead.'); },
+    deleteProperty: function(t, key) { na('deleteProperty'); },
+    defineProperty: function (t, p) { na('defineProperty'); },
+    setPrototypeOf: function () { na('setPrototypeOf'); },
+    preventExtensions: function () { na('preventExtensions'); }
+
   });
 }
 
@@ -52,17 +230,11 @@ export function createRuntime(config) {
 
 	const extensions = {};
 	const helpers = config.ctx || {};
+	const stores = config.stores || {};
 	const baseClass = config.baseClass || null;
-	const deepCopy = !!config.deepCopy;
 
 	const registry = config.registry;
 	const interactionsManager = config.interactionsManager;
-
-	// All reserved definition keys — not copied to the prototype
-	const reserved = [
-		'tag', 'shadow', 'globalStyles', 'props', 'state', 'inject', 'style', 'render',
-		'interactions', 'constructed', 'connected', 'disconnected', 'rendered', 'onError'
-	];
 
 	return {
 
@@ -79,30 +251,26 @@ export function createRuntime(config) {
 			for (var i in defaults) {
 				if (def[i] === undefined || def[i] === null) {
 					def[i] = defaults[i];
+				} else if (i === 'state') {
+					def[i] = formatStateMap(def[i], stores);
 				}
 			}
 
 			if (!baseClass) throw new Error('[fstage/component] baseClass required');
 			if (!def.tag || def.tag.indexOf('-') === -1) throw new Error('[fstage/component] Invalid tag: ' + def.tag);
 			if (customElements.get(def.tag)) throw new Error('[fstage/component] Already defined: ' + def.tag);
+			
+			const trackArr = Object.values(stores).filter(s => s && s.track);
 
 			class Component extends baseClass {
 
 				static get properties() {
 					const props = {};
-
-					for (var k in (def.props || {})) {
-						const ps = def.props[k];
-						props[k] = {
-							attribute: ps.attr || false,
-							reflect:   ps.reflect || false,
-							// Accept string or constructor reference (String, Number, Boolean)
-							type: ps.type === Boolean || ps.type === 'boolean' ? Boolean
-							    : ps.type === Number  || ps.type === 'number'  ? Number
-							    : String
-						};
+					for (var i in def.state) {
+						if (def.state[i].$src === 'prop') {
+							props[i] = def.state[i];
+						}
 					}
-
 					return props;
 				}
 				
@@ -128,21 +296,35 @@ export function createRuntime(config) {
 					const ctx        = this.__ctx = {};
 					const cleanupFns = this.__cleanupFns = [];
 
-					// Host element and render root
-					ctx.host = this;
-					ctx.root = null;
-
 					// Helpers forwarded from runtime config
 					[ 'html', 'css', 'svg' ].forEach(function(key) {
 						if (helpers[key]) ctx[key] = helpers[key];
 					});
 
-					// ctx.props — read only proxy
-					ctx.props = createProxy(this, 'ctx.props');
+					// Host element and render root
+					ctx.host = this;
+					ctx.root = null;
+
+					// ctx.cleanup — register a teardown function run on disconnected
+					ctx.cleanup = (fn) => {
+						if (!ctx.host.isConnected) return;
+						if (typeof fn === 'function') cleanupFns.push(fn);
+					};
 					
-					// ctx.state - writable proxy
-					ctx.state = createProxy(copy(def.state, deepCopy), 'ctx.state', (key, oldVal, newVal) => {
-						this.requestUpdate(key, oldVal);
+					// ctx.state - unified state (prop, local, store)
+					ctx.state = createComponentState({
+						map: def.state,
+						props: this,
+						stores: stores,
+						cleanup: ctx.cleanup,
+						callbacks: {
+							local: (key, newVal, oldVal) => {
+								this.requestUpdate(key, oldVal);
+							},
+							store: (key, newVal, oldVal) => {
+								this.requestUpdate();
+							}
+						}
 					});
 
 					// ctx.emit — dispatch a composed, bubbling CustomEvent from the host
@@ -150,20 +332,17 @@ export function createRuntime(config) {
 						const event = new CustomEvent(type, Object.assign({ bubbles: true, composed: true, detail: detail || null }, opts || {}));
 						return this.dispatchEvent(event);
 					};
-					
+
 					// ctx.requestUpdate - request manual render
 					ctx.requestUpdate = () => {
 						this.requestUpdate();
 					};
 
-					// ctx.cleanup — register a teardown function run on disconnectedCallback
-					ctx.cleanup = (fn) => {
-						if (typeof fn === 'function') cleanupFns.push(fn);
-					};
-
 					// Resolve props defaults
-					for (var k in def.props) {
-						this[k] = def.props[k].default;
+					for (var i in def.state) {
+						if (def.state[i].$src === 'prop' && this[i] === undefined) {
+							this[i] = def.state[i].default;
+						}
 					}
 
 					// Resolve registry services
@@ -186,7 +365,7 @@ export function createRuntime(config) {
 						if (ctx[key] !== undefined) {
 							throw new Error('[fstage/component] ctx.' + key + ' already exists');
 						}
-						ctx[key] = extensions[key](ctx, cleanupFns);
+						ctx[key] = extensions[key](ctx);
 					}
 
 					if (def.constructed) def.constructed(ctx);
@@ -235,68 +414,57 @@ export function createRuntime(config) {
 
 				disconnectedCallback() {
 					const ctx        = this.__ctx;
-					const cleanupFns = this.__cleanupFns;
-					const dispose = this.__disposeTracker;
+					const trackerFns  = this.__trackerFns || [];
+					const cleanupFns = this.__cleanupFns || [];
 					
 					super.disconnectedCallback();
 
-					while (cleanupFns.length > 0) {
-						cleanupFns.pop()();
+					while (trackerFns.length) {
+						trackerFns.pop()();
 					}
 
-					if (dispose) {
-						dispose();
-						this.__disposeTracker = null;
+					while (cleanupFns.length) {
+						cleanupFns.pop()();
 					}
 
 					if (def.disconnected) def.disconnected(ctx);
 				}
 
 				performUpdate() {
-					if (!this.isUpdatePending) {
-						return;
-					}
+					if (!this.isUpdatePending) return;
 
-					const ctx = this.__ctx;
+					const ctx = this.__ctx;						
+					this.__trackerFns = [];
 
-					if (!ctx.store || !ctx.store.trackAccess) {
-						super.performUpdate();
-						return;
-					}
+					const wrap = (i) => {
+						if (i >= trackArr.length) {
+							super.performUpdate()
+							return;
+						}
+						// track calls old disposal automatically
+						const dispose = trackArr[i].track(this, () => {
+							wrap(i + 1);
+							return () => this.requestUpdate();
+						});
+						if (dispose) this.__trackerFns.push(dispose);
+					};
 
-					// trackAccess: automatically triggers any previous dispose
-					this.__disposeTracker = ctx.store.trackAccess(this, () => {
-						super.performUpdate();
-						return () => this.requestUpdate();
-					});
-				}
-
-				firstUpdated(changedProperties) {
-					const ctx        = this.__ctx;
-					const cleanupFns = this.__cleanupFns;
-
-					super.firstUpdated(changedProperties);
-
-					if (interactionsManager && Object.keys(def.interactions).length) {
-						const result = interactionsManager.activate(def.interactions, ctx);
-						if (typeof result === 'function') cleanupFns.push(result);
-					}
+					wrap(0);
 				}
 
 				updated(changedProperties) {
 					const ctx = this.__ctx;
 					super.updated(changedProperties);
 
+					const isFirst = !this.__hasRendered;
+					if (isFirst) this.__hasRendered = true;
+
+					if (isFirst && interactionsManager) {
+						ctx.cleanup(interactionsManager.activate(def.interactions, ctx));
+					}
+
 					if (def.rendered) {
-						// Convert LitElement's changedProperties Map { key → previousValue }
-						// into a plain object for ergonomic access in definition code.
-						// Note: only declared props and state appear here — store reads
-						// and other reactive sources are never reflected in changed.
-						const changed = {};
-						changedProperties.forEach(function(oldVal, key) { changed[key] = oldVal; });
-						const isFirst = !this.__hasRendered;
-						this.__hasRendered = true;
-						def.rendered(ctx, changed, isFirst);
+						def.rendered(ctx, isFirst);
 					}
 				}
 
@@ -319,9 +487,6 @@ export function createRuntime(config) {
 		},
 
     extendCtx: function(key, fn) {
-        if (reserved.includes(key)) {
-					throw new Error('[fstage/component] extendCtx key reserved: ' + key);
-				}
 				if (typeof fn !== 'function') {
 					throw new Error('[fstage/component] extendCtx fn must be a function');
 				}

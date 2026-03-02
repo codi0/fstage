@@ -132,6 +132,8 @@
 
 *, *::before, *::after {
 	box-sizing: border-box;
+	-webkit-touch-callout: none;
+	-webkit-tap-highlight-color: transparent;
 }
 
 html, body {
@@ -154,24 +156,8 @@ body {
 	overscroll-behavior: none;
 }
 
-/* No callout on long-press (iOS) except on inputs */
-* {
-	-webkit-touch-callout: none;
-}
-
 input, textarea, [contenteditable] {
 	-webkit-touch-callout: default;
-}
-
-/* Remove tap highlight everywhere — components opt-in to custom feedback */
-* {
-	-webkit-tap-highlight-color: transparent;
-}
-
-/* Native-feel focus ring */
-:focus-visible {
-	outline: 2px solid var(--color-primary);
-	outline-offset: 2px;
 }
 
 p, h1, h2, h3, h4 {
@@ -193,11 +179,17 @@ a {
 	text-decoration: none;
 }
 
+/* Native-feel focus ring */
+:focus-visible {
+	outline: 2px solid var(--color-primary);
+	outline-offset: 2px;
+}
+
 
 /* --- Scroll containers ----------------------------------------------------- */
 
 /* Smooth momentum scrolling on iOS */
-.scroll, pwa-main > * {
+[data-scroller] {
 	-webkit-overflow-scrolling: touch;
 }
 
@@ -213,13 +205,4 @@ a {
 	::-webkit-scrollbar-thumb { background: var(--separator-heavy); border-radius: 3px; }
 	::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
 	* { scrollbar-width: thin; scrollbar-color: var(--separator-heavy) transparent; }
-}
-
-
-/* --- Transitions (page-level) ---------------------------------------------- */
-/* pwa-main children are absolutely positioned — transitions engine
-   applies WAAPI animations; ensure they don't clip during animation */
-
-pwa-main {
-	isolation: isolate;
 }

@@ -4,13 +4,14 @@ function _dateFor(daysOffset) {
 
 function _submitForm(e, ctx) {
 	var title = ctx.state.newTitle.trim();
+	var tasksModel = ctx.store.model('tasks');
 	if (!title) return;
-	ctx.store.model('tasks').add({
+	tasksModel.add({
 		title:    title,
 		dueDate:  ctx.state.newDate || null,
 		priority: ctx.state.newPriority,
 	});
-	ctx.state.sheetOpen = false;
+	ctx.state.$set('sheetOpen', false);
 }
 
 function _runOverlay(ctx) {
@@ -19,16 +20,16 @@ function _runOverlay(ctx) {
 	addBtn.ariaLabel = 'Add task';
 	addBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
 	addBtn.addEventListener('click', function() {
-		ctx.state.sheetOpen   = true;
-		ctx.state.newTitle    = '';
-		ctx.state.newDate     = _dateFor(0);
-		ctx.state.newPriority = 'medium';
+		ctx.state.$set('sheetOpen', true);
+		ctx.state.$set('newTitle', '');
+		ctx.state.$set('newDate', _dateFor(0));
+		ctx.state.$set('newPriority', 'medium');
 	});
 
 	var addStyle = document.createElement('style');
 	addStyle.innerText = `
 		.pwa-add-btn {
-			position: fixed; right: 20px; bottom: calc(var(--tab-height) + 16px);
+			position: fixed; right: 20px; bottom: calc(var(--tab-height) + var(--safe-bottom) + 16px);
 			width: 56px; height: 56px; border-radius: 50%; background: var(--color-primary);
 			border: none; cursor: pointer; display: flex; align-items: center; justify-content: center;
 			box-shadow: 0 4px 16px rgba(0,0,0,0.2); -webkit-tap-highlight-color: transparent;
@@ -52,6 +53,14 @@ function _runOverlay(ctx) {
 export default {
 
 	tag: 'pwa-tasks',
+
+	state: {
+		sheetOpen: { $src: 'local', default: false },
+		newTitle: { $src: 'local', default: '' },
+		newDate: { $src: 'local', default: '' },
+		newPriority: { $src: 'local', default: 'medium' },
+		tasks: { $src: 'store', default: [] }
+	},
 
 	inject: {
 		store: 'store'
@@ -114,19 +123,12 @@ export default {
 	`,
 
 	interactions: {
-		'bottomSheetClosed':    function(e, ctx) { ctx.state.sheetOpen = false; },
-		'input(#task-title)':   function(e, ctx) { ctx.state.newTitle = e.matched.value; },
+		'bottomSheetClosed':    function(e, ctx) { ctx.state.$set('sheetOpen', false); },
+		'input(#task-title)':   function(e, ctx) { ctx.state.$set('newTitle', e.matched.value); },
 		'keydown(#task-title)': function(e, ctx) { if (e.key === 'Enter') _submitForm(e, ctx); },
-		'click(.date-chip)':    function(e, ctx) { ctx.state.newDate = e.matched.dataset.date || ''; },
-		'click(.priority-btn)': function(e, ctx) { ctx.state.newPriority = e.matched.dataset.priority; },
+		'click(.date-chip)':    function(e, ctx) { ctx.state.$set('newDate', e.matched.dataset.date || ''); },
+		'click(.priority-btn)': function(e, ctx) { ctx.state.$set('newPriority', e.matched.dataset.priority); },
 		'click(.submit-btn)':   function(e, ctx) { _submitForm(e, ctx); },
-	},
-
-	state: {
-		sheetOpen:   false,
-		newTitle:    '',
-		newDate:     '',
-		newPriority: 'medium',
 	},
 
 	connected: function(ctx) {
@@ -134,12 +136,13 @@ export default {
 	},
 
 	render: function(ctx) {
-		var groups      = ctx.store.model('tasks').grouped();
-		var sheetOpen   = ctx.state.sheetOpen;
-		var newTitle    = ctx.state.newTitle;
-		var newDate     = ctx.state.newDate;
-		var newPriority = ctx.state.newPriority;
-		var rowIndex    = 0;
+		var tasksModel   = ctx.store.model('tasks');
+		var groups       = tasksModel.grouped();
+		var sheetOpen    = ctx.state.sheetOpen;
+		var newTitle     = ctx.state.newTitle;
+		var newDate      = ctx.state.newDate;
+		var newPriority  = ctx.state.newPriority;
+		var rowIndex     = 0;
 		var dateToday    = _dateFor(0);
 		var dateTomorrow = _dateFor(1);
 		var dateNextWeek = _dateFor(7);

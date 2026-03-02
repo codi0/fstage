@@ -1,11 +1,16 @@
 function _getTaskId(ctx) {
-	var id = ctx.store.get('route.match.params.id');
+	var id = ctx.state.routeParams.id;
 	return id ? String(id) : null;
 }
 
 export default {
 
 	tag: 'pwa-task-detail',
+	
+	state: {
+		tasks: { $src: 'store', default: [] },
+		routeParams: { $src: 'store', key: 'route.match.params', default: {} }
+	},
 
 	inject: {
 		store: 'store',
@@ -84,39 +89,43 @@ export default {
 	interactions: {
 		'change(.title-input)': function(e, ctx) {
 			var id = _getTaskId(ctx);
-			if (id) ctx.store.model('tasks').update(id, { title: e.matched.value });
+			var tasksModel = ctx.store.model('tasks');
+			if (id) tasksModel.update(id, { title: e.matched.value });
 		},
 		'change(.due-input)': function(e, ctx) {
 			var id = _getTaskId(ctx);
-			if (id) ctx.store.model('tasks').update(id, { dueDate: e.matched.value || null });
+			var tasksModel = ctx.store.model('tasks');
+			if (id) tasksModel.update(id, { dueDate: e.matched.value || null });
 		},
 		'click(.pri-btn)': function(e, ctx) {
 			var id = _getTaskId(ctx);
-			if (id) ctx.store.model('tasks').update(id, { priority: e.matched.dataset.priority });
+			var tasksModel = ctx.store.model('tasks');
+			if (id) tasksModel.update(id, { priority: e.matched.dataset.priority });
 		},
 		'change(.inline-textarea)': function(e, ctx) {
 			var id = _getTaskId(ctx);
-			if (id) ctx.store.model('tasks').update(id, { description: e.matched.value });
+			var tasksModel = ctx.store.model('tasks');
+			if (id) tasksModel.update(id, { description: e.matched.value });
 		},
 		'click(.complete-btn)': function(e, ctx) {
 			var id = _getTaskId(ctx);
+			var tasksModel = ctx.store.model('tasks');
 			if (!id) return;
-			ctx.store.model('tasks').toggle(id);
+			tasksModel.toggle(id);
 			ctx.animator.animate(e.matched, 'pop', { duration: 260 });
 		},
 		'click(.delete-btn)': function(e, ctx) {
 			var id = _getTaskId(ctx);
+			var tasksModel = ctx.store.model('tasks');
 			if (!id) return;
 			if (!confirm('Delete this task?')) return;
-			ctx.store.model('tasks').delete(id);
+			tasksModel.delete(id);
 		},
 	},
 
 	render: function(ctx) {
-		var route = ctx.store.get('route');
-		var id    = route && route.match && route.match.params && route.match.params.id;
-		var tasks = ctx.store.get('tasks') || [];
-		var t     = id ? tasks.find(function(task) { return task.id === String(id); }) || null : null;
+		var id    = ctx.state.routeParams.id;
+		var t     = id ? ctx.state.tasks.find(function(task) { return task.id === String(id); }) || null : null;
 
 		if (!t) return ctx.html`<div class="not-found">Task not found.</div>`;
 

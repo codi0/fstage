@@ -1,11 +1,23 @@
 //get input type
 export function getType(input) {
-	//is proxy?
-	if(input && input.__proxy) {
-		input = input.__proxy.target;
+	if (input === null) return 'null';
+	if (input === undefined) return 'undefined';
+	if (Array.isArray(input)) return 'array';
+	const t = typeof input;
+	if (t !== 'object') return t;
+	if (input instanceof Date) return 'date';
+	if (input instanceof RegExp) return 'regexp';
+	if (input instanceof Set) return 'set';
+	if (input instanceof Map) return 'map';
+	return 'object';
+}
+
+//has object got keys
+export function hasKeys(input) {
+	if (input) {
+		for (const i in input) return true;
 	}
-	//return
-	return {}.toString.call(input).match(/\s([a-zA-Z]+)/)[1].toLowerCase();
+	return false;
 }
 
 //is empty value
@@ -16,7 +28,7 @@ export function isEmpty(value) {
 	}
 	//is object?
 	if(value && value.constructor === Object) {
-		return !Object.keys(value).length;
+		return !hasKeys(value);
 	}
 	//other options
 	return (value === null || value === false || value == 0);
@@ -30,65 +42,45 @@ export function extend(obj={}) {
 
 //copy input
 export function copy(input, deep = false, seen = null) {
-	//is primitive or function?
 	if(input === null || typeof input !== 'object') return input;
-	//is date?
+	const c = input.constructor;
+	if(c !== Object && c !== Array && c !== Date && c !== RegExp && c !== Set && c !== Map && !ArrayBuffer.isView(input) && c !== ArrayBuffer) return input;
 	if(input instanceof Date) return new Date(input);
-	//is regex?
-	if(input instanceof RegExp) return new RegExp(input);
-	//is typed array?
-	if(ArrayBuffer.isView(input)) return new input.constructor(input);
-	//is ArrayBuffer?
+	if(input instanceof RegExp) return new RegExp(input.source, input.flags);
 	if(input instanceof ArrayBuffer) return input.slice(0);
-	//is DataView?
-	if(input instanceof DataView) return new DataView(input.buffer.slice(0));
-	//shallow mode?
+	if(ArrayBuffer.isView(input)) {
+		if(input instanceof DataView) return new DataView(input.buffer.slice(input.byteOffset, input.byteOffset + input.byteLength));
+		return new input.constructor(input);
+	}
 	if(!deep) {
 		if(Array.isArray(input)) return input.slice();
 		if(input instanceof Set) return new Set(input);
 		if(input instanceof Map) return new Map(input);
 		return { ...input };
 	}
-	//init weak map
 	seen = seen || new WeakMap();
-	//circular reference?
 	if(seen.has(input)) return seen.get(input);
-	//is set?
 	if(input instanceof Set) {
 		const clone = new Set();
 		seen.set(input, clone);
-		for(const v of input) {
-			clone.add(copy(v, deep, seen));
-		}
+		for(const v of input) clone.add(copy(v, deep, seen));
 		return clone;
 	}
-	//is map?
 	if(input instanceof Map) {
 		const clone = new Map();
 		seen.set(input, clone);
-		for(const [k, v] of input) {
-			clone.set(copy(k, deep, seen), copy(v, deep, seen));
-		}
+		for(const [k, v] of input) clone.set(copy(k, deep, seen), copy(v, deep, seen));
 		return clone;
 	}
-	//is array?
 	if(Array.isArray(input)) {
 		const clone = new Array(input.length);
 		seen.set(input, clone);
-		for(let i = 0; i < input.length; i++) {
-			clone[i] = copy(input[i], deep, seen);
-		}
+		for(let i = 0; i < input.length; i++) clone[i] = copy(input[i], deep, seen);
 		return clone;
 	}
-	//preserve prototype
-	const proto = Object.getPrototypeOf(input);
-	const clone = Object.create(proto);
+	const clone = Object.create(Object.getPrototypeOf(input));
 	seen.set(input, clone);
-	//copy both string and symbol keys
-	for(const key of Reflect.ownKeys(input)) {
-		clone[key] = copy(input[key], deep, seen);
-	}
-	//return
+	for(const key of Reflect.ownKeys(input)) clone[key] = copy(input[key], deep, seen);
 	return clone;
 }
 
@@ -251,12 +243,13 @@ decode.html = function(input) {
 };
 
 //get or set nested key
-export function nestedKey(input, key, opts={}) {
+export function nestedKey(input, key, opts) {
 	//set vars
 	var res = input;
-	var hasVal = ('val' in opts);
+	var def = opts && opts.default;
+	var hasVal = opts && ('val' in opts);
 	//stop early?
-	if (!res) return opts.default;
+	if (!res) return def;
 	//split key into parts
 	var keyArr = key ? key.split('.') : [];
 	//loop through parts
@@ -270,8 +263,8 @@ export function nestedKey(input, key, opts={}) {
 				//get type
 				var t = getType(res[k]);
 				//is iterable?
-				if(![ 'object', 'array' ].includes(t)) {
-					res[k] = Number.isInteger(Number(k)) ? [] : {}
+				if(t !== 'object' && t !== 'array') {
+					res[k] = Number.isInteger(+k) ? [] : {};
 				}
 				//next level
 				res = res[k];
@@ -291,7 +284,7 @@ export function nestedKey(input, key, opts={}) {
 		} else {
 			//not found?
 			if(res[k] === undefined) {
-				res = opts.default;
+				res = def;
 				break;
 			}
 			//next level
@@ -389,95 +382,88 @@ export function isEqual(a, b) {
 }
 
 //diff values
-export 	function diffValues(oldVal, newVal, path='', processed=[]) {
-	//set vars
+export function diffValues(oldVal, newVal, path='', processed=null) {
 	var changes = [];
-	//anything to diff?
-	if(isEqual(oldVal, newVal)) {
-		return changes;
-	}
-	//check types
+
+	if (isEqual(oldVal, newVal)) return changes;
+
+	var sub, i;
 	var oldType = getType(oldVal);
 	var newType = getType(newVal);
-	var objOrArr = [ 'object', 'array' ];
-	var useProcessed = Array.isArray(processed);
-	//non-compatible types?
-	if(oldType !== newType || !objOrArr.includes(oldType) || !objOrArr.includes(newType)) {
+	var diffObjArr = new Set(['object', 'array']);
+
+	// non-compatible types or primitives
+	if (oldType !== newType || !diffObjArr.has(oldType) || !diffObjArr.has(newType)) {
+		if (oldVal == null && diffObjArr.has(newType)) return diffValues({}, newVal, path, processed);
+		if (newVal == null && diffObjArr.has(oldType)) return diffValues(oldVal, {}, path, processed);
 		changes.push({
 			action: oldVal === undefined ? 'add' : (newVal === undefined ? 'remove' : 'change'),
-			path: path,
-			val: newVal,
+			path:   path,
+			val:    newVal,
 			oldVal: oldVal
 		});
 		return changes;
 	}
-	//check old processed?
-	if(useProcessed && oldType === 'object') {
-		if(processed.includes(oldVal)) {
-			return changes;
-		} else {
-			processed.push(oldVal);
-		}
-	}
-	//check new processed?
-	if(useProcessed && newType === 'object') {
-		if(processed.includes(newVal)) {
-			return changes;
-		} else {
-			processed.push(newVal);
-		}
-	}
-	//loop through old value
-	for(var key in oldVal) {
-		//skip key?
-		if(oldVal[key] === undefined) {
-			continue;
-		}
-		//set key vars
+
+	// circular reference guard
+	if (!processed) processed = new WeakSet();
+	if (processed.has(oldVal)) return changes;
+	processed.add(oldVal);
+	if (processed.has(newVal)) return changes;
+	processed.add(newVal);
+
+	var prefix = path ? path + '.' : '';
+
+	// loop old keys — removals, updates, deep diffs
+	for (var key in oldVal) {
+		if (oldVal[key] === undefined) continue;
+
+		var pathKey    = prefix + key;
 		var oldKeyType = getType(oldVal[key]);
-		var pathKey = path + (path ? '.' : '') + key;
-		//key removed?
-		if(newVal[key] === undefined) {
-			changes.push({
-				action: 'remove',
-				path: pathKey,
-				val: newVal[key],
-				oldVal: oldVal[key]
-			});
+
+		// removed
+		if (newVal[key] === undefined) {
+			if (diffObjArr.has(oldKeyType)) {
+				sub = diffValues(oldVal[key], {}, pathKey, processed);
+				for (i = 0; i < sub.length; i++) changes.push(sub[i]);
+			} else {
+				changes.push({ action: 'remove', path: pathKey, val: undefined, oldVal: oldVal[key] });
+			}
 			continue;
 		}
-		//deep diff?
-		if(oldVal[key] && newVal[key] && ![ 'date', 'regexp', 'string', 'number' ].includes(oldKeyType)) {
-			changes.push(...diffValues(oldVal[key], newVal[key], pathKey, processed));
+
+		var newKeyType = getType(newVal[key]);
+
+		// deep diff — recurse if new side is an object/array (handles null?object transition)
+		if (diffObjArr.has(newKeyType)) {
+			var oldSide = diffObjArr.has(oldKeyType) ? oldVal[key] : {};
+			sub = diffValues(oldSide, newVal[key], pathKey, processed);
+			for (i = 0; i < sub.length; i++) changes.push(sub[i]);
 			continue;
 		}
-		//value updated?
-		if(!isEqual(oldVal[key], newVal[key])) {
-			changes.push({
-				action: 'update',
-				path: pathKey,
-				val: newVal[key],
-				oldVal: oldVal[key]
-			});
+
+		// scalar update
+		if (!isEqual(oldVal[key], newVal[key])) {
+			changes.push({ action: 'update', path: pathKey, val: newVal[key], oldVal: oldVal[key] });
 		}
 	}
-	//loop through new value
-	for(var key in newVal) {
-		//skip key?
-		if(newVal[key] === undefined) {
-			continue;
-		}
-		//key added?
-		if(oldVal[key] === undefined) {
-			changes.push({
-				action: 'add',
-				path: path + (path ? '.' : '') + key,
-				val: newVal[key],
-				oldVal: oldVal[key]
-			});
+
+	// loop new keys — additions
+	for (var key in newVal) {
+		if (newVal[key] === undefined) continue;
+		if (oldVal[key] !== undefined) continue;
+
+		var pathKey    = prefix + key;
+		var newKeyType = getType(newVal[key]);
+
+		if (diffObjArr.has(newKeyType)) {
+			sub = diffValues({}, newVal[key], pathKey, processed);
+			for (i = 0; i < sub.length; i++) changes.push(sub[i]);
+		} else {
+			changes.push({ action: 'add', path: pathKey, val: newVal[key], oldVal: undefined });
 		}
 	}
-	//return
+
 	return changes;
 }
 
@@ -527,13 +513,12 @@ export function schedule(fn, type, allowDupes) {
 	//run scheduler
 	schedule.__types[type](function() {
 		var fns = schedule.__queued[key];
-		if (!allowDupes) fns = Array.from(fns);
 		schedule.__queued[key] = allowDupes ? [] : new Set();
 		schedule.__flushing[key] = false;
 		//start loop
-		for (var i = 0; i < fns.length; i++) {
+		for (const fn of fns) {
 			try {
-				fns[i]();
+				fn();
 			} catch (err) {
 				console.error("[utils/schedule] scheduled callback failed", err);
 			}

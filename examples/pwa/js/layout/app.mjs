@@ -3,9 +3,9 @@ export default {
 	tag: 'pwa-app',
 
 	shadow: false,
-
-	inject: {
-		store: 'store'
+	
+	state: {
+		theme: { $src: 'store', key: 'settings.theme', default: 'auto' }
 	},
 
 	style: (ctx) => ctx.css`
@@ -27,19 +27,27 @@ export default {
 			top: 0; left: 0; right: 0; bottom: 0;
 			z-index: 200; pointer-events: none;
 		}
-		pwa-overlay > * { pointer-events: auto; }
+
+		pwa-overlay > * {
+			pointer-events: auto;
+		}
 	`,
 
 	render: function(ctx) {
-		var theme = ctx.store.get('settings.theme') || 'auto';
-		ctx.host.setAttribute('data-theme', theme);
-
 		return ctx.html`
 			<pwa-header></pwa-header>
 			<pwa-main></pwa-main>
 			<pwa-overlay></pwa-overlay>
 			<pwa-tab-bar></pwa-tab-bar>
 		`;
+	},
+	
+	rendered: function(ctx, isFirst) {
+		ctx.state.$watch('theme', function(newVal, oldVal) {
+			console.log(newVal, oldVal);
+		});
+	
+		ctx.host.setAttribute('data-theme', ctx.state.theme);
 	}
 
 };

@@ -12,7 +12,7 @@
  *   createStore     — fully wired proxy store (all three plugins + optional extras)
  */
 
-import { getType, copy, nestedKey, diffValues, hash } from '../utils/index.mjs';
+import { getType, hasKeys, copy, nestedKey, diffValues, hash } from '../utils/index.mjs';
 
 
 // =============================================================================
@@ -29,7 +29,7 @@ export function createTracker() {
   let activeTrackers = 0;
   let trackerRunId   = 0;
 
-  function track(path) {
+  function touch(path) {
     if (activeTrackers === 0) return;
     const item = trackerStack[trackerStack.length - 1];
     if (!item.deps.has(path)) {
@@ -40,7 +40,7 @@ export function createTracker() {
     }
   }
 
-  function runTracked(item, fn) {
+  function capture(item, fn) {
     const prevDeps = new Set(item.deps);
     for (const p of item.deps) {
       const s = trackerMap.get(p);
@@ -81,9 +81,9 @@ export function createTracker() {
   }
 
   return {
-    track,
+    touch,
+    capture,
     dispose,
-    runTracked,
     map: trackerMap,
     stack: trackerStack,
     get runId() { return trackerRunId; }
@@ -104,7 +104,7 @@ export function createTracker() {
 // as the handle they pass to user callbacks (e.g. effect fn, set return).
 //
 // Returns { ctx, extend } where extend(factory) registers a plugin and returns
-// an unregister function. createProxy exposes extend as $extend on the proxy.
+// an unregister function. createProxy defaults to exposing $extend (via config.prefix).
 //
 // Plugin shape (all fields optional):
 //   methods { name: fn }         				mounted by the consumer onto the public object
@@ -118,22 +118,19 @@ export function createBase(config) {
 	config = config || {};
 
   const state = config.state || {};
-  const prefix = config.prefix || '';
-  const deepCopy = config.deepCopy !== false;
   const tracker = config.tracker || createTracker();
 
-  function readRaw(path) {
-    return path ? nestedKey(state, path) : state;
-  }
+	config.prefix = config.prefix || '';
+  config.deepCopy = config.deepCopy !== false;
+
+	delete config.state;
+	delete config.tracker;
 
   // Pipeline arrays
   const readHooks        = [];
   const beforeWriteHooks = [];
   const afterWriteHooks  = [];
   const destroyHooks     = [];
-
-  // Shared frozen sentinel for trap-triggered writes
-  const EMPTY_META = Object.freeze({});
 
 	function getParentPaths(path) {
 		const parents = [];
@@ -146,12 +143,17 @@ export function createBase(config) {
 		return parents;
 	}
 
-	function read(path, rawVal, opts) {
-		if (readHooks.length === 0) return rawVal;
-		const e = { path, val: rawVal, refresh: (opts && opts.refresh) || false };
+	function read(path, val, opts) {
+		if (readHooks.length === 0) return val;
+		const refresh = (opts && opts.refresh) || false;
+		const e = { path, val, refresh };
 		for (const h of readHooks) h(e);
 		return e.val;
 	}
+
+  function readRaw(path) {
+    return path ? nestedKey(state, path) : state;
+  }
 
   /**
    * Commit a write: optional merge → beforeWrite → commit → afterWrite.
@@ -160,11 +162,11 @@ export function createBase(config) {
    * @param {*}       val           — undefined = delete the key
    * @param {object}  [meta]        — forwarded to all hooks
    * @param {boolean} [merge=false] — array-concat or object-spread onto existing value
-   * @returns {Array<{ path, oldVal, newVal }>}  empty if unchanged
+   * @returns {Array<{ action, path, val, oldVal }>}  empty if unchanged
    */
   function write(path, val, meta, merge = false) {
-		if (!meta) meta = EMPTY_META;
     if (!path) throw new Error('[base] write() path must be non-empty — root replacement is a store-layer concern');
+ 
     const rawPrev = readRaw(path);
 
     // Merge before beforeWrite so middleware always sees the final value.
@@ -175,6 +177,7 @@ export function createBase(config) {
     }
 
     if (beforeWriteHooks.length > 0) {
+			meta = meta || {};
       const e = { path, val, meta };
       for (const h of beforeWriteHooks) h(e);
       val = e.val;
@@ -186,6 +189,7 @@ export function createBase(config) {
     nestedKey(state, path, { val });
 
     if (afterWriteHooks.length > 0) {
+			meta = meta || {};
 			const e = { diff, meta };
       for (const h of afterWriteHooks) h(e);
     }
@@ -203,20 +207,20 @@ export function createBase(config) {
   // instance is set by createProxy / createPlain before any plugins are registered.
   const ctx = {
 		instance: null, // set by consumer to the public-facing object
+    config,
     state,
-		readRaw,
     read,
+		readRaw,
     write,
     tracker,
-    deepCopy,
     getParentPaths,
     
     mountMethod(k, fn) {
-			ctx.instance[prefix + k] = fn;
+			ctx.instance[config.prefix + k] = fn;
     },
     
 		unmountMethod(k, fn) {
-			if (ctx.instance[prefix + k] === fn) delete ctx.instance[prefix + k];
+			if (ctx.instance[config.prefix + k] === fn) delete ctx.instance[config.prefix + k];
 		},
 
     // Slice before clearing so a hook that re-enters destroy() or deregisters
@@ -232,7 +236,7 @@ export function createBase(config) {
     },
   };
 
-  // Plugin registration — shared by createProxy ($extend) and createPlain (extend).
+  // Plugin registration
   function extend(factory) {
     if (typeof factory !== 'function') {
       throw new Error('[base] extend requires a factory function (ctx) => plugin');
@@ -274,13 +278,13 @@ export function createBase(config) {
 
 export function createPlain(config) {
 	const { ctx, extend } = createBase(config);
+	
+	const api = {};
+	api[ctx.config.prefix + 'extend'] = extend;
 
-	const plain = {
-		extend(factory) { return extend(factory); }
-	};
+	ctx.instance = api;
 
-	ctx.instance = plain;
-	return plain;
+	return ctx.instance;
 }
 
 
@@ -294,28 +298,26 @@ export function createPlain(config) {
 //   ctx.trapGuard('deleteProperty', true | false)
 //   When true the trap throws; when false/absent write() runs normally.
 //
-// Exposes extend as $extend on the proxy so plugins are accessible at any depth.
+// Exposes extend on the proxy so plugins are accessible at any depth.
 // =============================================================================
 
 export function createProxy(config) {
   const { ctx, extend } = createBase(config);
 
-  // WeakMap<rawObj, SingleEntry | Map<path, Proxy>>
-  const proxyCache = new WeakMap();
-
+	const api = {};
   const trapGuards = {};
-  const prefix = config.prefix || '';
+  const proxyCache = new WeakMap();
 
   ctx.trapGuard = function(name, active) {
 		trapGuards[name] = !!active;
   };
 
 	ctx.mountMethod = function(k, fn) {
-		api[prefix + k] = fn;
+		api[ctx.config.prefix + k] = fn;
 	};
 
 	ctx.unmountMethod = function(k, fn) {
-		if (api[prefix + k] === fn) delete api[prefix + k];
+		if (api[ctx.config.prefix + k] === fn) delete api[ctx.config.prefix + k];
 	};
 
   function getProxy(target, path) {
@@ -337,10 +339,14 @@ export function createProxy(config) {
     return px;
   }
 
+	function makePath(base, key) {
+		return base ? base + '.' + key : key;
+	}
+
   function makeHandler(path) {
     return {
       // 1. Symbol passthrough
-      // 2. $ key routing — surfaces api methods at any depth
+      // 2. api key routing — surfaces api methods at any depth
       // 3. Dep tracking  — free when no active trackers
       // 4. Read pipeline — free when no middleware registered
       // 5. Child proxy wrap — post-pipeline; enables deep tracking + mutation-blocking
@@ -348,8 +354,8 @@ export function createProxy(config) {
         if (typeof key === 'symbol') return Reflect.get(target, key, receiver);
         if (api[key]) return api[key];
 
-        const fullPath = path ? `${path}.${key}` : key;
-        ctx.tracker.track(fullPath);
+        const fullPath = makePath(path, key);
+        ctx.tracker.touch(fullPath);
 
         let val = ctx.read(fullPath, Reflect.get(target, key, receiver));
 
@@ -362,34 +368,28 @@ export function createProxy(config) {
       },
 
       set(_, key, value) {
-        const fullPath = path ? `${path}.${key}` : key;
-        if (trapGuards.set) throw new Error(
-          `[core] Direct mutation blocked at '${fullPath}' — use the write method provided by your store plugin.`
-        );
+        if (trapGuards.set) throw new Error('[core] Direct mutation blocked — use the write method provided by your store plugin.');
+        const fullPath = makePath(path, key);
         ctx.write(fullPath, value);
         return true;
       },
 
       deleteProperty(_, key) {
-        const fullPath = path ? `${path}.${key}` : key;
-        if (trapGuards.deleteProperty) throw new Error(
-          `[core] Direct deletion blocked at '${fullPath}' — use the delete method provided by your store plugin.`
-        );
+        if (trapGuards.deleteProperty) throw new Error('[core] Direct mutation blocked — use the del method provided by your store plugin.');
+        const fullPath = makePath(path, key);
         ctx.write(fullPath, undefined);
         return true;
       }
     };
   }
 
-  // api holds $ methods; all proxy depths route $ reads here.
-  const api = {
-    $extend(factory) { return extend(factory); }
-  };
+	//add extend method
+  api[ctx.config.prefix + 'extend'] = extend;
 
   const proxy = getProxy(ctx.state, '');
   ctx.instance = proxy;
 
-  return proxy;
+  return ctx.instance;
 }
 
 
@@ -409,6 +409,7 @@ export function createProxy(config) {
 
 export function storePlugin(ctx) {
   const subs = new Map();
+  const subsWantOldVal = new Set();
 
   let destroyed  = false;
   let batchDepth = 0;
@@ -421,29 +422,21 @@ export function storePlugin(ctx) {
 		ctx.trapGuard('deleteProperty', true);
 	}
 
-	// Capture snapshots on write
-	const _write = ctx.write;
-	ctx.write = function(path, val, meta, merge) {
-		if (!meta) meta = {};
-		if (meta && !meta._snaps) meta._snaps = captureSnaps(path);
-		return _write(path, val, meta, merge);
-	};
-
   function snapshot(val, deep) {
-		deep = (deep === undefined) ? ctx.deepCopy : deep;
+		deep = (deep === undefined) ? ctx.config.deepCopy : deep;
     return copy(val, !!deep);
   }
 
 	function captureSnaps(path) {
-		if (!subs.size) return null;
+		if (!subsWantOldVal.size) return null;
 		if (batchDepth > 0 && batchSnaps?.has(path)) return null;
 		let snaps = null;
-		if (subs.has(path)) {
+		if (subsWantOldVal.has(path)) {
 			snaps = new Map();
 			snaps.set(path, snapshot(ctx.readRaw(path)));
 		}
 		for (const p of ctx.getParentPaths(path)) {
-			if (subs.has(p)) {
+			if (subsWantOldVal.has(p)) {
 				if (!snaps) snaps = new Map();
 				snaps.set(p, snapshot(ctx.readRaw(p)));
 			}
@@ -490,18 +483,21 @@ export function storePlugin(ctx) {
 		};
 	}
 
-	function dispatchPath(path, oldVal, newVal, diffQuery, src) {
+	function dispatchPath(path, oldVal, newVal, diff, src, notifiedTrackers) {
 		const loading = (src === 'access');
 		const trackers = ctx.tracker.map.get(path);
 		if (trackers) {
-			for (const item of trackers) item.invalidate();
+			for (const item of trackers) {
+				if (notifiedTrackers.has(item)) continue;
+				notifiedTrackers.add(item);
+				item.invalidate();
+			}
 		}
 		for (const p of [path, '*']) {
 			const handlers = subs.get(p);
 			if (!handlers) continue;
-			const oldSnap = snapshot(oldVal);
-			const newSnap = snapshot(newVal);
-			const event   = { path, val: newSnap, oldVal: oldSnap, diff: diffQuery, loading };
+			const val = snapshot(newVal);
+			const event   = { path, val, oldVal, diff, loading };
 			for (const cb of handlers) {
 				if (!destroyed) cb(event);
 			}
@@ -526,10 +522,11 @@ export function storePlugin(ctx) {
       }
     }
     
+    const notifiedTrackers = new Set();
     const diffQuery = createDiffQuery(diff);
 
     for (const [path, { oldVal, newVal }] of toNotify) {
-      dispatchPath(path, oldVal, newVal, diffQuery, src);
+      dispatchPath(path, oldVal, newVal, diffQuery, src, notifiedTrackers);
     }
   }
 
@@ -546,10 +543,10 @@ export function storePlugin(ctx) {
 				if (!path || typeof path !== 'string') {
 					throw new Error('[store] get() path must be a non-empty string');
 				}
-				ctx.tracker.track(path);
-				// parent tracking handled naturally in the proxy
-				// needed here for get method access
-				for (const p of ctx.getParentPaths(path)) ctx.tracker.track(p);
+				if (ctx.tracker.stack.length > 0) {
+					ctx.tracker.touch(path);
+					for (const p of ctx.getParentPaths(path)) ctx.tracker.touch(p);
+				}
 				return ctx.read(path, ctx.readRaw(path), opts);
 			},
 
@@ -663,14 +660,25 @@ export function storePlugin(ctx) {
 				return result;
 			},
 
-      onChange(path, cb) {
+      onChange(path, cb, opts) {
 				if (!path || typeof path !== 'string') {
 					throw new Error('[store] onChange() path must be a non-empty string');
 				}
         let s = subs.get(path);
         if (!s) { s = new Set(); subs.set(path, s); }
         s.add(cb);
-        return () => { s.delete(cb); if (!s.size) subs.delete(path); };
+        if (opts && opts.oldVal) subsWantOldVal.add(path);
+				if (opts && opts.immediate) {
+					const val = snapshot(ctx.readRaw(path));
+					cb({ path, val, oldVal: undefined, diff: null, loading: false });
+				}
+        return () => {
+					s.delete(cb);
+					if (!s.size) {
+						subs.delete(path);
+						subsWantOldVal.delete(path);
+					}
+				};
       },
 
 			raw(path, opts) {
@@ -683,6 +691,13 @@ export function storePlugin(ctx) {
         ctx.destroy();
       }
     },
+
+		onBeforeWrite(e) {
+			if (!subs.size) return;
+			
+			// Capture snapshot of old value
+			if (!e.meta._snaps) e.meta._snaps = captureSnaps(e.path);
+		},
 
     onAfterWrite(e) {
       if (!subs.size && !ctx.tracker.map.size) return;
@@ -707,7 +722,7 @@ export function storePlugin(ctx) {
 				return;
 			}
 
-      notify(e.diff, snaps, e.meta?.src);
+      notify(e.diff, snaps, e.meta.src);
     },
 
     onDestroy() {
@@ -735,25 +750,31 @@ export function reactivePlugin(ctx) {
     methods: {
       /**
        * Run fn immediately, tracking every store path it reads.
-       * Reruns asynchronously (microtask) when any tracked dep changes.
+       * Reruns when any tracked dep changes.
        * Returns a stop function.
        */
-      effect(fn) {
-        let scheduled = false;
-        const item = { deps: new Set(), stopped: false, invalidate };
-        activeEffects.add(item);
+			effect(fn) {
+				if (ctx.effect) return ctx.effect(fn);
 
-        function invalidate() {
-          if (item.stopped || scheduled) return;
-          scheduled = true;
-          queueMicrotask(run);
-        }
+				let running = false;
+				let pending = false;
+				const item = { deps: new Set(), stopped: false, invalidate };
+				activeEffects.add(item);
 
-        function run() {
-          if (item.stopped) return;
-          scheduled = false;
-          ctx.tracker.runTracked(item, () => fn(ctx.instance));
-        }
+				function invalidate() {
+					if (item.stopped) return;
+					if (running) { pending = true; return; }
+					run();
+				}
+
+				function run() {
+					if (item.stopped) return;
+					running = true;
+					pending = false;
+					ctx.tracker.capture(item, () => fn(ctx.instance));
+					running = false;
+					if (pending && !item.stopped) run();
+				}
 
         run();
         return () => {
@@ -769,6 +790,8 @@ export function reactivePlugin(ctx) {
        * Returns { value, dispose }.
        */
       computed(fn) {
+				if (ctx.computed) return ctx.computed(fn);
+      
         let value, dirty = true, disposed = false;
         let cachedRunId = -1, cachedVal;
         const item = { deps: new Set(), invalidate: () => { dirty = true; } };
@@ -777,16 +800,16 @@ export function reactivePlugin(ctx) {
 					get value() {
 						if (ctx.tracker.stack.length > 0) {
 							if (cachedRunId === ctx.tracker.runId && !dirty) {
-								for (const p of item.deps) ctx.tracker.track(p); // forward cached deps to parent
+								for (const p of item.deps) ctx.tracker.touch(p); // forward cached deps to parent
 								return cachedVal;
 							}
-							ctx.tracker.runTracked(item, () => { cachedVal = fn(ctx.instance); dirty = false; });
+							ctx.tracker.capture(item, () => { cachedVal = fn(ctx.instance); dirty = false; });
 							cachedRunId = ctx.tracker.runId;
-							for (const p of item.deps) ctx.tracker.track(p); // forward fresh deps to parent
+							for (const p of item.deps) ctx.tracker.touch(p); // forward fresh deps to parent
 							return cachedVal;
 						}
 						if (dirty && !disposed) {
-							ctx.tracker.runTracked(item, () => { value = fn(ctx.instance); dirty = false; });
+							ctx.tracker.capture(item, () => { value = fn(ctx.instance); dirty = false; });
 						}
 						return value;
 					},
@@ -802,6 +825,8 @@ export function reactivePlugin(ctx) {
 				if (typeof owner === 'function') {
 					fn = owner; owner = null;
 				}
+				
+				if (ctx.track) return ctx.track(owner, fn);
 
 				let onInvalidate;
 				const item = {
@@ -826,7 +851,7 @@ export function reactivePlugin(ctx) {
 				}
 
 				try {
-					ctx.tracker.runTracked(item, () => {
+					ctx.tracker.capture(item, () => {
 						onInvalidate = fn(ctx.instance);
 						if (typeof onInvalidate !== 'function') {
 							throw new Error('[store] track() fn must return a function');
@@ -963,6 +988,7 @@ export function accessPlugin(ctx) {
         const { merge } = e;
         first.pendingWrite = true;
         first.pendingVal   = writeVal;
+        // Defer write to avoid infinite loop
         queueMicrotask(() => {
           if (destroyed) return;
           ctx.write(hookPath, writeVal, { src: 'access' }, merge);
@@ -980,7 +1006,7 @@ export function accessPlugin(ctx) {
     methods: {
       /**
        * Register a hook fired on first read of path (or any child path).
-       * Re-fires when opts.refresh is passed to $get().
+       * Re-fires when opts.refresh is passed to get().
        *
        * e: { path, val, merge, refresh, lastRefresh }
        *   e.val         — may be set to new value (sync or Promise)
@@ -1019,7 +1045,7 @@ export function accessPlugin(ctx) {
         if (!path || typeof path !== 'string') {
           throw new Error('[store] query() path must be a non-empty string');
         }
-        const h    = (query && Object.keys(query).length) ? hash(path, query) : path;
+        const h    = hasKeys(query) ? hash(path, query) : path;
         const meta = metaCache.get(h) || {};
         return { data: ctx.readRaw(path), loading: meta.loading || false, error: meta.error || null };
       },
@@ -1065,7 +1091,13 @@ export function createStore(config) {
 	const driver = config.driver || (useProxy ? createProxy : createPlain);
 	const plugins = config.plugins || [ storePlugin, reactivePlugin, accessPlugin ];
 	
-	config.prefix = config.prefix || (useProxy ? '$' : '');
+	if (typeof config.prefix !== 'string') {
+		config.prefix = useProxy ? '$' : '';
+	}
+	
+	delete config.useProxy;
+	delete config.driver;
+	delete config.plugins;
 
   const store = driver(config);
   

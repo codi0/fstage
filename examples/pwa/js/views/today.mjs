@@ -2,8 +2,8 @@ export default {
 
 	tag: 'pwa-today',
 
-	inject: {
-		store: 'store'
+	state: {
+		tasks: { $src: 'store', default: [] }
 	},
 
 	style: (ctx) => ctx.css`
@@ -26,7 +26,7 @@ export default {
 
 	render: function(ctx) {
 		var today    = new Date().toISOString().split('T')[0];
-		var allToday = (ctx.store.get('tasks') || []).filter(function(t) { return t.dueDate === today; });
+		var allToday = ctx.state.tasks.filter(function(t) { return t.dueDate === today; });
 		var pending  = allToday.filter(function(t) { return !t.completed; });
 		var done     = allToday.filter(function(t) { return  t.completed; });
 

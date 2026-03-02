@@ -144,21 +144,16 @@ globalThis.FSCONFIG = {
 		}]);
 
 		var componentRuntime =  e.get('component.createRuntime', [{
-			ctx: { html: lit.html, css: lit.css, svg: lit.svg },
-			baseClass: lit.LitElement,
 			registry,
 			animator,
 			gestureManager,
-			interactionsManager
+			interactionsManager,
+			ctx: { html: lit.html, css: lit.css, svg: lit.svg },
+			baseClass: lit.LitElement,
+			stores: {
+				default: store // API = get, set, track, onChange
+			}
 		}]);
-		
-		componentRuntime.extendCtx('watch', function(ctx, cleanupFns) {
-			if (!ctx.store) return;
-
-			return function(key, cb) {
-				cleanupFns.push(ctx.store.onChange(key, cb));
-			};
-		});
 
 		registry.set('env', env);
 		registry.set('store', store);
@@ -216,6 +211,7 @@ globalThis.FSCONFIG = {
 			onCancel: function(e) { e.ctl.cancel(); },
 		});
 
+		// Run transition on route change
 		router.onAfter(function(match, location) {
 			store.set('route', { match, location });
 			if (transitions._skipNext) {
@@ -223,6 +219,11 @@ globalThis.FSCONFIG = {
 				return;
 			}
 			transitions.run({ screen: match, location });
+		});
+
+		// Cache current screen
+		screenHost.on('mount', function(e) {
+			store.set('screen', e.target);
 		});
 
 		router.start(rootEl);

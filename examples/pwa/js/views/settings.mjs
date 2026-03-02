@@ -2,6 +2,10 @@ export default {
 
 	tag: 'pwa-settings',
 
+	state: {
+		theme: { $src: 'store', key: 'settings.theme', default: 'auto' }
+	},
+	
 	inject: {
 		store: 'store'
 	},
@@ -37,8 +41,6 @@ export default {
 	},
 
 	render: function(ctx) {
-		var theme = ctx.store.get('settings.theme') || 'auto';
-
 		return ctx.html`
 			<div class="body">
 				<div>
@@ -52,7 +54,7 @@ export default {
 								<div class="row-label">Appearance</div>
 								<div class="row-hint">Controls app colour scheme</div>
 							</div>
-							<select class="row-select" .value=${theme}>
+							<select class="row-select" .value=${ctx.state.theme}>
 								<option value="auto">Auto</option>
 								<option value="light">Light</option>
 								<option value="dark">Dark</option>

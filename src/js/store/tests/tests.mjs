@@ -4,17 +4,14 @@
  * Tests are parameterised over proxy and plain store variants.
  * Proxy stores mount plugin methods as $method, plain stores as method.
  * The `api(store, isProxy)` helper normalises this transparently.
+ *
+ * Async discipline:
+ *   - Effects, watchers, computed, batch — all SYNC. No await flush() needed.
+ *   - Only Promise-based onAccess tests are genuinely async and use await flush().
+ *   - flush() calls remaining in sync tests indicate a bug, not a requirement.
  */
 
-import {
-  createTracker,
-  createPlain,
-  createProxy,
-  reactivePlugin,
-  storePlugin,
-  accessPlugin,
-  createStore,
-} from '../index.mjs';
+import { createTracker, createPlain, createProxy, reactivePlugin, storePlugin, accessPlugin, createStore } from '../index.mjs';
 
 
 // =============================================================================
@@ -57,6 +54,7 @@ function assertThrows(fn, msg) {
   throw new Error(msg || 'Expected function to throw');
 }
 
+// Only used for genuinely async tests (Promise-based onAccess).
 function flush() {
   return new Promise(resolve => queueMicrotask(resolve));
 }
@@ -66,10 +64,6 @@ function flush() {
 // Helpers
 // =============================================================================
 
-/**
- * Normalise method access across proxy ($method) and plain (method) stores.
- * Returns a plain object with bound methods — no $ prefix needed in tests.
- */
 function api(store, isProxy) {
   const p = isProxy ? '$' : '';
   return new Proxy({}, {
@@ -80,20 +74,21 @@ function api(store, isProxy) {
   });
 }
 
-/**
- * Read a value — proxy uses property traversal, plain uses get().
- */
 function read(store, a, path, isProxy) {
   if (isProxy) return path.split('.').reduce((o, k) => o[k], store);
   return a.get(path);
 }
 
-function makeProxyStore(state = {}) {
-  return createStore({ state, useProxy: true });
+function getPlugins() {
+  return [storePlugin, reactivePlugin, accessPlugin];
 }
 
-function makePlainStore(state = {}) {
-  return createStore({ state, useProxy: false });
+function makePlainStore(state = {}, useProxy = false) {
+  return createStore({ state, plugins: getPlugins(), useProxy });
+}
+
+function makeProxyStore(state = {}) {
+  return makePlainStore(state, true);
 }
 
 
@@ -189,9 +184,8 @@ async function runStoreSuite(label, make, isProxy) {
       const s = make({ x: 42 });
       const a = api(s, isProxy);
       let calls = 0;
-      a.onChange('x', (e) => calls++);
+      a.onChange('x', () => calls++);
       a.set('x', 42);
-      await flush();
       assertEqual(calls, 0);
     });
 
@@ -328,6 +322,152 @@ async function runStoreSuite(label, make, isProxy) {
   });
 
   // ---------------------------------------------------------------------------
+  await suite(`${label} — sync behaviour`, async () => {
+
+    await test('onChange fires synchronously', async () => {
+      const s = make({ x: 1 });
+      const a = api(s, isProxy);
+      let fired = false;
+      a.onChange('x', () => { fired = true; });
+      a.set('x', 2);
+      assert(fired, 'onChange should fire synchronously on set');
+    });
+
+    await test('effect reruns synchronously on dep change', async () => {
+      const s = make({ x: 1 });
+      const a = api(s, isProxy);
+      let runs = 0;
+      a.effect(() => { read(s, a, 'x', isProxy); runs++; });
+      assertEqual(runs, 1);
+      a.set('x', 2);
+      assertEqual(runs, 2, 'effect should rerun synchronously');
+    });
+
+    await test('two unrelated sets cause two reruns without batch', async () => {
+      const s = make({ x: 1, y: 1 });
+      const a = api(s, isProxy);
+      let runs = 0;
+      a.effect(() => { read(s, a, 'x', isProxy); read(s, a, 'y', isProxy); runs++; });
+      assertEqual(runs, 1);
+      a.set('x', 2);
+      a.set('y', 2);
+      assertEqual(runs, 3, 'without batch, each set causes a synchronous rerun');
+    });
+
+    await test('batch coalesces multiple sets into one rerun', async () => {
+      const s = make({ x: 1, y: 1 });
+      const a = api(s, isProxy);
+      let runs = 0;
+      a.effect(() => { read(s, a, 'x', isProxy); read(s, a, 'y', isProxy); runs++; });
+      assertEqual(runs, 1);
+      a.batch(() => { a.set('x', 2); a.set('y', 2); });
+      assertEqual(runs, 2, 'batch should coalesce to one rerun');
+    });
+
+    await test('onChange fires synchronously inside batch — at batch end', async () => {
+      const s = make({ x: 1 });
+      const a = api(s, isProxy);
+      let firedDuringBatch = false;
+      let firedAfterBatch = false;
+      a.onChange('x', () => {
+        firedAfterBatch = true;
+      });
+      a.batch(() => {
+        a.set('x', 2);
+        firedDuringBatch = firedAfterBatch;
+      });
+      assert(!firedDuringBatch, 'onChange should not fire during batch');
+      assert(firedAfterBatch, 'onChange should fire synchronously at batch end');
+    });
+
+    await test('effect sees settled state — not intermediate values', async () => {
+      const s = make({ x: 1 });
+      const a = api(s, isProxy);
+      const seen = [];
+      a.effect(() => { seen.push(read(s, a, 'x', isProxy)); });
+      a.batch(() => { a.set('x', 2); a.set('x', 3); });
+      // initial run sees 1, rerun after batch sees final value 3
+      assertEqual(seen, [1, 3]);
+    });
+
+    await test('computed re-evaluates synchronously', async () => {
+      const s = make({ x: 1 });
+      const a = api(s, isProxy);
+      const doubled = a.computed(() => a.get('x') * 2);
+      assertEqual(doubled.value, 2);
+      a.set('x', 5);
+      assertEqual(doubled.value, 10, 'computed should reflect new value synchronously');
+    });
+
+  });
+
+  // ---------------------------------------------------------------------------
+  await suite(`${label} — re-entrancy`, async () => {
+
+    await test('effect writing to store during run does not recurse', async () => {
+      const s = make({ x: 0 });
+      const a = api(s, isProxy);
+      let runs = 0;
+      a.effect(() => {
+        runs++;
+        const x = read(s, a, 'x', isProxy);
+        if (x < 3) a.set('x', x + 1); // writes back during effect run
+      });
+      // Should settle without infinite loop: 0→1→2→3→stop
+      assertEqual(a.raw('x'), 3);
+      assert(runs <= 6, `should settle quickly, got ${runs} runs`);
+    });
+
+    await test('effect writing unrelated path does not retrigger self', async () => {
+      const s = make({ x: 1, y: 0 });
+      const a = api(s, isProxy);
+      let runs = 0;
+      a.effect(() => {
+        runs++;
+        read(s, a, 'x', isProxy);
+        a.set('y', runs); // write to untracked path
+      });
+      assertEqual(runs, 1);
+      a.set('x', 2);
+      assertEqual(runs, 2);
+      assertEqual(a.raw('y'), 2);
+    });
+
+    await test('nested effects each track independently', async () => {
+      const s = make({ a: 1, b: 1 });
+      const api_ = api(s, isProxy);
+      let outerRuns = 0, innerRuns = 0;
+      api_.effect(() => {
+        outerRuns++;
+        read(s, api_, 'a', isProxy);
+        api_.effect(() => {
+          innerRuns++;
+          read(s, api_, 'b', isProxy);
+        });
+      });
+      assertEqual(outerRuns, 1);
+      assertEqual(innerRuns, 1);
+      api_.set('b', 2);
+      assertEqual(outerRuns, 1, 'outer should not rerun on b change');
+      assertEqual(innerRuns, 2, 'inner should rerun on b change');
+    });
+
+    await test('onChange handler calling set does not cause infinite loop', async () => {
+      const s = make({ x: 0, log: 0 });
+      const a = api(s, isProxy);
+      let calls = 0;
+      a.onChange('x', () => {
+        calls++;
+        if (calls < 3) a.set('log', calls); // write to different path — safe
+      });
+      a.set('x', 1);
+      assert(calls <= 3, 'onChange should not loop');
+      assertEqual(a.raw('log'), 1);
+    });
+
+  });
+
+  // ---------------------------------------------------------------------------
   await suite(`${label} — watch`, async () => {
 
     await test('fires on value change', async () => {
@@ -336,7 +476,6 @@ async function runStoreSuite(label, make, isProxy) {
       let newVal;
       a.onChange('x', e => { newVal = e.val; });
       a.set('x', 2);
-      await flush();
       assertEqual(newVal, 2);
     });
 
@@ -344,9 +483,8 @@ async function runStoreSuite(label, make, isProxy) {
       const s = make({ x: 1 });
       const a = api(s, isProxy);
       let old;
-      a.onChange('x', (e) => { old = e.oldVal; });
+      a.onChange('x', e => { old = e.oldVal; }, { oldVal: true });
       a.set('x', 2);
-      await flush();
       assertEqual(old, 1);
     });
 
@@ -354,9 +492,8 @@ async function runStoreSuite(label, make, isProxy) {
       const s = make({ x: 1 });
       const a = api(s, isProxy);
       let evt;
-      a.onChange('x', (e) => { evt = e; });
+      a.onChange('x', e => { evt = e; });
       a.set('x', 2);
-      await flush();
       assertEqual(evt.path, 'x');
     });
 
@@ -364,9 +501,8 @@ async function runStoreSuite(label, make, isProxy) {
       const s = make({ user: { name: 'Alice' } });
       const a = api(s, isProxy);
       let fired = false;
-      a.onChange('user', (e) => { fired = true; });
+      a.onChange('user', () => { fired = true; });
       a.set('user.name', 'Bob');
-      await flush();
       assert(fired);
     });
 
@@ -374,9 +510,8 @@ async function runStoreSuite(label, make, isProxy) {
       const s = make({ user: { name: 'Alice' } });
       const a = api(s, isProxy);
       let old;
-      a.onChange('user', (e) => { old = e.oldVal; });
+      a.onChange('user', e => { old = e.oldVal; }, { oldVal: true });
       a.set('user.name', 'Bob');
-      await flush();
       assertEqual(old, { name: 'Alice' });
     });
 
@@ -384,12 +519,11 @@ async function runStoreSuite(label, make, isProxy) {
       const s = make({ x: 1 });
       const a = api(s, isProxy);
       let calls = 0;
-      const unsub = a.onChange('x', (e) => calls++);
+      const unsub = a.onChange('x', () => calls++);
       a.set('x', 2);
-      await flush();
+      assertEqual(calls, 1);
       unsub();
       a.set('x', 3);
-      await flush();
       assertEqual(calls, 1);
     });
 
@@ -397,23 +531,22 @@ async function runStoreSuite(label, make, isProxy) {
       const s = make({ obj: { a: 1 } });
       const a = api(s, isProxy);
       let capturedNew, capturedOld;
-      a.onChange('obj', (e) => { capturedNew = e.val; capturedOld = e.oldVal; });
-			a.set('obj', { a: 2 });
-			const snapNew = capturedNew;
-			const snapOld = capturedOld;
-			a.set('obj', { a: 99 });
-			assertEqual(snapNew.a, 2);
-			assertEqual(snapOld.a, 1);
+      a.onChange('obj', e => { capturedNew = e.val; capturedOld = e.oldVal; }, { oldVal: true });
+      a.set('obj', { a: 2 });
+      const snapNew = capturedNew;
+      const snapOld = capturedOld;
+      a.set('obj', { a: 99 });
+      assertEqual(snapNew.a, 2);
+      assertEqual(snapOld.a, 1);
     });
 
     await test('onChange("*") fires on any path change', async () => {
       const s = make({ x: 1, y: 1 });
       const a = api(s, isProxy);
       const paths = [];
-      a.onChange('*', (e) => { paths.push(e.path); });
+      a.onChange('*', e => { paths.push(e.path); });
       a.set('x', 2);
       a.set('y', 2);
-      await flush();
       assert(paths.includes('x') && paths.includes('y'));
     });
 
@@ -421,26 +554,37 @@ async function runStoreSuite(label, make, isProxy) {
       const s = make({ user: { name: 'Alice' } });
       const a = api(s, isProxy);
       let evtPath;
-      a.onChange('*', (e) => { evtPath = e.path; });
+      a.onChange('*', e => { evtPath = e.path; });
       a.set('user.name', 'Bob');
-      await flush();
       assertEqual(evtPath, 'user.name');
+    });
+
+    await test('replacing parent object fires watcher once not twice', async () => {
+      // Regression: without notifiedTrackers guard, setting 'user' produces diff
+      // entries for both 'user' and 'user.name', firing watchers subscribed to
+      // 'user' twice.
+      const s = make({ user: { name: 'Alice' } });
+      const a = api(s, isProxy);
+      let calls = 0;
+      a.onChange('user', () => calls++);
+      a.set('user', { name: 'Bob' });
+      assertEqual(calls, 1, 'parent watcher should fire exactly once');
     });
 
     await test('throws on empty path', async () => {
       const s = make({});
       const a = api(s, isProxy);
-      assertThrows(() => a.onChange('', (e) => {}));
+      assertThrows(() => a.onChange('', () => {}));
     });
 
     await test('does not fire after destroy', async () => {
       const s = make({ x: 1 });
       const a = api(s, isProxy);
       let calls = 0;
-			const unsub = a.onChange('x', (e) => calls++);
-			unsub();
-			a.set('x', 2);
-			assertEqual(calls, 0);
+      const unsub = a.onChange('x', () => calls++);
+      unsub();
+      a.set('x', 2);
+      assertEqual(calls, 0);
     });
 
   });
@@ -459,23 +603,33 @@ async function runStoreSuite(label, make, isProxy) {
       const s = make({ a: 1, b: 2 });
       const a = api(s, isProxy);
       const log = [];
-      a.onChange('a', (e) => log.push('a'));
-      a.onChange('b', (e) => log.push('b'));
-			a.batch(() => { a.set('a', 10); a.set('b', 20); });
-			await flush();
-			assert(log.includes('a') && log.includes('b'));
+      a.onChange('a', () => log.push('a'));
+      a.onChange('b', () => log.push('b'));
+      a.batch(() => { a.set('a', 10); a.set('b', 20); });
+      assert(log.includes('a') && log.includes('b'));
+    });
+
+    await test('notifications do not fire during batch', async () => {
+      const s = make({ x: 1 });
+      const a = api(s, isProxy);
+      let firedDuring = false;
+      a.onChange('x', () => { firedDuring = true; });
+      a.batch(() => {
+        a.set('x', 2);
+        assert(!firedDuring, 'onChange must not fire during batch');
+      });
+      assert(firedDuring, 'onChange must fire after batch');
     });
 
     await test('nested batch flushes only at outermost end', async () => {
       const s = make({ x: 0 });
       const a = api(s, isProxy);
       let calls = 0;
-      a.onChange('x', (e) => calls++);
+      a.onChange('x', () => calls++);
       a.batch(() => {
         a.batch(() => { a.set('x', 1); });
         a.set('x', 2);
       });
-      await flush();
       assertEqual(calls, 1);
     });
 
@@ -483,10 +637,27 @@ async function runStoreSuite(label, make, isProxy) {
       const s = make({ x: 1 });
       const a = api(s, isProxy);
       let old;
-      a.onChange('x', (e) => { old = e.oldVal; });
+      a.onChange('x', e => { old = e.oldVal; }, { oldVal: true });
       a.batch(() => { a.set('x', 2); a.set('x', 3); });
-      await flush();
       assertEqual(old, 1);
+    });
+
+    await test('effect sees final value after batch not intermediate', async () => {
+      const s = make({ x: 1 });
+      const a = api(s, isProxy);
+      const seen = [];
+      a.effect(() => { seen.push(read(s, a, 'x', isProxy)); });
+      a.batch(() => { a.set('x', 2); a.set('x', 3); a.set('x', 4); });
+      assertEqual(seen, [1, 4]);
+    });
+
+    await test('no-change batch fires no notifications', async () => {
+      const s = make({ x: 1 });
+      const a = api(s, isProxy);
+      let calls = 0;
+      a.onChange('x', () => calls++);
+      a.batch(() => { a.set('x', 1); }); // same value
+      assertEqual(calls, 0);
     });
 
   });
@@ -508,7 +679,6 @@ async function runStoreSuite(label, make, isProxy) {
       let runs = 0;
       a.effect(() => { read(s, a, 'x', isProxy); runs++; });
       a.set('x', 2);
-      await flush();
       assertEqual(runs, 2);
     });
 
@@ -518,7 +688,6 @@ async function runStoreSuite(label, make, isProxy) {
       let runs = 0;
       a.effect(() => { read(s, a, 'x', isProxy); runs++; });
       a.set('y', 2);
-      await flush();
       assertEqual(runs, 1);
     });
 
@@ -529,7 +698,6 @@ async function runStoreSuite(label, make, isProxy) {
       const stop = a.effect(() => { read(s, a, 'x', isProxy); runs++; });
       stop();
       a.set('x', 2);
-      await flush();
       assertEqual(runs, 1);
     });
 
@@ -543,24 +711,19 @@ async function runStoreSuite(label, make, isProxy) {
         else read(s, a, 'b', isProxy);
       });
       a.set('b', 2); // not yet tracked
-      await flush();
       assertEqual(runs, 1);
       a.set('flag', false);
-      await flush();
       assertEqual(runs, 2);
       a.set('b', 3); // now tracked
-      await flush();
       assertEqual(runs, 3);
     });
 
-    await test('multiple dep changes in same tick cause one rerun', async () => {
+    await test('multiple dep changes in same tick cause one rerun when batched', async () => {
       const s = make({ x: 1, y: 1 });
       const a = api(s, isProxy);
       let runs = 0;
       a.effect(() => { read(s, a, 'x', isProxy); read(s, a, 'y', isProxy); runs++; });
-      a.set('x', 2);
-      a.set('y', 2);
-      await flush();
+      a.batch(() => { a.set('x', 2); a.set('y', 2); });
       assertEqual(runs, 2); // initial + one coalesced rerun
     });
 
@@ -570,7 +733,6 @@ async function runStoreSuite(label, make, isProxy) {
       let runs = 0;
       a.effect(() => { read(s, a, 'x', isProxy); runs++; });
       a.destroy();
-      await flush();
       assertEqual(runs, 1);
     });
 
@@ -623,7 +785,6 @@ async function runStoreSuite(label, make, isProxy) {
       a.effect(() => { c.value; c.value; }); // access twice per run
       assertEqual(evals, 1);
       a.set('x', 2);
-      await flush();
       assertEqual(evals, 2);
     });
 
@@ -664,6 +825,18 @@ async function runStoreSuite(label, make, isProxy) {
       assert(invalidated);
     });
 
+    await test('invalidate fires synchronously', async () => {
+      const s = make({ x: 1 });
+      const a = api(s, isProxy);
+      let invalidated = false;
+      a.track(() => {
+        read(s, a, 'x', isProxy);
+        return () => { invalidated = true; };
+      });
+      a.set('x', 2);
+      assert(invalidated, 'invalidate should fire synchronously');
+    });
+
     await test('dispose stops invalidation', async () => {
       const s = make({ x: 1 });
       const a = api(s, isProxy);
@@ -686,24 +859,31 @@ async function runStoreSuite(label, make, isProxy) {
         return () => { invalidated = true; };
       });
       a.destroy();
-      // set is a no-op after destroy, but should not throw or trigger invalidate
       a.set('x', 2);
       assert(!invalidated, 'invalidate should not fire after destroy');
     });
 
     await test('get() tracks parent paths (plain store parity with proxy traversal)', async () => {
-      // On proxy: accessing store.user.name tracks both 'user' and 'user.name'.
-      // On plain: get('user.name') must also track 'user' so parent watchers fire.
       const s = make({ user: { name: 'Alice' } });
       const a = api(s, isProxy);
       let runs = 0;
-      // effect reads the leaf via get() — parent 'user' should also be tracked
       a.effect(() => { read(s, a, 'user.name', isProxy); runs++; });
       assertEqual(runs, 1);
-      // replace the whole user object — should invalidate since 'user' is tracked
       a.set('user', { name: 'Bob' });
-      await flush();
       assertEqual(runs, 2);
+    });
+
+    await test('replacing parent fires effect exactly once (notifiedTrackers regression)', async () => {
+      // Without notifiedTrackers guard, diffValues produces entries for both
+      // 'user' and 'user.name'. The effect subscribed to 'user.name' would be
+      // invalidated twice — once per diff entry — causing runs=3.
+      const s = make({ user: { name: 'Alice' } });
+      const a = api(s, isProxy);
+      let runs = 0;
+      a.effect(() => { read(s, a, 'user.name', isProxy); runs++; });
+      assertEqual(runs, 1);
+      a.set('user', { name: 'Bob' });
+      assertEqual(runs, 2, 'effect should rerun exactly once');
     });
 
   });
@@ -720,7 +900,15 @@ async function runStoreSuite(label, make, isProxy) {
       assert(fired);
     });
 
-    await test('sync hook value written to state', async () => {
+    await test('sync hook value returned immediately via optimistic read', async () => {
+      const s = make({});
+      const a = api(s, isProxy);
+      a.onAccess('items', e => { e.val = [1, 2, 3]; });
+      const val = read(s, a, 'items', isProxy);
+      assertEqual(val, [1, 2, 3]);
+    });
+
+    await test('sync hook value written to state after microtask', async () => {
       const s = make({});
       const a = api(s, isProxy);
       a.onAccess('items', e => { e.val = [1, 2, 3]; });
@@ -825,19 +1013,15 @@ async function runStoreSuite(label, make, isProxy) {
       assert(refreshVal === true);
     });
 
-    await test('e.refresh is false on subsequent reads without refresh opt', async () => {
+    await test('e.refresh is true on explicit refresh call', async () => {
       const s = make({});
       const a = api(s, isProxy);
-      let refreshVals = [];
+      const refreshVals = [];
       a.onAccess('x', e => { refreshVals.push(e.refresh); e.val = 1; });
       read(s, a, 'x', isProxy);
-      // force hook to re-run by resetting run state — use refresh: true
       a.get('x', { refresh: true });
-      // second refresh call
-      a.get('x', { refresh: false });
-      // third call — no refresh
-      assertEqual(refreshVals[0], true);  // first run
-      assertEqual(refreshVals[1], true);  // explicit refresh
+      assertEqual(refreshVals[0], true);
+      assertEqual(refreshVals[1], true);
     });
 
     await test('hook re-fires when refresh: true passed to get', async () => {
@@ -875,7 +1059,6 @@ async function runStoreSuite(label, make, isProxy) {
       const s = make({});
       const a = api(s, isProxy);
       a.onAccess('user', e => { e.val = { name: 'Alice', age: 30 }; });
-      // reading user.name should return 'Alice' optimistically from pending write
       const val = read(s, a, 'user.name', isProxy);
       assertEqual(val, 'Alice');
     });
@@ -903,8 +1086,8 @@ async function runStoreSuite(label, make, isProxy) {
       a.onAccess('x', e => { refreshVals.push(e.refresh); e.val = 1; });
       read(s, a, 'x', isProxy);
       a.refresh('x');
-      assertEqual(refreshVals[0], true); // first run
-      assertEqual(refreshVals[1], true); // explicit refresh
+      assertEqual(refreshVals[0], true);
+      assertEqual(refreshVals[1], true);
     });
 
     await test('refresh() throws on empty path', async () => {
@@ -948,6 +1131,26 @@ async function runStoreSuite(label, make, isProxy) {
       assertEqual(read(s, a, 'x', isProxy), 50);
     });
 
+    await test('onRead hooks fire in registration order', async () => {
+      const s = make({ x: 1 });
+      const a = api(s, isProxy);
+      const order = [];
+      a.extend(() => ({ onRead(e) { order.push('first'); e.val = e.val + 10; } }));
+      a.extend(() => ({ onRead(e) { order.push('second'); e.val = e.val * 2; } }));
+      const val = read(s, a, 'x', isProxy);
+      assertEqual(order, ['first', 'second']);
+      assertEqual(val, 22); // (1 + 10) * 2
+    });
+
+    await test('onBeforeWrite hooks fire in registration order', async () => {
+      const s = make({ x: 0 });
+      const a = api(s, isProxy);
+      a.extend(() => ({ onBeforeWrite(e) { if (e.path === 'x') e.val = e.val + 10; } }));
+      a.extend(() => ({ onBeforeWrite(e) { if (e.path === 'x') e.val = e.val * 2; } }));
+      a.set('x', 1);
+      assertEqual(a.raw('x'), 22); // (1 + 10) * 2
+    });
+
     await test('onBeforeWrite hook transforms written values', async () => {
       const s = make({ x: 0 });
       const a = api(s, isProxy);
@@ -969,7 +1172,16 @@ async function runStoreSuite(label, make, isProxy) {
       assertEqual(seen, 7);
     });
 
-
+    await test('two plugins both intercept same path independently', async () => {
+      const s = make({ x: 1 });
+      const a = api(s, isProxy);
+      let readsA = 0, readsB = 0;
+      a.extend(() => ({ onRead(e) { if (e.path === 'x') readsA++; } }));
+      a.extend(() => ({ onRead(e) { if (e.path === 'x') readsB++; } }));
+      read(s, a, 'x', isProxy);
+      assertEqual(readsA, 1);
+      assertEqual(readsB, 1);
+    });
 
     await test('onDestroy hook fires on destroy', async () => {
       const s = make({});
@@ -978,6 +1190,20 @@ async function runStoreSuite(label, make, isProxy) {
       a.extend(() => ({ onDestroy() { destroyed = true; } }));
       a.destroy();
       assert(destroyed);
+    });
+
+    await test('unregistered plugin onRead no longer fires', async () => {
+      const s = make({ x: 1 });
+      const a = api(s, isProxy);
+      let calls = 0;
+      const unregister = a.extend(() => ({
+        onRead(e) { if (e.path === 'x') calls++; }
+      }));
+      read(s, a, 'x', isProxy);
+      assertEqual(calls, 1);
+      unregister();
+      read(s, a, 'x', isProxy);
+      assertEqual(calls, 1);
     });
 
   });
@@ -1014,9 +1240,8 @@ async function runStoreSuite(label, make, isProxy) {
       const s = make({ x: 1 });
       const a = api(s, isProxy);
       let calls = 0;
-      a.onChange('x', (e) => calls++);
+      a.onChange('x', () => calls++);
       a.destroy();
-      await flush();
       assertEqual(calls, 0);
     });
 
@@ -1026,8 +1251,17 @@ async function runStoreSuite(label, make, isProxy) {
       let runs = 0;
       a.effect(() => { read(s, a, 'x', isProxy); runs++; });
       a.destroy();
-      await flush();
       assertEqual(runs, 1);
+    });
+
+    await test('set after destroy does not fire destroyed watchers', async () => {
+      const s = make({ x: 1 });
+      const a = api(s, isProxy);
+      let calls = 0;
+      a.onChange('x', () => calls++);
+      a.destroy();
+      a.set('x', 2); // no-op
+      assertEqual(calls, 0);
     });
 
   });
@@ -1041,9 +1275,8 @@ async function runStoreSuite(label, make, isProxy) {
       let effectRan = false, watchFired = false;
       a.effect(() => { read(s, a, 'x', isProxy); effectRan = true; });
       effectRan = false;
-      a.onChange('x', (e) => { watchFired = true; });
+      a.onChange('x', () => { watchFired = true; });
       a.set('x', 2);
-      await flush();
       assert(effectRan && watchFired);
     });
 
@@ -1054,7 +1287,6 @@ async function runStoreSuite(label, make, isProxy) {
       let seen;
       a.effect(() => { seen = doubled.value; });
       a.set('x', 5);
-      await flush();
       assertEqual(seen, 10);
     });
 
@@ -1064,7 +1296,6 @@ async function runStoreSuite(label, make, isProxy) {
       let val;
       a.effect(() => { val = read(s, a, 'x', isProxy); });
       a.reset({ x: 99 });
-      await flush();
       assertEqual(val, 99);
     });
 
@@ -1083,10 +1314,48 @@ async function runStoreSuite(label, make, isProxy) {
       const s = make({ x: 1 });
       const a = api(s, isProxy);
       let old;
-      a.onChange('x', (e) => { old = e.oldVal; });
+      a.onChange('x', e => { old = e.oldVal; }, { oldVal: true });
       a.batch(() => { a.set('x', 2); a.set('x', 3); });
-      await flush();
       assertEqual(old, 1);
+    });
+
+    await test('batch + effect: effect sees post-batch state', async () => {
+      const s = make({ x: 1, y: 1 });
+      const a = api(s, isProxy);
+      const snapshots = [];
+      a.effect(() => {
+        snapshots.push({
+          x: read(s, a, 'x', isProxy),
+          y: read(s, a, 'y', isProxy)
+        });
+      });
+      a.batch(() => { a.set('x', 10); a.set('y', 20); });
+      assertEqual(snapshots.length, 2); // initial + one batch rerun
+      assertEqual(snapshots[1], { x: 10, y: 20 });
+    });
+
+    await test('onAccess + batch: hook fires correctly inside batch', async () => {
+      const s = make({});
+      const a = api(s, isProxy);
+      let calls = 0;
+      a.onAccess('x', e => { calls++; e.val = 1; });
+      a.batch(() => {
+        read(s, a, 'x', isProxy);
+        a.set('y', 2);
+      });
+      assertEqual(calls, 1);
+    });
+
+    await test('reset clears effects from old paths', async () => {
+      const s = make({ a: 1 });
+      const a = api(s, isProxy);
+      let runs = 0;
+      a.effect(() => { read(s, a, 'a', isProxy); runs++; });
+      assertEqual(runs, 1);
+      a.reset({ b: 1 }); // 'a' is gone
+      assertEqual(runs, 2); // effect reruns because 'a' changed (deleted)
+      a.set('b', 2);
+      assertEqual(runs, 2); // 'b' not tracked — no rerun
     });
 
   });
@@ -1101,25 +1370,25 @@ async function runStoreSuite(label, make, isProxy) {
 async function runTrackerSuite() {
   await suite('createTracker', async () => {
 
-    await test('track registers dep during runTracked', async () => {
+    await test('track registers dep during capture', async () => {
       const t = createTracker();
       const item = { deps: new Set(), invalidate() {} };
-      t.runTracked(item, () => t.track('a.b'));
+      t.capture(item, () => t.touch('a.b'));
       assert(item.deps.has('a.b'));
       assert(t.map.has('a.b'));
     });
 
     await test('track is no-op when no active trackers', async () => {
       const t = createTracker();
-      t.track('x');
+      t.touch('x');
       assert(!t.map.has('x'));
     });
 
-    await test('runTracked clears previous deps', async () => {
+    await test('capture clears previous deps', async () => {
       const t = createTracker();
       const item = { deps: new Set(), invalidate() {} };
-      t.runTracked(item, () => t.track('a'));
-      t.runTracked(item, () => t.track('b'));
+      t.capture(item, () => t.touch('a'));
+      t.capture(item, () => t.touch('b'));
       assert(!item.deps.has('a'));
       assert(item.deps.has('b'));
     });
@@ -1127,29 +1396,29 @@ async function runTrackerSuite() {
     await test('disposeTracker removes all deps', async () => {
       const t = createTracker();
       const item = { deps: new Set(), invalidate() {} };
-      t.runTracked(item, () => { t.track('a'); t.track('b'); });
+      t.capture(item, () => { t.touch('a'); t.touch('b'); });
       t.dispose(item);
       assert(item.deps.size === 0);
       assert(!t.map.has('a'));
       assert(!t.map.has('b'));
     });
 
-    await test('runTracked restores prev deps on error', async () => {
+    await test('capture restores prev deps on error', async () => {
       const t = createTracker();
       const item = { deps: new Set(), invalidate() {} };
-      t.runTracked(item, () => t.track('a'));
+      t.capture(item, () => t.touch('a'));
       try {
-        t.runTracked(item, () => { t.track('b'); throw new Error('fail'); });
+        t.capture(item, () => { t.touch('b'); throw new Error('fail'); });
       } catch {}
       assert(item.deps.has('a'));
       assert(!item.deps.has('b'));
     });
 
-    await test('trackerRunId increments on each runTracked', async () => {
+    await test('trackerRunId increments on each capture', async () => {
       const t = createTracker();
       const item = { deps: new Set(), invalidate() {} };
       const id1 = t.runId;
-      t.runTracked(item, () => {});
+      t.capture(item, () => {});
       assert(t.runId > id1);
     });
 
@@ -1157,9 +1426,19 @@ async function runTrackerSuite() {
       const t = createTracker();
       const a = { deps: new Set(), invalidate() {} };
       const b = { deps: new Set(), invalidate() {} };
-      t.runTracked(a, () => t.track('x'));
-      t.runTracked(b, () => t.track('x'));
+      t.capture(a, () => t.touch('x'));
+      t.capture(b, () => t.touch('x'));
       assertEqual(t.map.get('x').size, 2);
+    });
+
+    await test('invalidate fires synchronously on touch', async () => {
+      const t = createTracker();
+      let fired = false;
+      const item = { deps: new Set(), invalidate() { fired = true; } };
+      t.capture(item, () => t.touch('x'));
+      // Simulate what storePlugin does — iterate trackers and call invalidate
+      for (const i of t.map.get('x')) i.invalidate();
+      assert(fired, 'invalidate should be called synchronously');
     });
 
   });
@@ -1174,7 +1453,7 @@ async function runCreateStoreSuite() {
   await suite('createStore', async () => {
 
     await test('defaults to proxy + all three plugins', async () => {
-			const useProxy = true;
+      const useProxy = true;
       const s = createStore({ state: { x: 1 }, useProxy });
       const a = api(s, useProxy);
       assert(typeof a.set === 'function');
@@ -1183,7 +1462,7 @@ async function runCreateStoreSuite() {
     });
 
     await test('custom plugins array respected', async () => {
-			const useProxy = true;
+      const useProxy = true;
       const s = createStore({ state: {}, plugins: [storePlugin], useProxy });
       const a = api(s, useProxy);
       assert(typeof a.set === 'function');
@@ -1191,7 +1470,7 @@ async function runCreateStoreSuite() {
     });
 
     await test('custom driver respected', async () => {
-			const useProxy = false;
+      const useProxy = false;
       const s = createStore({ state: { x: 1 }, driver: createProxy });
       const a = api(s, useProxy);
       assert(typeof a.$get === 'function');
@@ -1199,7 +1478,7 @@ async function runCreateStoreSuite() {
     });
 
     await test('initial state is set correctly', async () => {
-			const useProxy = true;
+      const useProxy = true;
       const s = createStore({ state: { a: 1, b: { c: 2 } }, useProxy });
       const a = api(s, useProxy);
       assertEqual(a.raw('a'), 1);
@@ -1207,26 +1486,24 @@ async function runCreateStoreSuite() {
     });
 
     await test('deepCopy: false — nested references are shared (shallow copy)', async () => {
-			const useProxy = true;
+      const useProxy = true;
       const nested = { b: 1 };
       const s = createStore({ state: { obj: { nested, x: 1 } }, useProxy, deepCopy: false });
       const a = api(s, useProxy);
       let capturedNew;
-      a.onChange('obj', (e) => { capturedNew = e.val; });
+      a.onChange('obj', e => { capturedNew = e.val; });
       a.set('obj', { nested, x: 2 });
-      await flush();
       assert(capturedNew.nested === nested);
     });
 
     await test('deepCopy: true (default) — watcher receives clone', async () => {
-			const useProxy = true;
+      const useProxy = true;
       const s = createStore({ state: { obj: { a: 1 } }, useProxy });
       const a = api(s, useProxy);
       let capturedNew;
-      a.onChange('obj', (e) => { capturedNew = e.val; });
+      a.onChange('obj', e => { capturedNew = e.val; });
       const newObj = { a: 2 };
       a.set('obj', newObj);
-      await flush();
       assert(capturedNew !== newObj);
       assertEqual(capturedNew, newObj);
     });

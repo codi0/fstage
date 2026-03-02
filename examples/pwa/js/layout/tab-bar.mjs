@@ -2,8 +2,8 @@ export default {
 
 	tag: 'pwa-tab-bar',
 
-	inject: {
-		store: 'store'
+	state: {
+		routeMeta: { $src: 'store', key: 'route.match.meta', default: {} }
 	},
 
 	style: (ctx) => ctx.css`
@@ -40,9 +40,7 @@ export default {
 	`,
 
 	render: function(ctx) {
-		var route  = ctx.store.get('route');
-		var active = route && route.match && route.match.meta && route.match.meta.tab;
-		if (!active) return ctx.html``;
+		const active = ctx.state.routeMeta.tab || 'tasks';
 
 		return ctx.html`
 			<button class="tab" aria-selected=${active === 'tasks'} data-href="/">
@@ -74,8 +72,7 @@ export default {
 	},
 
 	rendered: function(ctx) {
-		var route = ctx.store.get('route');
-		ctx.host.hidden = !(route && route.match && route.match.meta && route.match.meta.tab);
+		ctx.host.hidden = !ctx.state.routeMeta.tab;
 	}
 
 };
