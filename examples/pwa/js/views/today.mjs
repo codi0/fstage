@@ -26,7 +26,8 @@ export default {
 
 	render: function(ctx) {
 		var today    = new Date().toISOString().split('T')[0];
-		var allToday = ctx.state.tasks.filter(function(t) { return t.dueDate === today; });
+		var list     = Object.values(ctx.state.tasks || {});
+		var allToday = list.filter(function(t) { return t.dueDate === today; });
 		var pending  = allToday.filter(function(t) { return !t.completed; });
 		var done     = allToday.filter(function(t) { return  t.completed; });
 

@@ -124,8 +124,8 @@ export default {
 	},
 
 	render: function(ctx) {
-		var id    = ctx.state.routeParams.id;
-		var t     = id ? ctx.state.tasks.find(function(task) { return task.id === String(id); }) || null : null;
+		var id = ctx.state.routeParams.id;
+		var t  = id ? ctx.state.tasks[String(id)] || null : null;
 
 		if (!t) return ctx.html`<div class="not-found">Task not found.</div>`;
 

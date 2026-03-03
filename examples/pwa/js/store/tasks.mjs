@@ -1,28 +1,27 @@
 import { defaultRegistry } from '@fstage/registry';
 
-
 // -- Services -----------------------------------------------------------------
 
 const registry    = defaultRegistry();
 const store       = registry.get('store');
 const syncManager = registry.get('syncManager');
 
-
-// -- Tasks ---------------------------------------------------------------------
+// -- Tasks --------------------------------------------------------------------
 
 store.onAccess('tasks', function(e) {
 	e.val = syncManager.read('tasks', {
-		default: [],
+		default: {},
 		refresh: e.refresh,
 		remote: {
 			uri:         'api/tasks.json',
 			resDataPath: 'records',
+			resKeyPath:  'id',
 		},
 	});
 });
 
 store.onChange('tasks', function(e) {
-	if (e.loading) return;
+	if (e.src === 'access') return;
 	e.diff('tasks.*', function(key, val, action) {
 		return syncManager.write(key, val, {
 			remote: {
@@ -30,6 +29,9 @@ store.onChange('tasks', function(e) {
 				reqDataPath: 'record',
 				resIdPath:   'data.id',
 			},
+		}).catch(function(err) {
+			console.error('[tasks] sync write failed', key, err);
+			return undefined;
 		});
 	});
 });
@@ -37,59 +39,49 @@ store.onChange('tasks', function(e) {
 store.model('tasks', {
 
 	add(data) {
-		store.set('tasks', function(tasks) {
-			return [{
-				id:          String(Date.now()),
-				title:       data.title       || 'New task',
-				description: data.description || '',
-				completed:   false,
-				priority:    data.priority    || 'medium',
-				dueDate:     data.dueDate     || null,
-				createdAt:   Date.now(),
-			}, ...(tasks || [])];
+		const id = String(Date.now());
+		store.set('tasks.' + id, {
+			id,
+			title:       data.title       || 'New task',
+			description: data.description || '',
+			completed:   false,
+			priority:    data.priority    || 'medium',
+			dueDate:     data.dueDate     || null,
+			createdAt:   Date.now(),
 		});
 	},
 
 	toggle(id) {
-		store.set('tasks', function(tasks) {
-			return (tasks || []).map(t =>
-				t.id === String(id) ? { ...t, completed: !t.completed } : t
-			);
-		});
+		const task = store.get('tasks.' + id);
+		if (task) store.set('tasks.' + id + '.completed', !task.completed);
 	},
 
 	update(id, data) {
-		store.set('tasks', function(tasks) {
-			return (tasks || []).map(t =>
-				t.id === String(id) ? { ...t, ...data } : t
-			);
-		});
+		store.merge('tasks.' + id, data);
 	},
 
 	delete(id) {
-		store.set('tasks', function(tasks) {
-			return (tasks || []).filter(t => t.id !== String(id));
-		});
+		store.del('tasks.' + id);
 	},
 
 	grouped() {
-		const tasks = store.get('tasks') || [];
-		const today = new Date().toISOString().split('T')[0];
+		const tasks    = Object.values(store.get('tasks') || {});
+		const today    = new Date().toISOString().split('T')[0];
 		const tomorrow = new Date(Date.now() + 86400000).toISOString().split('T')[0];
 
 		const buckets = {
-			overdue:  { key: 'overdue', label: 'Overdue', tasks: [] },
-			today:    { key: 'today', label: 'Today', tasks: [] },
-			tomorrow: { key: 'tomorrow', label: 'Tomorrow', tasks: [] },
-			future:   { key: 'upcoming', label: 'Upcoming', tasks: [] },
-			none:     { key: 'none', label: 'No Date', tasks: [] },
+			overdue:  { key: 'overdue',  label: 'Overdue',   tasks: [] },
+			today:    { key: 'today',    label: 'Today',     tasks: [] },
+			tomorrow: { key: 'tomorrow', label: 'Tomorrow',  tasks: [] },
+			future:   { key: 'upcoming', label: 'Upcoming',  tasks: [] },
+			none:     { key: 'none',     label: 'No Date',   tasks: [] },
 		};
 
 		for (const task of tasks) {
 			if (task.completed) continue;
 			const d = task.dueDate;
-			if (!d)            buckets.none.tasks.push(task);
-			else if (d < today) buckets.overdue.tasks.push(task);
+			if (!d)                  buckets.none.tasks.push(task);
+			else if (d < today)      buckets.overdue.tasks.push(task);
 			else if (d === today)    buckets.today.tasks.push(task);
 			else if (d === tomorrow) buckets.tomorrow.tasks.push(task);
 			else                     buckets.future.tasks.push(task);
@@ -99,11 +91,9 @@ store.model('tasks', {
 			.map(k => buckets[k])
 			.filter(g => g.tasks.length > 0);
 	},
-
 });
 
-
-// -- Settings ------------------------------------------------------------------
+// -- Settings -----------------------------------------------------------------
 
 store.onAccess('settings', function(e) {
 	e.val = syncManager.read('settings', {
@@ -112,8 +102,10 @@ store.onAccess('settings', function(e) {
 });
 
 store.onChange('settings', function(e) {
-	if (e.loading) return;
-	syncManager.write('settings', e.val);
+	if (e.src === 'access') return;
+	syncManager.write('settings', e.val).catch(function(err) {
+		console.error('[settings] sync write failed', err);
+	});
 });
 
 store.model('settings', {

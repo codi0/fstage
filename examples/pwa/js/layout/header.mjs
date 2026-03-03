@@ -27,13 +27,14 @@ function _onScroll(ctx, callback) {
 
 
 function _getSubtitle(tab, tasks) {
+	var list = Object.values(tasks || {});
 	if (tab === 'tasks') {
-		var n = tasks.filter(function(t) { return !t.completed; }).length;
+		var n = list.filter(function(t) { return !t.completed; }).length;
 		return n === 1 ? '1 remaining' : n + ' remaining';
 	}
 	if (tab === 'today') {
 		var today = new Date().toISOString().split('T')[0];
-		var n = tasks.filter(function(t) { return t.dueDate === today && !t.completed; }).length;
+		var n = list.filter(function(t) { return t.dueDate === today && !t.completed; }).length;
 		return n === 1 ? '1 remaining' : n + ' remaining';
 	}
 	return '';

@@ -214,6 +214,17 @@ export function createBase(config) {
     write,
     tracker,
     getParentPaths,
+    batchDepth: 0,
+
+    /**
+     * Fire afterWriteHooks directly. Used by storePlugin for reset() and
+     * batch() flush so plugins like devtools see those writes via the same
+     * pipeline as ordinary ctx.write() calls.
+     */
+    fireAfterWrite(e) {
+      if (afterWriteHooks.length === 0) return;
+      for (const h of afterWriteHooks) h(e);
+    },
     
     mountMethod(k, fn) {
 			ctx.instance[config.prefix + k] = fn;
@@ -320,24 +331,13 @@ export function createProxy(config) {
 		if (api[ctx.config.prefix + k] === fn) delete api[ctx.config.prefix + k];
 	};
 
-  function getProxy(target, path) {
-    let entry = proxyCache.get(target);
-    if (!entry) {
-      const px = new Proxy(target, makeHandler(path));
-      proxyCache.set(target, { path, proxy: px });
-      return px;
-    }
-    if (!(entry instanceof Map)) {
-      if (entry.path === path) return entry.proxy;
-      const map = new Map();
-      map.set(entry.path, entry.proxy);
-      proxyCache.set(target, map);
-      entry = map;
-    }
-    let px = entry.get(path);
-    if (!px) { px = new Proxy(target, makeHandler(path)); entry.set(path, px); }
-    return px;
-  }
+	function getProxy(target, path) {
+		let pathMap = proxyCache.get(target);
+		if (!pathMap) { pathMap = new Map(); proxyCache.set(target, pathMap); }
+		let px = pathMap.get(path);
+		if (!px) { px = new Proxy(target, makeHandler(path)); pathMap.set(path, px); }
+		return px;
+	}
 
 	function makePath(base, key) {
 		return base ? base + '.' + key : key;
@@ -477,14 +477,13 @@ export function storePlugin(ctx) {
 				const action = key === path ? entry.action : 'update';
 				const res = cb(key, val, action);
 				if (res instanceof Promise) {
-					res.then(d => ctx.write(key, d));
+					res.then(d => { if (d !== undefined) ctx.write(key, d); }).catch(err => console.error('[store] diff write rejected', key, err));
 				}
 			}
 		};
 	}
 
 	function dispatchPath(path, oldVal, newVal, diff, src, notifiedTrackers) {
-		const loading = (src === 'access');
 		const trackers = ctx.tracker.map.get(path);
 		if (trackers) {
 			for (const item of trackers) {
@@ -497,7 +496,7 @@ export function storePlugin(ctx) {
 			const handlers = subs.get(p);
 			if (!handlers) continue;
 			const val = snapshot(newVal);
-			const event   = { path, val, oldVal, diff, loading };
+			const event   = { path, val, oldVal, diff, src };
 			for (const cb of handlers) {
 				if (!destroyed) cb(event);
 			}
@@ -556,7 +555,7 @@ export function storePlugin(ctx) {
         }
         if (destroyed) return ctx.instance;
         if (typeof val === 'function') val = val(snapshot(ctx.readRaw(path)));
-        ctx.write(path, val);
+        ctx.write(path, val, { src: 'set' });
         return ctx.instance;
       },
 
@@ -565,7 +564,7 @@ export function storePlugin(ctx) {
           throw new Error('[store] merge() path must be a non-empty string — use reset() to replace root state');
         }
         if (destroyed) return ctx.instance;
-        ctx.write(path, val, null, true);
+        ctx.write(path, val, { src: 'merge' }, true);
         return ctx.instance;
       },
 
@@ -574,12 +573,14 @@ export function storePlugin(ctx) {
           throw new Error('[store] del() path must be a non-empty string');
         }
         if (destroyed) return ctx.instance;
-        ctx.write(path, undefined);
+        ctx.write(path, undefined, { src: 'delete' });
         return ctx.instance;
       },
 
       /**
        * Replace root state. Mutates in place so references remain valid.
+       * Fires afterWriteHooks (via ctx.fireAfterWrite) so plugins like devtools
+       * see resets through the same pipeline as ordinary writes.
        * NOTE: bypasses beforeWrite — validation middleware does not fire.
        */
 			reset(newState, opts) {
@@ -626,35 +627,28 @@ export function storePlugin(ctx) {
 					if (!snaps.has(entry.path)) snaps.set(entry.path, entry.oldVal);
 				}
 
-				if (batchDepth > 0) {
-					if (!batchDiffs) { batchDiffs = new Map(); batchSnaps = new Map(); }
-					for (const entry of diff) {
-						batchDiffs.set(entry.path, entry);
-						if (!batchSnaps.has(entry.path)) batchSnaps.set(entry.path, entry.oldVal);
-					}
-					for (const [p, v] of snaps) {
-						if (!batchSnaps.has(p)) batchSnaps.set(p, v);
-					}
-					return ctx.instance;
-				}
-
-				notify(diff, snaps);
+				// Fire afterWriteHooks so all plugins (e.g. devtools) observe the reset.
+				// onAfterWrite handles batching — no need to duplicate that logic here.
+				ctx.fireAfterWrite({ diff, meta: { src: 'reset', _snaps: snaps } });
 				return ctx.instance;
 			},
 
 			batch(fn) {
 				batchDepth++;
+				ctx.batchDepth = batchDepth;
 				let result;
 				try {
 					result = fn();
 				} finally {
 					batchDepth--;
+					ctx.batchDepth = batchDepth;
 					if (batchDepth === 0 && batchDiffs) {
 						const entries = batchDiffs;
-						const snaps = batchSnaps;
+						const snaps   = batchSnaps;
 						batchDiffs = null;
 						batchSnaps = null;
-						notify(entries.values(), snaps);
+						// Fire through afterWriteHooks so all plugins see a single grouped event.
+						ctx.fireAfterWrite({ diff: [...entries.values()], meta: { src: 'batch', _snaps: snaps } });
 					}
 				}
 				return result;
@@ -702,9 +696,6 @@ export function storePlugin(ctx) {
     onAfterWrite(e) {
       if (!subs.size && !ctx.tracker.map.size) return;
 
-      // _snaps was attached by wrapped ctx.write before the write to capture
-      // pre-write oldVal for ancestor paths. Falls back to empty map for writes
-      // that bypass plugin methods (e.g. unguarded trap on a plain store).
       const snaps = e.meta._snaps || new Map();
       for (const entry of e.diff) {
         if (!snaps.has(entry.path)) snaps.set(entry.path, entry.oldVal);
@@ -820,7 +811,6 @@ export function reactivePlugin(ctx) {
         };
       },
 
-			//TO-DO: Make use of owner?
 			track(owner, fn) {
 				if (typeof owner === 'function') {
 					fn = owner; owner = null;
@@ -1050,14 +1040,10 @@ export function accessPlugin(ctx) {
         return { data: ctx.readRaw(path), loading: meta.loading || false, error: meta.error || null };
       },
 
-			// TO-DO: Remove?
-			model(key, model) {
-				if (model) {
-					if (modelsCache[key]) throw new Error('[fstage/store] model key already exists: ' + key);
-					if (!['object', 'function'].includes(getType(model))) {
-						throw new Error('[fstage/store] model must be an object or function');
-					}
-					modelsCache[key] = model;
+			model(key, descriptor) {
+				if (descriptor) {
+					if (modelsCache[key]) throw new Error('[store] model key already exists: ' + key);
+					modelsCache[key] = descriptor;
 				}
 				return modelsCache[key] || null;
 			}
