@@ -5,6 +5,10 @@ export default {
 	state: {
 		tasks: { $src: 'store', default: [] }
 	},
+	
+	inject: {
+		store: 'store'
+	},
 
 	style: (ctx) => ctx.css`
 		:host { display: block; }
@@ -25,31 +29,27 @@ export default {
 	`,
 
 	render: function(ctx) {
-		var today    = new Date().toISOString().split('T')[0];
-		var list     = Object.values(ctx.state.tasks || {});
-		var allToday = list.filter(function(t) { return t.dueDate === today; });
-		var pending  = allToday.filter(function(t) { return !t.completed; });
-		var done     = allToday.filter(function(t) { return  t.completed; });
+		var today = ctx.store.model('tasks').today();
 
 		return ctx.html`
 			<div class="list-body">
-				${allToday.length === 0 ? ctx.html`
+				${today.all.length === 0 ? ctx.html`
 					<div class="empty-state">
 						<div class="empty-icon">🌤</div>
 						<div class="empty-title">Nothing due today</div>
 						<div class="empty-sub">Tasks with today's due date will appear here.</div>
 					</div>
 				` : ctx.html`
-					${pending.length > 0 ? ctx.html`
+					${today.pending.length > 0 ? ctx.html`
 						<div class="section-header">To Do</div>
 						<div class="task-group">
-							${pending.map(function(task, i) { return ctx.html`<pwa-task-row .task=${task} .index=${i}></pwa-task-row>`; })}
+							${today.pending.map(function(task, i) { return ctx.html`<pwa-task-row .task=${task} .index=${i}></pwa-task-row>`; })}
 						</div>
 					` : ''}
-					${done.length > 0 ? ctx.html`
+					${today.done.length > 0 ? ctx.html`
 						<div class="section-header">Completed</div>
 						<div class="task-group">
-							${done.map(function(task, i) { return ctx.html`<pwa-task-row .task=${task} .index=${i}></pwa-task-row>`; })}
+							${today.done.map(function(task, i) { return ctx.html`<pwa-task-row .task=${task} .index=${i}></pwa-task-row>`; })}
 						</div>
 					` : ''}
 				`}

@@ -33,6 +33,14 @@ export default {
 		}
 	`,
 
+	connected: function(ctx) {
+		ctx.state.$watch('theme', function(newVal, oldVal) {
+			if (typeof newVal === 'string') {
+				ctx.host.setAttribute('data-theme', newVal);
+			}
+		}, { immediate: true });
+	},
+
 	render: function(ctx) {
 		return ctx.html`
 			<pwa-header></pwa-header>
@@ -40,14 +48,6 @@ export default {
 			<pwa-overlay></pwa-overlay>
 			<pwa-tab-bar></pwa-tab-bar>
 		`;
-	},
-	
-	rendered: function(ctx, isFirst) {
-		ctx.state.$watch('theme', function(newVal, oldVal) {
-			console.log(newVal, oldVal);
-		});
-	
-		ctx.host.setAttribute('data-theme', ctx.state.theme);
 	}
 
 };

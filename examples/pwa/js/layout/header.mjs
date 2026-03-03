@@ -26,21 +26,6 @@ function _onScroll(ctx, callback) {
 }
 
 
-function _getSubtitle(tab, tasks) {
-	var list = Object.values(tasks || {});
-	if (tab === 'tasks') {
-		var n = list.filter(function(t) { return !t.completed; }).length;
-		return n === 1 ? '1 remaining' : n + ' remaining';
-	}
-	if (tab === 'today') {
-		var today = new Date().toISOString().split('T')[0];
-		var n = list.filter(function(t) { return t.dueDate === today && !t.completed; }).length;
-		return n === 1 ? '1 remaining' : n + ' remaining';
-	}
-	return '';
-}
-
-
 export default {
 
 	tag: 'pwa-header',
@@ -50,6 +35,10 @@ export default {
 		screen:    { $src: 'store' },
 		tasks:     { $src: 'store', default: [] },
 		routeMeta: { $src: 'store', key: 'route.match.meta', default: {} }
+	},
+	
+	inject: {
+		store: 'store'
 	},
 
 	style: (ctx) => ctx.css`
@@ -183,8 +172,7 @@ export default {
 		var routeMeta = ctx.state.routeMeta;
 		var hasTab    = !!routeMeta.tab;
 		var title     = routeMeta.title || '';
-		var tasks     = ctx.state.tasks || [];
-		var subtitle  = _getSubtitle(routeMeta.tab, tasks);
+		var subtitle  = ctx.store.model('tasks').remaining(routeMeta.tab);
 
 		return ctx.html`
 			<div class="header-inner">

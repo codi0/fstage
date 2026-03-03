@@ -25,7 +25,8 @@
  *   store.$devtools.canForward;          // boolean
  *
  *   // Batching — $batch() produces a single history entry labelled 'batch'.
- *   // ctx.batchDepth (set by storePlugin) is read directly — no wrapping needed.
+ *   // afterWriteHooks only fire once batchDepth reaches zero (via ctx.flushBatch),
+ *   // so a single grouped entry is recorded naturally with no special handling needed.
  *   store.$batch(() => { store.$set('a', 1); store.$set('b', 2); });
  *   // → single entry { src: 'batch', diff: [<a>, <b>] }
  *
@@ -66,7 +67,7 @@ export function devtoolsPlugin(ctx) {
 
   function cloneDiff(diff) {
     // Deep-clone so val/oldVal objects don't remain live references to state.
-    return JSON.parse(JSON.stringify(Array.isArray(diff) ? diff : [...diff]));
+    return JSON.parse(JSON.stringify(diff));
   }
 
   function pushEntry(diff, meta) {
@@ -93,7 +94,7 @@ export function devtoolsPlugin(ctx) {
   }
 
   // -------------------------------------------------------------------------
-  // Public devtools API — exposed as store.$devtools (or store.devtools)
+  // Public devtools API — exposed as store.$devtools
   // -------------------------------------------------------------------------
 
   const api = {
@@ -113,9 +114,6 @@ export function devtoolsPlugin(ctx) {
     /**
      * Jump to any history index. Writes directly into ctx.state, bypassing all
      * hooks — no watchers fire, no history entry is produced, no prefix assumed.
-     *
-     * Directly mutates ctx.state rather than calling the public $reset() method
-     * to avoid coupling to any particular prefix convention.
      */
     travel(idx) {
       if (idx < 0 || idx >= history.length) {
@@ -171,16 +169,9 @@ export function devtoolsPlugin(ctx) {
 
     onAfterWrite(e) {
       if (paused) return;
-
-      // ctx.batchDepth is kept in sync by storePlugin.batch(). While > 0 we are
-      // inside an active batch — individual writes fire onAfterWrite but should
-      // not produce their own history entries. storePlugin will call
-      // ctx.fireAfterWrite with src='batch' and the full accumulated diff when
-      // the outermost batch completes, at which point batchDepth is 0 and we
-      // record a single grouped entry.
-      if (ctx.batchDepth > 0) return;
-
-      pushEntry(e.diff, e.meta);
+      // e.diff is the lazy query function from createDiffQuery — call it with
+      // no args to materialise the full expanded diff array before cloning.
+      pushEntry(e.diff(), e.meta);
     },
 
     onDestroy() {

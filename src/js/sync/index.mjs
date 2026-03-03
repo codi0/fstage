@@ -11,13 +11,13 @@ function isDefault(val) {
 function parseKey(key) {
 	var res = {
 		base: '',
-		sub: '',
-		org: key
+		sub:  '',
+		org:  key
 	};
 	var arr = key.split('.');
 	if (arr.length) {
 		res.base = arr.shift();
-		res.sub = arr.join('.');
+		res.sub  = arr.join('.');
 	}
 	return res;
 }
@@ -37,17 +37,23 @@ export function createSyncManager(config={}) {
 	//remote handler
 	config.remoteHandler = config.remoteHandler || {
 
+		// In-flight request deduplication — concurrent reads to the same URI
+		// are merged onto a single promise rather than firing multiple requests.
+		_inflight: new Map(),
+
 		read: function(uri, opts={}) {
 			//format uri
-			uri = formatUrl(uri, opts.params || {});
+			var url = formatUrl(uri, opts.params || {});
+			//deduplicate concurrent requests to the same URL
+			if (this._inflight.has(url)) return this._inflight.get(url);
 			//make request
-			return fetchHttp(uri, opts).then(function(response) {
+			var prom = fetchHttp(url, opts).then(function(response) {
 				//extract data path?
 				if (opts.resDataPath) {
 					response = response[opts.resDataPath];
 				}
-				//key array by field into object?
-				//e.g. resKeyPath: 'id' converts [{id:'1',...}] ? {'1':{...}}
+				//key array response by field into object?
+				//e.g. resKeyPath:'id' converts [{id:'1',...}] ? {'1':{id:'1',...}}
 				if (opts.resKeyPath && Array.isArray(response)) {
 					response = Object.fromEntries(
 						response.map(function(item) {
@@ -55,9 +61,15 @@ export function createSyncManager(config={}) {
 						})
 					);
 				}
-				//return
 				return response;
 			});
+			//track in-flight, remove when settled
+			this._inflight.set(url, prom);
+			var that = this;
+			prom.finally(function() {
+				that._inflight.delete(url);
+			});
+			return prom;
 		},
 
 		write: function(uri, payload, opts={}) {
@@ -73,7 +85,7 @@ export function createSyncManager(config={}) {
 			if (payload === undefined) {
 				opts.method = opts.method || 'DELETE';
 			}
-			//make request
+			//make request (writes are never deduplicated)
 			return this.read(uri, opts);
 		}
 
@@ -99,17 +111,16 @@ export function createSyncManager(config={}) {
 		},
 
 		write: function(key, payload, opts={}) {
-			var that = this;
+			var that  = this;
 			var keyObj = parseKey(key);
 			return new Promise(function(resolve) {
 				var prom = Promise.resolve(payload);
-				//has subkey?
+				//has subkey — read parent first, merge, then write
 				if (keyObj.sub) {
 					prom = that.read(keyObj.base, opts).then(function(data) {
 						return nestedKey(data || {}, keyObj.sub, { val: payload });
 					});
 				}
-				//continue
 				return prom.then(function(data) {
 					if (isDefault(data)) {
 						localStorage.removeItem(keyObj.base);
@@ -210,7 +221,7 @@ export function createSyncManager(config={}) {
 						}).catch(function(err) {
 							console.error('Remote write failed', err);
 							//queue for retry when back online.
-							//note: local write already succeeded above — this is optimistic UI.
+							//note: local write already succeeded — this is optimistic UI.
 							//the store sees success immediately; remote sync happens later.
 							api.addQueue('write', [ key, null, opts ]);
 							return null;
@@ -227,7 +238,7 @@ export function createSyncManager(config={}) {
 		},
 
 		addQueue: function(method, args=[]) {
-			//skip if already queued for this key
+			//skip if already queued for this key and method
 			for (var i=0; i < queue.length; i++) {
 				if (method === queue[i].method && args[0] === queue[i].args[0]) {
 					return false;

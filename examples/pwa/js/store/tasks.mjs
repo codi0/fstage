@@ -9,6 +9,7 @@ const syncManager = registry.get('syncManager');
 // -- Tasks --------------------------------------------------------------------
 
 store.onAccess('tasks', function(e) {
+	e.ttl = 5 * 60 * 1000;
 	e.val = syncManager.read('tasks', {
 		default: {},
 		refresh: e.refresh,
@@ -91,6 +92,32 @@ store.model('tasks', {
 			.map(k => buckets[k])
 			.filter(g => g.tasks.length > 0);
 	},
+
+	today() {
+		const list  = Object.values(store.get('tasks') || {});
+		const today = new Date().toISOString().split('T')[0];
+		const all   = list.filter(function(t) { return t.dueDate === today; });
+		return {
+			all,
+			pending: all.filter(function(t) { return !t.completed; }),
+			done:    all.filter(function(t) { return  t.completed; }),
+		};
+	},
+
+	remaining(tab) {
+		const list  = Object.values(store.get('tasks') || {});
+		const today = new Date().toISOString().split('T')[0];
+		var n;
+		if (tab === 'tasks') {
+			n = list.filter(function(t) { return !t.completed; }).length;
+		} else if (tab === 'today') {
+			n = list.filter(function(t) { return t.dueDate === today && !t.completed; }).length;
+		} else {
+			return '';
+		}
+		return n === 1 ? '1 remaining' : n + ' remaining';
+	},
+
 });
 
 // -- Settings -----------------------------------------------------------------

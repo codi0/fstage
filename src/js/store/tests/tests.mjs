@@ -1161,16 +1161,16 @@ async function runStoreSuite(label, make, isProxy) {
       assertEqual(a.raw('x'), 10);
     });
 
-    await test('onAfterWrite hook fires after commit', async () => {
-      const s = make({ x: 0 });
-      const a = api(s, isProxy);
-      let seen;
-      a.extend(() => ({
-        onAfterWrite(e) { seen = e.diff[0].val; }
-      }));
-      a.set('x', 7);
-      assertEqual(seen, 7);
-    });
+		await test('onAfterWrite hook fires after commit', async () => {
+			const s = make({ x: 0 });
+			const a = api(s, isProxy);
+			let seen;
+			a.extend(() => ({
+				onAfterWrite(e) { seen = e.val; }
+			}));
+			a.set('x', 7);
+			assertEqual(seen, 7);
+		});
 
     await test('two plugins both intercept same path independently', async () => {
       const s = make({ x: 1 });
