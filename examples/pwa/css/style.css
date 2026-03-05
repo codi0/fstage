@@ -1,55 +1,95 @@
 /* ============================================================================
-   Fstage Tasks — Design System
-   Tokens → Base → Components → Utilities
+   Fstage Tasks — Design System v2 (Warm Editorial)
    ============================================================================ */
 
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap');
 
-/* --- Tokens: Light mode (default) ----------------------------------------- */
+
+/* --- Tokens: Light mode ---------------------------------------------------- */
 
 :root {
-	/* Brand */
-	--color-primary:         #007AFF;
-	--color-primary-subtle:  rgba(0, 122, 255, 0.10);
-	--color-success:         #34C759;
-	--color-success-subtle:  rgba(52, 199, 89, 0.12);
-	--color-danger:          #FF3B30;
-	--color-danger-subtle:   rgba(255, 59, 48, 0.10);
-	--color-warning:         #FF9500;
-	--color-warning-subtle:  rgba(255, 149, 0, 0.10);
+	/* Brand — forest green accent */
+	--color-primary:         #2D7A52;
+	--color-primary-dark:    #1E4D35;
+	--color-primary-subtle:  rgba(45, 122, 82, 0.12);
+	--color-success:         #2D7A52;
+	--color-success-subtle:  rgba(45, 122, 82, 0.12);
+	--color-danger:          #B83232;
+	--color-danger-subtle:   rgba(184, 50, 50, 0.10);
+	--color-warning:         #B86820;
+	--color-warning-subtle:  rgba(184, 104, 32, 0.10);
+
+	/* Chip colours */
+	--chip-late-bg:    #FBF0F0;   --chip-late-text:  #B83232;
+	--chip-today-bg:   #EBF5F0;   --chip-today-text: #2D7A52;
+	--chip-soon-bg:    #F0EDE7;   --chip-soon-text:  #7A756B;
+	--chip-done-bg:    #EBF5F0;   --chip-done-text:  #2D7A52;
 
 	/* Backgrounds */
 	--bg-base:               #FFFFFF;
-	--bg-secondary:          #F2F2F7;
-	--bg-tertiary:           #E5E5EA;
-	--bg-blur:               rgba(242, 242, 247, 0.85);
+	--bg-secondary:          #F7F4EF;
+	--bg-tertiary:           #F0EDE7;
+	--bg-quaternary:         #E5E0D8;
+	--bg-blur:               rgba(247, 244, 239, 0.94);
 
 	/* Text */
-	--text-primary:          #000000;
-	--text-secondary:        rgba(60, 60, 67, 0.75);
-	--text-tertiary:         rgba(60, 60, 67, 0.45);
+	--text-primary:          #1A1814;
+	--text-secondary:        #3D3A34;
+	--text-tertiary:         #7A756B;
+	--text-quaternary:       #B0AA9F;
 
 	/* Separators */
-	--separator:             rgba(60, 60, 67, 0.12);
-	--separator-heavy:       rgba(60, 60, 67, 0.28);
+	--separator:             rgba(26, 24, 20, 0.07);
+	--separator-heavy:       rgba(26, 24, 20, 0.12);
+
+	/* Shadows */
+	--shadow-card:           0 1px 3px rgba(26, 24, 20, 0.05), 0 2px 8px rgba(26, 24, 20, 0.04);
+	--shadow-add:            0 3px 12px rgba(45, 122, 82, 0.22);
+	--shadow-btn:            0 4px 18px rgba(30, 77, 53, 0.25);
 
 	/* Radii */
 	--radius-sm:   8px;
-	--radius-md:   12px;
-	--radius-lg:   16px;
+	--radius-md:   14px;
+	--radius-lg:   18px;
 	--radius-xl:   24px;
 
 	/* Layout */
-	--tab-height:  49px;
+	--tab-height:  58px;
 
-	/* Safe areas */
+	/* Keyboard height — set by config.js */
+	--keyboard-height: 0px;
+
+	/* Toast */
+	--toast-bg:     #2A2A28;
+	--toast-color:  #F5F2ED;
+	--toast-action: #6DBF95;
+
+	/* Typography */
+	--font-body:   'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+	--font-serif:  'Instrument Serif', Georgia, 'Times New Roman', serif;
+
+	/* Safe areas — rely entirely on env() with a 0px fallback.
+	   For plain browser tabs (not standalone, not hybrid) the insets are
+	   always zero, so no extra rule is needed there. */
 	--safe-top:    env(safe-area-inset-top, 0px);
 	--safe-bottom: env(safe-area-inset-bottom, 0px);
 	--safe-left:   env(safe-area-inset-left, 0px);
 	--safe-right:  env(safe-area-inset-right, 0px);
+}
 
-	/* System font stack — SF Pro on iOS/Mac, Roboto on Android, Segoe on Win */
-	--font-body:   -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-	               'Helvetica Neue', Arial, sans-serif;
+/* In a normal browser tab (not installed as PWA, not Capacitor/hybrid)
+   the viewport chrome already accounts for the device edges, so
+   safe-area-inset-* can return small non-zero values on some Android
+   builds. Force them to zero to avoid spurious padding. */
+html:not([data-standalone]):not([data-hybrid]) {
+	--safe-top:    0px;
+	--safe-bottom: 0px;
+	--safe-left:   0px;
+	--safe-right:  0px;
+}
+
+:root[data-platform="ios"] {
+	--tab-height:  76px;
 }
 
 
@@ -57,74 +97,97 @@
 
 @media (prefers-color-scheme: dark) {
 	:root:not([data-theme="light"]) {
-		--bg-base:          #1C1C1E;
-		--bg-secondary:     #000000;
-		--bg-tertiary:      #2C2C2E;
-		--bg-blur:          rgba(28, 28, 30, 0.85);
+		--bg-base:          #1C1C1A;
+		--bg-secondary:     #111210;
+		--bg-tertiary:      #242422;
+		--bg-quaternary:    #2E2E2B;
+		--bg-blur:          rgba(17, 18, 16, 0.92);
 
-		--text-primary:     #FFFFFF;
-		--text-secondary:   rgba(235, 235, 245, 0.75);
-		--text-tertiary:    rgba(235, 235, 245, 0.38);
+		--text-primary:     #F5F2ED;
+		--text-secondary:   #C8C3B8;
+		--text-tertiary:    #8A8478;
+		--text-quaternary:  #5A5650;
 
-		--separator:        rgba(84, 84, 88, 0.50);
-		--separator-heavy:  rgba(84, 84, 88, 0.72);
+		--separator:        rgba(245, 242, 237, 0.07);
+		--separator-heavy:  rgba(245, 242, 237, 0.12);
 
-		--color-primary-subtle:  rgba(10, 132, 255, 0.14);
-		--color-success-subtle:  rgba(48, 209, 88,  0.14);
-		--color-danger-subtle:   rgba(255, 69, 58,  0.14);
-		--color-warning-subtle:  rgba(255, 159, 10, 0.14);
+		--shadow-card:      0 1px 4px rgba(0,0,0,0.25), 0 2px 10px rgba(0,0,0,0.2);
+
+		--chip-late-bg:    rgba(184,50,50,0.18);   --chip-late-text:  #E07070;
+		--chip-today-bg:   rgba(45,122,82,0.18);   --chip-today-text: #6DBF95;
+		--chip-soon-bg:    rgba(245,242,237,0.08); --chip-soon-text:  #8A8478;
+		--chip-done-bg:    rgba(45,122,82,0.18);   --chip-done-text:  #6DBF95;
+
+		--color-primary:        #3D9E6A;
+		--color-primary-dark:   #2D7A52;
+		--color-primary-subtle: rgba(61, 158, 106, 0.15);
+		--color-success:        #3D9E6A;
+		--color-success-subtle: rgba(61, 158, 106, 0.15);
+		--color-danger:         #D05050;
+		--color-danger-subtle:  rgba(208, 80, 80, 0.15);
+		--color-warning:        #CC8040;
+		--color-warning-subtle: rgba(204, 128, 64, 0.15);
 	}
 }
 
-/* User-forced dark override */
 [data-theme="dark"] {
-	--bg-base:          #1C1C1E;
-	--bg-secondary:     #000000;
-	--bg-tertiary:      #2C2C2E;
-	--bg-blur:          rgba(28, 28, 30, 0.85);
+	--bg-base:          #1C1C1A;
+	--bg-secondary:     #111210;
+	--bg-tertiary:      #242422;
+	--bg-quaternary:    #2E2E2B;
+	--bg-blur:          rgba(17, 18, 16, 0.92);
 
-	--text-primary:     #FFFFFF;
-	--text-secondary:   rgba(235, 235, 245, 0.75);
-	--text-tertiary:    rgba(235, 235, 245, 0.38);
+	--text-primary:     #F5F2ED;
+	--text-secondary:   #C8C3B8;
+	--text-tertiary:    #8A8478;
+	--text-quaternary:  #5A5650;
 
-	--separator:        rgba(84, 84, 88, 0.50);
-	--separator-heavy:  rgba(84, 84, 88, 0.72);
+	--separator:        rgba(245, 242, 237, 0.07);
+	--separator-heavy:  rgba(245, 242, 237, 0.12);
 
-	--color-primary:         #0A84FF;
-	--color-success:         #30D158;
-	--color-danger:          #FF453A;
-	--color-warning:         #FF9F0A;
+	--shadow-card:      0 1px 4px rgba(0,0,0,0.25), 0 2px 10px rgba(0,0,0,0.2);
 
-	--color-primary-subtle:  rgba(10, 132, 255, 0.14);
-	--color-success-subtle:  rgba(48, 209, 88,  0.14);
-	--color-danger-subtle:   rgba(255, 69, 58,  0.14);
-	--color-warning-subtle:  rgba(255, 159, 10, 0.14);
+	--chip-late-bg:    rgba(184,50,50,0.18);   --chip-late-text:  #E07070;
+	--chip-today-bg:   rgba(45,122,82,0.18);   --chip-today-text: #6DBF95;
+	--chip-soon-bg:    rgba(245,242,237,0.08); --chip-soon-text:  #8A8478;
+	--chip-done-bg:    rgba(45,122,82,0.18);   --chip-done-text:  #6DBF95;
+
+	--color-primary:        #3D9E6A;
+	--color-primary-dark:   #2D7A52;
+	--color-primary-subtle: rgba(61, 158, 106, 0.15);
+	--color-success:        #3D9E6A;
+	--color-success-subtle: rgba(61, 158, 106, 0.15);
+	--color-danger:         #D05050;
+	--color-danger-subtle:  rgba(208, 80, 80, 0.15);
+	--color-warning:        #CC8040;
+	--color-warning-subtle: rgba(204, 128, 64, 0.15);
 }
 
-/* User-forced light override */
 [data-theme="light"] {
-	/* Already set in :root — explicit reset for when dark media query fires */
 	--bg-base:          #FFFFFF;
-	--bg-secondary:     #F2F2F7;
-	--bg-tertiary:      #E5E5EA;
-	--bg-blur:          rgba(242, 242, 247, 0.85);
+	--bg-secondary:     #F7F4EF;
+	--bg-tertiary:      #F0EDE7;
+	--bg-quaternary:    #E5E0D8;
+	--bg-blur:          rgba(247, 244, 239, 0.94);
 
-	--text-primary:     #000000;
-	--text-secondary:   rgba(60, 60, 67, 0.75);
-	--text-tertiary:    rgba(60, 60, 67, 0.45);
+	--text-primary:     #1A1814;
+	--text-secondary:   #3D3A34;
+	--text-tertiary:    #7A756B;
+	--text-quaternary:  #B0AA9F;
 
-	--separator:        rgba(60, 60, 67, 0.12);
-	--separator-heavy:  rgba(60, 60, 67, 0.28);
+	--separator:        rgba(26, 24, 20, 0.07);
+	--separator-heavy:  rgba(26, 24, 20, 0.12);
 
-	--color-primary:    #007AFF;
-	--color-success:    #34C759;
-	--color-danger:     #FF3B30;
-	--color-warning:    #FF9500;
+	--color-primary:    #2D7A52;
+	--color-primary-dark: #1E4D35;
+	--color-success:    #2D7A52;
+	--color-danger:     #B83232;
+	--color-warning:    #B86820;
 
-	--color-primary-subtle:  rgba(0, 122, 255, 0.10);
-	--color-success-subtle:  rgba(52, 199, 89, 0.12);
-	--color-danger-subtle:   rgba(255, 59, 48, 0.10);
-	--color-warning-subtle:  rgba(255, 149, 0, 0.10);
+	--chip-late-bg:    #FBF0F0;   --chip-late-text:  #B83232;
+	--chip-today-bg:   #EBF5F0;   --chip-today-text: #2D7A52;
+	--chip-soon-bg:    #F0EDE7;   --chip-soon-text:  #7A756B;
+	--chip-done-bg:    #EBF5F0;   --chip-done-text:  #2D7A52;
 }
 
 
@@ -146,7 +209,6 @@ html, body {
 	font-family: var(--font-body);
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
-	/* Prevent font size adjustment on orientation change */
 	-webkit-text-size-adjust: 100%;
 	text-size-adjust: 100%;
 }
@@ -160,13 +222,9 @@ input, textarea, [contenteditable] {
 	-webkit-touch-callout: default;
 }
 
-p, h1, h2, h3, h4 {
-	margin: 0;
-}
+p, h1, h2, h3, h4 { margin: 0; }
 
-button {
-	font-family: var(--font-body);
-}
+button { font-family: var(--font-body); }
 
 input, textarea, select {
 	font-family: var(--font-body);
@@ -174,12 +232,8 @@ input, textarea, select {
 	background: transparent;
 }
 
-a {
-	color: var(--color-primary);
-	text-decoration: none;
-}
+a { color: var(--color-primary); text-decoration: none; }
 
-/* Native-feel focus ring */
 :focus-visible {
 	outline: 2px solid var(--color-primary);
 	outline-offset: 2px;
@@ -188,12 +242,15 @@ a {
 
 /* --- Scroll containers ----------------------------------------------------- */
 
-/* Smooth momentum scrolling on iOS */
-[data-scroller] {
-	-webkit-overflow-scrolling: touch;
+[data-scroller] { -webkit-overflow-scrolling: touch; }
+
+@media (prefers-reduced-motion: reduce) {
+	*, *::before, *::after {
+		transition-duration: 0.01ms !important;
+		animation-duration: 0.01ms !important;
+	}
 }
 
-/* Scrollbars: hidden on touch, thin on desktop */
 @media (pointer: coarse) {
 	::-webkit-scrollbar { display: none; }
 	* { scrollbar-width: none; }

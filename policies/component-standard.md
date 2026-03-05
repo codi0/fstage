@@ -1,6 +1,6 @@
 # Fstage - Universal Component Definition Standard
 
-Version: 1.1
+Version: 1.2
 
 Each component module exports a single plain object. A runtime layer registers it as a custom element and manages rendering, reactivity, lifecycle, and interactions.
 
@@ -25,7 +25,9 @@ All fields are optional except `tag`.
 | `connected(ctx)` | `function` | Called on each connection to the DOM. |
 | `disconnected(ctx)` | `function` | Called on each disconnection, after cleanup functions have run. |
 | `render(ctx)` | `function` | Returns renderable output. Return type is runtime-defined and must be documented by the runtime. Called whenever output may have changed. If it throws, `onError` is called if defined, otherwise `console.error`. The render loop continues. |
-| `rendered(ctx, isFirst)` | `function` | Called after every committed render. `isFirst` is `true` on the first render only. Use for post-DOM work (measuring, focusing, attribute sync). Reactive side effects belong in `connected` via `$watch`. |
+| `rendered(ctx, isFirst)` | `function` | Called after every committed render. `isFirst` is `true` on the first render only. Use for post-DOM work (measuring, focusing, animating, attribute sync). Reactive side effects belong in `connected` via `$watch`. |
+| `activated(ctx)` | `function` | Called when the screen host signals that this component's screen has become active (i.e. a route transition completed). Only fires if a screenHost is configured in the runtime. Useful for persistent layout components that need to react to navigation. |
+| `deactivated(ctx)` | `function` | Called when the screen host signals that this component's screen is no longer active. Only fires if a screenHost is configured in the runtime. |
 | `onError(err, ctx)` | `function` | Called when `render` throws. |
 
 ---
@@ -143,16 +145,26 @@ interactions: {
 }
 ```
 
-### Runtime-extended interactions
+### document. and window. events
 
-Runtimes may extend the key syntax using dot-notation namespacing. `animate.enter` and `animate.exit` are lifecycle animations triggered on connect and disconnect. Runtimes must document all extensions and handler signatures.
+To listen for events on `document` or `window`, use the corresponding namespace prefix. These listeners are activated on connect and cleaned up on disconnect.
 
 ```js
 interactions: {
-  'animate.enter': {
-		preset: 'slideUp',
-		duration: 160
-	},
+  'document.addTask':  function(e, ctx) { /* fired by ctx.emit('addTask') anywhere */ },
+  'window.online':     function(e, ctx) { ctx.state.$set('offline', false); },
+  'window.offline':    function(e, ctx) { ctx.state.$set('offline', true); },
+}
+```
+
+`ctx.emit(type)` dispatches with `bubbles: true, composed: true`, so any `document.eventType` listener will receive it regardless of DOM position.
+
+### Runtime-extended interactions
+
+Runtimes may extend the key syntax using dot-notation namespacing. Runtimes must document all extensions and handler signatures.
+
+```js
+interactions: {
   'gesture.swipe(.row)': {
     directions: ['left', 'right'],
     onCommit(e, ctx) { /* ... */ },
@@ -171,7 +183,8 @@ interactions: {
 | `ctx.host` | The custom element node. |
 | `ctx.root` | The render root (`shadowRoot` or `host` for light DOM). Guaranteed available by the time interactions are activated. |
 | `ctx.state` | Unified reactive state proxy. See 'ctx.state API'. |
-| `ctx.emit(type, detail?, opts?)` | Dispatches a `CustomEvent` from `host` (`bubbles: true`, `composed: true`). |
+| `ctx.emit(type, detail?, opts?)` | Dispatches a `CustomEvent` from `host` (`bubbles: true`, `composed: true`). Use for cross-component signalling; pair with `document.eventType` interactions in consumers. |
+| `ctx.animate(el, preset, opts?)` | Animate an element using the shared animator. `preset` is a named string or a `{ from, to }` keyframe object. `opts` may include `duration`, `easing`, `fill`, `delay`, and `onMount` (animate only on first appearance of this element instance). Returns `{ finished: Promise, cancel: fn }`. |
 | `ctx.cleanup(fn)` | Registers a teardown function called on disconnect in reverse order, before `disconnected`. If the host is not currently attached to the DOM, the function will not be registered. |
 | `ctx.requestUpdate()` | Manually requests a re-render. |
 | `ctx.html` | Optional: tagged template literal for renderable output. |
@@ -226,9 +239,10 @@ if (s.loading) return ctx.html`<pwa-spinner></pwa-spinner>`;
 ### Connect
 
 1. Call `connected(ctx)`.
-2. Begin render loop. On each render cycle, re-render when accessed `ctx.state` values change.
-3. After first render only, activate `interactions` before calling `rendered`.
-4. Call `rendered(ctx, isFirst)` after each committed render.
+2. If a screenHost is configured and `activated` or `deactivated` are defined, register screenHost listeners and add their cleanup via `ctx.cleanup`.
+3. Begin render loop. On each render cycle, re-render when accessed `ctx.state` values change.
+4. After first render only, activate `interactions` before calling `rendered`.
+5. Call `rendered(ctx, isFirst)` after each committed render.
 
 ### Disconnect
 
@@ -282,10 +296,6 @@ export default {
     taskId:   { $src: 'store', key: 'route.match.params.id' },
   },
 
-  inject: {
-    animator: 'animator',
-  },
-
   style: css`
     :host { display: block; }
     :host([data-editing]) .view { display: none; }
@@ -316,7 +326,11 @@ export default {
   },
 
   rendered: function(ctx, isFirst) {
-    if (isFirst) ctx.animator.animate(ctx.root.querySelector('h2'), 'fadeIn');
+    if (isFirst) ctx.animate(ctx.root.querySelector('h2'), 'fadeIn');
+  },
+
+  activated: function(ctx) {
+    ctx.animate(ctx.host, 'fadeIn', { duration: 120 });
   },
 
   interactions: {

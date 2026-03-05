@@ -7,13 +7,18 @@
 	<meta name="mobile-web-app-capable" content="yes">
 	<meta name="format-detection" content="telephone=no">
 	<meta name="msapplication-tap-highlight" content="no">
+	<meta name="color-scheme" content="light dark">
+	<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+	<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 	<title>App loading...</title>
 	<link rel="icon" href="data:image/png;base64,iVBORw0KGgo=">
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 	<style>
 	:root {
-		--pwa-color: #000;
-		--pwa-background: #fff;
-		--pwa-font: "Roboto", "Helvetica Neue", sans-serif;
+		--pwa-color: #1A1814;
+		--pwa-background: #F7F4EF;
+		--pwa-font: 'DM Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 	}
 
 	* {
@@ -274,16 +279,18 @@
 
 		//load failed helper
 		var loadFailed = function() {
+			//is dev?
+			var isDev = tests.isDev();
 			//is online?
 			if(!tests.online()) {
 				return;
 			}
 			//show splash
 			splash.show({
-				message: 'App installation failed... re-trying in 5 seconds'
+				message: 'App install failed...' + (isDev ? ' please debug' : ' re-trying in 5 seconds')
 			});
 			//timeout?
-			if(!tests.isDev()) {
+			if(!isDev) {
 				setTimeout(function() {
 					location.reload();
 				}, 5000);

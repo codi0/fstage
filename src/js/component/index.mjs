@@ -231,10 +231,7 @@ export function createRuntime(config) {
 	const extensions = {};
 	const helpers = config.ctx || {};
 	const stores = config.stores || {};
-	const baseClass = config.baseClass || null;
-
-	const registry = config.registry;
-	const interactionsManager = config.interactionsManager;
+	const baseClass = config.baseClass || null;;
 
 	return {
 
@@ -327,6 +324,11 @@ export function createRuntime(config) {
 						}
 					});
 
+					// ctx.animate — animate an element
+					ctx.animate = function(el, preset, opts) {
+						return config.animator.animate(el, preset, opts);
+					};
+
 					// ctx.emit — dispatch a composed, bubbling CustomEvent from the host
 					ctx.emit = (type, detail, opts) => {
 						const event = new CustomEvent(type, Object.assign({ bubbles: true, composed: true, detail: detail || null }, opts || {}));
@@ -352,7 +354,7 @@ export function createRuntime(config) {
 							throw new Error('[fstage/component] ctx.' + ctxKey + ' already exists');
 						}
 						
-						const service = registry.get(regKey);
+						const service = config.registry.get(regKey);
 						if (service === undefined || service === null) {
 							throw new Error('[fstage/component] inject key not found in registry: ' + regKey);
 						}
@@ -408,13 +410,29 @@ export function createRuntime(config) {
 				connectedCallback() {
 					const ctx = this.__ctx;
 					super.connectedCallback();
-					
+
 					if (def.connected) def.connected(ctx);
+
+					if (def.activated) {
+						var offA = config.screenHost.on('activate', function(e) {
+							if (e && e.target && !e.target.contains(ctx.host)) return;
+							def.activated(ctx);
+						});
+						if (offA) ctx.cleanup(offA);
+					}
+
+					if (def.deactivated) {
+						var offD = config.screenHost.on('deactivate', function(e) {
+							if (e && e.target && !e.target.contains(ctx.host)) return;
+							def.deactivated(ctx);
+						});
+						if (offD) ctx.cleanup(offD);
+					}
 				}
 
 				disconnectedCallback() {
 					const ctx        = this.__ctx;
-					const trackerFns  = this.__trackerFns || [];
+					const trackerFns = this.__trackerFns || [];
 					const cleanupFns = this.__cleanupFns || [];
 					
 					super.disconnectedCallback();
@@ -459,8 +477,8 @@ export function createRuntime(config) {
 					const isFirst = !this.__hasRendered;
 					if (isFirst) this.__hasRendered = true;
 
-					if (isFirst && interactionsManager) {
-						ctx.cleanup(interactionsManager.activate(def.interactions, ctx));
+					if (isFirst && config.interactionsManager) {
+						ctx.cleanup(config.interactionsManager.activate(def.interactions, ctx));
 					}
 
 					if (def.rendered) {

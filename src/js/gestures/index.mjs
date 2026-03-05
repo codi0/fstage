@@ -19,12 +19,17 @@ function lockTouch(lock = true) {
 }
 
 function suppressNextClick() {
-	const handler = function(e) {
-		e.stopPropagation();
-		e.preventDefault();
-		document.removeEventListener('click', handler, true);
-	};
-	document.addEventListener('click', handler, true);
+  const handler = function(e) {
+    e.stopPropagation();
+    e.preventDefault();
+    cleanup();
+  };
+  const timer = setTimeout(cleanup, 700); // gesture → click window is ~300ms
+  function cleanup() {
+    clearTimeout(timer);
+    document.removeEventListener('click', handler, true);
+  }
+  document.addEventListener('click', handler, true);
 }
 
 
@@ -428,11 +433,13 @@ export function createLongPressGesture(options = {}) {
   let startX = 0;
   let startY = 0;
   let active = false;
+  let fired  = false;
 
   function cancel(fireCallback) {
     if (timer) { clearTimeout(timer); timer = null; }
     if (active && fireCallback && onCancel) onCancel();
     active = false;
+    fired  = false;
   }
 
   function onPointerDown(e) {
@@ -440,26 +447,34 @@ export function createLongPressGesture(options = {}) {
     startX = e.clientX;
     startY = e.clientY;
     active = true;
+    fired  = false;
 
     timer = setTimeout(() => {
       if (!active) return;
+      fired = true; // <-- mark as fired
       try { navigator.vibrate && navigator.vibrate(10); } catch (err) {}
       if (onStart) onStart({ target, x: startX, y: startY });
     }, duration);
 
-    return 'pending'; // watch for movement but never claim
+    return 'pending';
   }
 
   function onPointerMove(e) {
     if (!active) return false;
+    if (fired) return true; // <-- claim the pointer so swipe can't activate
     const dx = Math.abs(e.clientX - startX);
     const dy = Math.abs(e.clientY - startY);
     if (dx > moveThreshold || dy > moveThreshold) cancel(true);
-    return false; // never claim the pointer
+    return false;
   }
 
-  function onPointerUp()     { cancel(false); }
-  function onPointerCancel() { cancel(true);  }
+  function onPointerUp() {
+		cancel(false);
+	}
+
+  function onPointerCancel() {
+		cancel(true);
+	}
 
   return { onPointerDown, onPointerMove, onPointerUp, onPointerCancel };
 }
@@ -520,16 +535,6 @@ export function createTapGesture(options = {}) {
 }
 
 
-// --- Gesture Types Registry --------------------------------------------------
-
-const GESTURE_TYPES = {
-  edgePan:   createEdgePanGesture,
-  swipe:     createSwipeGesture,
-  longPress: createLongPressGesture,
-  tap:       createTapGesture,
-};
-
-
 // --- Gesture Manager ---------------------------------------------------------
 //
 // Owns a single pointer event loop on a root element. Dispatches to all
@@ -560,6 +565,13 @@ export function createGestureManager(config = {}) {
 
   config.policy = config.policy || {};
 
+	const gestureRegistry = {
+		edgePan:   createEdgePanGesture,
+		swipe:     createSwipeGesture,
+		longPress: createLongPressGesture,
+		tap:       createTapGesture,
+	};
+
   function handlePointerDown(e) {
     const pendingForPointer = [];
 
@@ -583,25 +595,31 @@ export function createGestureManager(config = {}) {
     }
   }
 
-  function handlePointerMove(e) {
-    const claimedGesture = claimed.get(e.pointerId);
-    if (claimedGesture) {
-      claimedGesture.onPointerMove(e);
-      return;
-    }
+	function handlePointerMove(e) {
+		const claimedGesture = claimed.get(e.pointerId);
+		if (claimedGesture) {
+			claimedGesture.onPointerMove(e);
+			return;
+		}
 
-    const pendings = pending.get(e.pointerId);
-    if (!pendings || pendings.length === 0) return;
+		const pendings = pending.get(e.pointerId);
+		if (!pendings || pendings.length === 0) return;
 
-    for (const gesture of pendings) {
-      if (gesture.onPointerMove(e) === true) {
-        pending.delete(e.pointerId);
-        claimed.set(e.pointerId, gesture);
-        try { boundEl.setPointerCapture(e.pointerId); } catch (err) {}
-        return;
-      }
-    }
-  }
+		for (const gesture of pendings) {
+			if (gesture.onPointerMove(e) === true) {
+				// Cancel all other pending gestures before dropping them
+				for (const other of pendings) {
+					if (other !== gesture) {
+						try { other.onPointerCancel(e); } catch (err) {}
+					}
+				}
+				pending.delete(e.pointerId);
+				claimed.set(e.pointerId, gesture);
+				try { boundEl.setPointerCapture(e.pointerId); } catch (err) {}
+				return;
+			}
+		}
+	}
 
   function handlePointerUp(e) {
     const pendings = pending.get(e.pointerId);
@@ -654,7 +672,7 @@ export function createGestureManager(config = {}) {
   }
 
   function on(type, options = {}) {
-    const factory = GESTURE_TYPES[type];
+    const factory = gestureRegistry[type];
     if (!factory) throw new Error(`Unknown gesture type: "${type}"`);
 
     const instance = factory(Object.assign({}, config.policy[type] || {}, options));
@@ -676,7 +694,7 @@ export function createGestureManager(config = {}) {
   }
 
   function add(type, factory) {
-    GESTURE_TYPES[type] = factory;
+    gestureRegistry[type] = factory;
   }
 
   return { start, stop, on, add };

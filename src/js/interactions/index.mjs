@@ -1,10 +1,8 @@
 // @fstage/interactions
 //
 // Parses a component's static interactions declaration and wires up:
-//   - DOM events     'click(.selector)'       → delegated listener
-//   - Gestures       'gesture.swipe(.sel)'    → gestureManager
-//   - Animations     'animate.enter'          → animator on activate
-//                    'animate.exit'           → animator on deactivate
+//   - DOM events     'click(.selector)'        → delegated listener
+//   - Gestures       'gesture.swipe(.sel)'     → gestureManager
 //
 // Usage in config.js afterLoadLibs:
 //
@@ -16,12 +14,10 @@
 // Usage in components:
 //
 //   static interactions = {
-//       'click(.btn)':            (e, ctx) => { this._onBtn(e, t); },
-//       'change(input)':          (e, ctx) => { this._onChange(t.value); },
-//       'gesture.swipe(.row)':    { directions: ['left','right'], onCommit(e, ctx) { ... } },
-//       'gesture.longPress':      { onStart(e, ctx) { ... } },
-//       'animate.enter':          { preset: 'slideUp', duration: 160 },
-//       'animate.exit':           { preset: 'slideDown', duration: 120 },
+//       'click(.btn)':             		(e, ctx) => { ... },
+//       'change(input)':           		(e, ctx) => { ... },
+//       'gesture.swipe(.row)':     		{ directions: ['left','right'], onCommit(e, ctx) { ... } },
+//       'gesture.longPress':       		{ onStart(e, ctx) { ... } },
 //   };
 
 
@@ -38,13 +34,12 @@ function bindCallbacks(obj, component) {
 }
 
 // Parse a static interactions key into its parts:
-//   'click(.btn)'          → { group: 'dom',     name: 'click',  selector: '.btn' }
-//   'gesture.swipe(.row)'  → { group: 'gesture', name: 'swipe',  selector: '.row' }
-//   'gesture.swipe'        → { group: 'gesture', name: 'swipe',  selector: null   }
-//   'animate.enter'        → { group: 'animate', name: 'enter',  selector: null   }
+//   'click(.btn)'            				→ { group: 'dom',       name: 'click',    selector: '.btn' }
+//   'gesture.swipe(.row)'    				→ { group: 'gesture',   name: 'swipe',    selector: '.row' }
+//   'gesture.swipe'          				→ { group: 'gesture',   name: 'swipe',    selector: null   }
 function parseKey(key) {
-	// Dot-namespaced groups: gesture.* or animate.*
-	var dotMatch = key.match(/^(gesture|animate)\.(\w+)(?:\((.+)\))?$/);
+	// 	Namespaced groups
+	var dotMatch = key.match(/^(\w+)\.(\w+)(?:\((.+)\))?$/);
 	if (dotMatch) {
 		return {
 			group:    dotMatch[1],
@@ -52,7 +47,7 @@ function parseKey(key) {
 			selector: dotMatch[3] || null,
 		};
 	}
-	// Plain DOM event: 'click' or 'click(.selector)'
+	// DOM event
 	var evtMatch = key.match(/^([\w:-]+)(?:\((.+)\))?$/);
 	if (evtMatch) {
 		return {
@@ -100,7 +95,6 @@ export function createInteractionsManager(config) {
 	var gestureManager = config.gestureManager;
 
 	return {
-
 		// Definition-based components (Fstage component runtime).
 		// Returns a single cleanup function.
 		activate: function(interactions, ctx) {
@@ -108,24 +102,15 @@ export function createInteractionsManager(config) {
 
 			var cleanups   = [];
 			var exitConfig = null;
-			var isShadow = !!ctx.host.shadowRoot;
+			var isShadow   = !!ctx.host.shadowRoot;
 
 			for (var key in interactions) {
 				var parsed = parseKey(key);
 				if (!parsed) continue;
 				var value = interactions[key];
 
-				// ── Animate ─────────────────────────────────────────────
-				if (parsed.group === 'animate') {
-					if (parsed.name === 'enter' && animator) {
-						animator.animate(ctx.host, value.preset || value, value);
-					}
-					if (parsed.name === 'exit') exitConfig = value;
-					continue;
-				}
-
 				// ── Gesture ─────────────────────────────────────────────
-				if (parsed.group === 'gesture' && gestureManager) {
+				if (parsed.group === 'gesture') {
 					var target = parsed.selector ? ctx.root.querySelector(parsed.selector) : ctx.root;
 					if (!target) continue;
 
@@ -139,8 +124,8 @@ export function createInteractionsManager(config) {
 					for (var i = 0; i < cbNames.length; i++) {
 						var cb = cbNames[i];
 						if (value && typeof value[cb] === 'function') {
-							(function(fn, name) {
-								cfg[name] = function(e) { fn(e, ctx); };
+							(function(fn, cbName) {
+								cfg[cbName] = function(e) { fn(e, ctx); };
 							})(value[cb], cb);
 						}
 					}
@@ -150,8 +135,17 @@ export function createInteractionsManager(config) {
 					continue;
 				}
 
+				// ── Docment/Window DOM event ───────────────────────────────────
+				if (parsed.group === 'document' || parsed.group === 'window' || parsed.group === 'globalThis') {
+					(function(anchor, fn) {
+						var handler = function(e) { fn(e, ctx); };
+						anchor.addEventListener(parsed.name, handler);
+						cleanups.push(function() { anchor.removeEventListener(parsed.name, handler); });
+					})(parsed.group === 'document' ? document : globalThis, value);
+				}
+
 				// ── DOM event ───────────────────────────────────────────
-				if (parsed.group === 'dom' && typeof value === 'function') {
+				if (parsed.group === 'dom') {
 					(function(fn) {
 						cleanups.push(activateDomEvent(ctx.root, isShadow, parsed.name, parsed.selector, function(e) {
 							fn(e, ctx);

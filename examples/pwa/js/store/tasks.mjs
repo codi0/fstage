@@ -104,6 +104,13 @@ store.model('tasks', {
 		};
 	},
 
+	completed() {
+		const list = Object.values(store.get('tasks') || {});
+		return list
+			.filter(function(t) { return t.completed; })
+			.sort(function(a, b) { return (b.createdAt || 0) - (a.createdAt || 0); });
+	},
+
 	remaining(tab) {
 		const list  = Object.values(store.get('tasks') || {});
 		const today = new Date().toISOString().split('T')[0];

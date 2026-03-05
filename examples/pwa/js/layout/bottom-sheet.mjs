@@ -1,69 +1,104 @@
+function _trapFocus(panel, onEscape) {
+	var FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+	function getEls() {
+		var els = Array.from(panel.querySelectorAll(FOCUSABLE));
+		var slot = panel.querySelector('slot');
+		if (slot) {
+			slot.assignedElements({ flatten: true }).forEach(function(el) {
+				if (el.matches(FOCUSABLE)) els.push(el);
+				els = els.concat(Array.from(el.querySelectorAll(FOCUSABLE)));
+			});
+		}
+		return els;
+	}
+
+	function onKeydown(e) {
+		if (e.key === 'Escape') { onEscape && onEscape(); return; }
+		if (e.key !== 'Tab') return;
+		var els = getEls();
+		if (!els.length) return;
+		var first = els[0], last = els[els.length - 1];
+		if (e.shiftKey) {
+			if (document.activeElement === first || !panel.contains(document.activeElement)) {
+				e.preventDefault(); last.focus();
+			}
+		} else {
+			if (document.activeElement === last) {
+				e.preventDefault(); first.focus();
+			}
+		}
+	}
+
+	document.addEventListener('keydown', onKeydown);
+	return function() { document.removeEventListener('keydown', onKeydown); };
+}
+
 export default {
 
 	tag: 'pwa-bottom-sheet',
 
-	inject: {
-		animator: 'animator'
-	},
-
 	state: {
-		open: { $src: 'prop', default: false },
+		open:  { $src: 'prop', default: false },
 		title: { $src: 'prop', default: '' },
 	},
 
 	style: (ctx) => ctx.css`
-		:host { display: contents; }
+		:host {
+			display: contents;
+		}
 
 		.sheet-backdrop {
 			position: fixed; inset: 0;
 			background: rgba(0,0,0,0);
 			z-index: 100;
-			/* Backdrop fades in/out via WAAPI (open) or directly (close).
-			   The 'visible' class provides the target opacity CSS knows about. */
 			transition: background 0.28s ease;
 			pointer-events: none;
 		}
 		.sheet-backdrop.visible {
-			background: rgba(0,0,0,0.45);
+			background: rgba(0,0,0,0.38);
 			pointer-events: auto;
 		}
 
 		.sheet-panel {
 			position: fixed; left: 0; right: 0; bottom: 0;
 			z-index: 101;
-			background: var(--bg-base);
+			background: var(--bg-secondary);
 			border-radius: var(--radius-xl) var(--radius-xl) 0 0;
-			padding-bottom: calc(var(--tab-height) + var(--safe-bottom));
+			padding-bottom: max(
+				calc(var(--tab-height) + var(--safe-bottom)),
+				var(--keyboard-height, 0px)
+			);
+			transition: padding-bottom 0.22s ease;
 			max-height: 92dvh;
 			display: flex; flex-direction: column;
-			/* Start hidden off-screen; 'is-open' removes this after open animation */
 			transform: translateY(100%);
-			/* NO transition: transform here — WAAPI handles open/close,
-			   swipe gesture uses its own inline CSS transition for flyOff/springBack */
 			will-change: transform;
-			box-shadow: 0 -2px 20px rgba(0,0,0,0.12);
+			box-shadow: 0 -2px 24px rgba(0,0,0,0.10);
 		}
+
 		.sheet-panel.is-open {
-			/* Committed open state — no transform, no WAAPI needed */
 			transform: none;
 		}
 
 		.sheet-handle-row {
 			display: flex; align-items: center; justify-content: center;
 			padding: 10px 0 4px; flex-shrink: 0; cursor: grab;
-			/* Extend hit area for easier drag initiation */
 			touch-action: none;
 		}
 		.sheet-handle {
 			width: 36px; height: 4px; border-radius: 2px;
-			background: var(--text-tertiary); opacity: 0.5;
+			background: var(--separator-heavy); opacity: 0.6;
 		}
 
 		.sheet-header {
 			display: flex; align-items: center; justify-content: space-between;
-			padding: 4px 16px 12px; flex-shrink: 0;
+			padding: 4px 20px 12px; flex-shrink: 0;
 		}
-		.sheet-title { font-size: 17px; font-weight: 600; color: var(--text-primary); }
+		.sheet-title {
+			font-size: 17px; font-weight: 600; color: var(--text-primary);
+			letter-spacing: -0.02em;
+		}
 
 		.sheet-close {
 			width: 30px; height: 30px; border-radius: 50%;
@@ -74,44 +109,37 @@ export default {
 		.sheet-close svg { width: 16px; height: 16px; stroke: currentColor; stroke-width: 2; stroke-linecap: round; fill: none; }
 
 		.sheet-body {
-			flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 0 16px 16px;
+			flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
+			padding: 0 20px 16px;
 		}
 	`,
 
 	interactions: {
-		'click(.sheet-backdrop)': function(e, ctx) { ctx.emit('bottomSheetClosed'); },
-		'click(.sheet-close)':    function(e, ctx) { ctx.emit('bottomSheetClosed'); },
+		'click(.sheet-backdrop)': function(e, ctx) {
+			ctx.emit('bottomSheetClosed');
+		},
+
+		'click(.sheet-close)': function(e, ctx) {
+			ctx.emit('bottomSheetClosed');
+		},
 
 		'gesture.swipe(.sheet-panel)': {
-			trigger:    '.sheet-handle-row',
+			trigger:    '.sheet-panel',
 			directions: ['down'],
 
 			onStart: function(e, ctx) {
-				// Cancel any in-flight WAAPI on the panel so the gesture
-				// gets clean control of the transform
-				var panel = ctx.root.querySelector('.sheet-panel');
-				if (panel && panel.getAnimations) {
-					panel.getAnimations().forEach(function(a) {
-						try { a.cancel(); } catch (err) {}
-					});
-				}
-				// Remove is-open so the panel transform is live again
-				if (panel) panel.classList.remove('is-open');
+				var body = ctx.root.querySelector('.sheet-body');
+				if (body && body.scrollTop > 2) return false;
 			},
 
 			onProgress: function(e, ctx) {
-				// Dim the backdrop in proportion to how far the sheet has been dragged.
-				// The gesture already applies translateY to the panel.
 				var backdrop = ctx.root.querySelector('.sheet-backdrop');
 				if (!backdrop) return;
-				// progress is 0→1 towards the commit threshold
-				var opacity = Math.max(0, 0.45 * (1 - e.progress * 1.4));
+				var opacity = Math.max(0, 0.38 * (1 - e.progress * 1.4));
 				backdrop.style.background = 'rgba(0,0,0,' + opacity + ')';
 			},
 
 			onCommit: function(e, ctx) {
-				// flyOff() has already animated the panel offscreen.
-				// Hide the backdrop immediately and hand control back to the parent.
 				var backdrop = ctx.root.querySelector('.sheet-backdrop');
 				if (backdrop) {
 					backdrop.classList.remove('visible');
@@ -121,15 +149,10 @@ export default {
 			},
 
 			onCancel: function(e, ctx) {
-				// springBack() has already snapped the panel back.
-				// Restore the backdrop opacity (was dimmed during progress).
 				var backdrop = ctx.root.querySelector('.sheet-backdrop');
-				if (backdrop) {
-					// Let the CSS transition on backdrop animate back to full opacity
-					backdrop.style.background = '';
-				}
-			},
-		},
+				if (backdrop) backdrop.style.background = '';
+			}
+		}
 	},
 
 	render: function(ctx) {
@@ -160,7 +183,7 @@ export default {
 		`;
 	},
 
-	rendered: function(ctx, isFirst) {
+	rendered: function(ctx) {
 		var open = ctx.state.open;
 		if (open === ctx._lastOpen) return;
 		ctx._lastOpen = open;
@@ -169,20 +192,32 @@ export default {
 		var backdrop = ctx.root.querySelector('.sheet-backdrop');
 		if (!panel || !backdrop) return;
 
+		// Cancel any in-flight animation before starting a new one, so rapid
+		// open→close→open sequences never leave a stale finished callback that
+		// overrides the new animation's end state.
+		if (ctx._sheetAnim) {
+			try { ctx._sheetAnim.cancel(); } catch (err) {}
+			ctx._sheetAnim = null;
+		}
+
 		if (open) {
-			// ── Opening ───────────────────────────────────────────────────
 			panel.classList.remove('is-open');
 			backdrop.classList.add('visible');
 
-			var anim = ctx.animator.animate(panel, 'slideUpSheet', { duration: 320 });
+			var anim = ctx.animate(panel, 'slideUpSheet', { duration: 320 });
+			ctx._sheetAnim = anim;
 			anim.finished.then(function() {
-				// Lock into open state without WAAPI holding it
+				if (ctx._sheetAnim !== anim) return;
+				ctx._sheetAnim = null;
 				panel.classList.add('is-open');
 				panel.style.transform = '';
 				try { anim.cancel(); } catch (err) {}
 			});
 
-			// Auto-focus first focusable element in slot
+			ctx._focusTrapCleanup = _trapFocus(panel, function() {
+				ctx.emit('bottomSheetClosed');
+			});
+
 			setTimeout(function() {
 				var slot  = ctx.root.querySelector('slot');
 				var nodes = slot && slot.assignedElements({ flatten: true });
@@ -195,21 +230,28 @@ export default {
 			}, 60);
 
 		} else {
-			// ── Closing ───────────────────────────────────────────────────
-			// If the swipe gesture already ran flyOff() and hid the backdrop,
-			// the panel is already offscreen — just clean up state, no animation.
+			if (ctx._focusTrapCleanup) {
+				ctx._focusTrapCleanup();
+				ctx._focusTrapCleanup = null;
+			}
+
+			// If the backdrop was already hidden (e.g. closed via swipe gesture which
+			// removes .visible itself), just snap the panel to its hidden position
+			// without animating — the gesture already provided the visual motion.
 			var alreadyHidden = !backdrop.classList.contains('visible');
 			if (alreadyHidden) {
 				panel.classList.remove('is-open');
-				panel.style.transform   = '';
-				panel.style.transition  = '';
+				panel.style.transform  = '';
+				panel.style.transition = '';
 				return;
 			}
 
-			// Normal programmatic close (backdrop click, X button)
 			backdrop.classList.remove('visible');
-			var anim = ctx.animator.animate(panel, 'slideDownSheet', { duration: 260 });
-			anim.finished.then(function() {
+			var anim2 = ctx.animate(panel, 'slideDownSheet', { duration: 260 });
+			ctx._sheetAnim = anim2;
+			anim2.finished.then(function() {
+				if (ctx._sheetAnim !== anim2) return;
+				ctx._sheetAnim = null;
 				panel.classList.remove('is-open');
 			});
 		}

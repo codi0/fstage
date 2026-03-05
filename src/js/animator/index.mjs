@@ -242,8 +242,34 @@ export const ANIMATION_PRESETS = {
     from: [{ transform: 'current' }],
     to:   [{ transform: 'translateY(100%)' }],
   },
+	
+	tabBounce: {
+		from: [
+			{ transform: 'scale(1)'    },
+			{ transform: 'scale(1.28)', offset: 0.35 },
+			{ transform: 'scale(0.93)', offset: 0.65 },
+			{ transform: 'scale(1.06)', offset: 0.82 },
+			{ transform: 'scale(1)'    },
+		],
+	},
+
+	tabPillIn: {
+		from: [{ transform: 'scaleX(0.5)', opacity: 0 }],
+		to:   [{ transform: 'scaleX(1)',   opacity: 1 }],
+	},
+
+	taskComplete: {
+		from: [{ opacity: 1, transform: 'scale(1) translateX(0)' }],
+		to:   [{ opacity: 0, transform: 'scale(0.96) translateX(16px)' }],
+	}
 
 };
+
+
+// Tracks elements that have already been animated with onMount:true.
+// Allows rendered() to call animate() on every render without re-triggering
+// mount animations for elements that were already present.
+var _mountSeen = new WeakSet();
 
 
 // --- Animator ----------------------------------------------------------------
@@ -252,16 +278,19 @@ export function createAnimator(options = {}) {
 
   const policy = options.policy || {};
 
-  function getReducedMotion() {
-    return prefersReducedMotion() || !!policy.reduced;
+  function getReducedMotion(p) {
+    p = p || policy;
+    return prefersReducedMotion() || !!p.reduced;
   }
 
-  function getDuration(override) {
-    return getReducedMotion() ? 0 : (override || policy.durationNormal || 200);
+  function getDuration(override, p) {
+    p = p || policy;
+    return getReducedMotion(p) ? 0 : (override || p.durationNormal || 200);
   }
 
-  function getEasing(override) {
-    return override || policy.easing || 'ease';
+  function getEasing(override, p) {
+    p = p || policy;
+    return override || p.easing || 'ease';
   }
 
   // ---------- start() — screen-to-screen transitions (existing API) ----------
@@ -278,11 +307,13 @@ export function createAnimator(options = {}) {
     const isBack      = direction === 'back';
     const interactive = !!args.interactive;
 
-    const reduced  = getReducedMotion();
-    const duration = reduced ? 0 : (policy.durationNormal || 200);
-    const easing   = policy.easing || 'ease';
+    const effectivePolicy = args.policy ? Object.assign({}, policy, args.policy) : policy;
 
-    const keyframes  = policy.keyframes || {};
+    const reduced  = getReducedMotion(effectivePolicy);
+    const duration = reduced ? 0 : (effectivePolicy.durationNormal || 200);
+    const easing   = effectivePolicy.easing || 'ease';
+
+    const keyframes  = effectivePolicy.keyframes || {};
     const dirFrames  = keyframes[direction] || {};
     const fromFrames = dirFrames.from || null;
     const toFrames   = dirFrames.to   || null;
@@ -375,6 +406,13 @@ export function createAnimator(options = {}) {
 
     if (!el || !el.animate) {
       return { finished: Promise.resolve(), cancel: function () {} };
+    }
+
+    // onMount: true — only animate the first time this element instance is seen.
+    // Safe to call from rendered() on every render; skips silently after first run.
+    if (opts.onMount) {
+      if (_mountSeen.has(el)) return { finished: Promise.resolve(), cancel: function() {} };
+      _mountSeen.add(el);
     }
 
     const reduced  = getReducedMotion();

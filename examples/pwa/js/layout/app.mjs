@@ -13,7 +13,7 @@ export default {
 			display: flex; flex-direction: column;
 			width: 100%; height: 100%; min-height: 100dvh;
 			background: var(--bg-secondary); color: var(--text-primary);
-			position: relative;
+			position: relative; overflow: hidden;
 		}
 
 		pwa-main {
@@ -34,7 +34,7 @@ export default {
 	`,
 
 	connected: function(ctx) {
-		ctx.state.$watch('theme', function(newVal, oldVal) {
+		ctx.state.$watch('theme', function(newVal) {
 			if (typeof newVal === 'string') {
 				ctx.host.setAttribute('data-theme', newVal);
 			}
