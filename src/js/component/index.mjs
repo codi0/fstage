@@ -58,7 +58,7 @@ export function createComponentState(config) {
 
   const local = {};
   const watchers = new Map();
-  const reserved = [ '$set', '$status', '$watch' ];
+  const reserved = [ '$query', '$set', '$watch' ];
 
 	// Helpers
 
@@ -145,16 +145,20 @@ export function createComponentState(config) {
 		return off;
   }
 
-  function $status(key) {
+  function $query(key, opts) {
 		const src = map[key];
-		const status = { loading: false, error: null };
-		if (!src) throw new Error('[fstage/component] ctx.state.$status only accepts top-level declared state keys');
-    if (src.$src === 'store' && src.storeObj.query) {
-			const q = src.storeObj.query(src.key);
-			status.loading = q.loading;
-			status.error = q.error;
-    }
-    return status;
+		var res = { loading: false, error: null };
+		if (!src) throw new Error('[fstage/component] ctx.state.$query only accepts top-level declared state keys');
+    if (src.$src === 'store') {
+			if (src.storeObj.query) {
+				res = src.storeObj.query(src.key, opts);
+			} else {
+				res.data = src.storeObj.get(src.key, opts);
+			}
+		} else {
+			res.data = (src.$src === 'prop') ? props[key] : local[key];
+		}
+    return res;
   }
   
   // INIT
@@ -194,7 +198,7 @@ export function createComponentState(config) {
 
     get: function(t, key) {
       if (typeof key === 'symbol') return undefined;
-      if (key === '$status') return $status;
+      if (key === '$query') return $query;
       if (key === '$set') return $set;
       if (key === '$watch') return $watch;
 
@@ -396,7 +400,8 @@ export function createRuntime(config) {
 					const ctx = this.__ctx;
 					if (!def.render) return ctx.html``;
 					try {
-						return def.render(ctx);
+						const result = def.render(ctx);
+						return result;
 					} catch (err) {
 						if (def.onError) {
 							def.onError(err, ctx);
@@ -414,19 +419,17 @@ export function createRuntime(config) {
 					if (def.connected) def.connected(ctx);
 
 					if (def.activated) {
-						var offA = config.screenHost.on('activate', function(e) {
-							if (e && e.target && !e.target.contains(ctx.host)) return;
+						ctx.cleanup(config.screenHost.on('activate', function(e) {
+							if (!e.target || !e.target.contains(ctx.host)) return;
 							def.activated(ctx);
-						});
-						if (offA) ctx.cleanup(offA);
+						}));
 					}
 
 					if (def.deactivated) {
-						var offD = config.screenHost.on('deactivate', function(e) {
-							if (e && e.target && !e.target.contains(ctx.host)) return;
+						ctx.cleanup(config.screenHost.on('deactivate', function(e) {
+							if (!e.target || !e.target.contains(ctx.host)) return;
 							def.deactivated(ctx);
-						});
-						if (offD) ctx.cleanup(offD);
+						}));
 					}
 				}
 

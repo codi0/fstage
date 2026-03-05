@@ -17,18 +17,18 @@ All fields are optional except `tag`.
 | `tag` | `string` | Custom element tag name. Must contain a hyphen. |
 | `shadow` | `boolean` | Render into a shadow root. Default: `true`. |
 | `globalStyles` | `boolean` | Adopt registered global styles into the shadow root. Default: `true`. No effect when `shadow: false`. |
-| `state` | `StateSpec` | Unified reactive state - local, prop, and store-backed keys. See §3. |
 | `inject` | `InjectSpec` | Per-component registry services injected onto `ctx`. See §4. |
+| `state` | `StateSpec` | Unified reactive state - local, prop, and store-backed keys. See §3. |
 | `style` | `string \| CSSResult \| (helpers) => string \| CSSResult` | Component-scoped styles. The function form receives the runtime helpers object (html, css, svg). Return type is runtime-defined. |
 | `interactions` | `InteractionMap` | Declarative event and interaction handlers. See §5. |
 | `constructed(ctx)` | `function` | Called once per instance after `ctx` is ready, before DOM exists. |
 | `connected(ctx)` | `function` | Called on each connection to the DOM. |
-| `disconnected(ctx)` | `function` | Called on each disconnection, after cleanup functions have run. |
-| `render(ctx)` | `function` | Returns renderable output. Return type is runtime-defined and must be documented by the runtime. Called whenever output may have changed. If it throws, `onError` is called if defined, otherwise `console.error`. The render loop continues. |
-| `rendered(ctx, isFirst)` | `function` | Called after every committed render. `isFirst` is `true` on the first render only. Use for post-DOM work (measuring, focusing, animating, attribute sync). Reactive side effects belong in `connected` via `$watch`. |
 | `activated(ctx)` | `function` | Called when the screen host signals that this component's screen has become active (i.e. a route transition completed). Only fires if a screenHost is configured in the runtime. Useful for persistent layout components that need to react to navigation. |
-| `deactivated(ctx)` | `function` | Called when the screen host signals that this component's screen is no longer active. Only fires if a screenHost is configured in the runtime. |
+| `render(ctx)` | `function` | Returns renderable output. Return type is runtime-defined and must be documented by the runtime. Called whenever output may have changed. If it throws, `onError` is called if defined, otherwise `console.error`. The render loop continues. |
 | `onError(err, ctx)` | `function` | Called when `render` throws. |
+| `rendered(ctx, isFirst)` | `function` | Called after every committed render. `isFirst` is `true` on the first render only. Use for post-DOM work (measuring, focusing, animating, attribute sync). Reactive side effects belong in `connected` via `$watch`. |
+| `deactivated(ctx)` | `function` | Called when the screen host signals that this component's screen is no longer active. Only fires if a screenHost is configured in the runtime. |
+| `disconnected(ctx)` | `function` | Called on each disconnection, after cleanup functions have run. |
 
 ---
 
@@ -202,7 +202,7 @@ Additional `ctx` properties may be registered at application setup time via `ext
 | `ctx.state.<key>` | Read current value. |
 | `ctx.state.$set(path, val)` | Write to any declared key. Routes to local, prop, or store automatically. Supports dot-notation deep writes (e.g. `'tasks.0.completed'`), with write strategy left up to the runtime. Throws if trying to set an undeclared state key. |
 | `ctx.state.$watch(key, fn, opts?)` | Subscribe to changes of top-level state keys. Pass `{ immediate: true }` to fire immediately with the current value. Callback receives `(newVal, oldVal)`. Returns 'unwatch' function. Cleanup automatically handled on disconnection if the host is currently attached to the DOM. |
-| `ctx.state.$status(key)` | Returns `{ loading: bool, error: any }`. Meaningful for store-backed keys; always `{ loading: false, error: null }` for local and prop. |
+| `ctx.state.$query(key, opts?)` | Returns `{ data: any, loading: bool, error: any }`. Meaningful for store-backed keys; always `{ data: any, loading: false, error: null }` for local and prop. |
 
 ```js
 // read
@@ -220,8 +220,8 @@ ctx.state.$watch('taskId', function(newVal, oldVal) {
   ctx.state.$set('editing', false);
 }, { immediate: true });
 
-// status
-var s = ctx.state.$status('tasks');
+// query
+var s = ctx.state.$query('tasks');
 if (s.loading) return ctx.html`<pwa-spinner></pwa-spinner>`;
 ```
 
@@ -309,10 +309,10 @@ export default {
   },
 
   render: function(ctx) {
-    var s = ctx.state.$status('tasks');
+    var s = ctx.state.$query('tasks');
     if (s.loading) return ctx.html`<pwa-spinner></pwa-spinner>`;
 
-    var tasks = ctx.state.tasks || [];
+    var tasks = s.data || [];
     var task  = tasks.find(function(t) { return t.id === ctx.state.taskId; });
     if (!task) return ctx.html``;
 

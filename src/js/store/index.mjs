@@ -8,7 +8,7 @@
  *   createProxy     — deep reactive proxy built on createBase
  *   storePlugin     — set, merge, delete, reset, batch, raw, destroy, onChange
  *   reactivePlugin  — effect, computed, track
- *   accessPlugin    — onAccess, refresh, query, model
+ *   accessPlugin    — onAccess, status, query, refresh, model
  *   createStore     — fully wired proxy store (all three plugins + optional extras)
  */
 
@@ -207,8 +207,9 @@ export function createBase(config) {
     var val = (opts && ('val' in opts)) ? opts.val : readRaw(path);
 
     if (readHooks.length > 0) {
+			const query = opts && opts.query;
       const refresh = !!(opts && opts.refresh);
-      const e = { path, val, refresh };
+      const e = { path, val, query, refresh };
       for (const h of readHooks) h(e);
       val = e.val;
     }
@@ -926,7 +927,7 @@ export function reactivePlugin(ctx) {
 // =============================================================================
 // accessPlugin
 //
-// Provides onAccess, refresh, query, model.
+// Provides onAccess, status, query, refresh, model.
 //
 // TTL: hooks may set e.ttl (ms). Stored on hook state after first run.
 // On subsequent reads, if elapsed time > ttl, e.refresh is set true before
@@ -934,7 +935,7 @@ export function reactivePlugin(ctx) {
 // staleness check and invalidates trackers for stale paths so reactive effects
 // re-run and trigger a fresh read naturally.
 //
-// Loading states returned by query():
+// Loading states returned by status():
 //   loading  — true only on first fetch when no cached data exists yet
 //   fetching — true any time a request is in flight (initial or background)
 // =============================================================================
@@ -970,7 +971,7 @@ export function accessPlugin(ctx) {
     });
   }
 
-  function runAccessHook(path, currentVal, refresh) {
+  function runAccessHook(path, currentVal, query, refresh) {
     const pathsToCheck = [path, ...getParentPaths(path)];
     let resolvedVal    = currentVal;
 
@@ -980,12 +981,14 @@ export function accessPlugin(ctx) {
 
       const subKey = hookPath !== path ? path.slice(hookPath.length + 1) : '';
       const first  = hooks.values().next().value;
+      const qh     = hasKeys(query) ? hash(hookPath, query) : hookPath;
 
       // TTL check — runs before calling the hook so e.refresh is already
       // correct when the hook receives it.
       if (!refresh) {
         for (const hs of hooks.values()) {
-          if (hs.ttl && hs.lastRefresh && Date.now() - hs.lastRefresh > hs.ttl) {
+          const lr = hs.lastRefreshMap.get(qh);
+          if (hs.ttl && lr && Date.now() - lr > hs.ttl) {
             refresh = true;
             break;
           }
@@ -995,9 +998,10 @@ export function accessPlugin(ctx) {
       let anyNeedsRun   = false;
       let latestRefresh = null;
       for (const hs of hooks.values()) {
-        if (!hs.run || refresh) anyNeedsRun = true;
-        if (hs.lastRefresh !== null && (latestRefresh === null || hs.lastRefresh > latestRefresh)) {
-          latestRefresh = hs.lastRefresh;
+        if (!hs.runMap.get(qh) || refresh) anyNeedsRun = true;
+        const lr = hs.lastRefreshMap.get(qh) ?? null;
+        if (lr !== null && (latestRefresh === null || lr > latestRefresh)) {
+          latestRefresh = lr;
         }
       }
 
@@ -1007,11 +1011,12 @@ export function accessPlugin(ctx) {
       }
 
       const hookCurrentVal = ctx.readRaw(hookPath);
-      const isFirstRun     = !first.run;
+      const isFirstRun     = !first.runMap.get(qh);
 
       const e = {
         path:        hookPath,
         val:         hookCurrentVal,
+        query:			 query || {},
         merge:       false,
         refresh:     refresh || isFirstRun,
         lastRefresh: latestRefresh,
@@ -1019,17 +1024,17 @@ export function accessPlugin(ctx) {
       };
 
       for (const hs of hooks.values()) {
-        if (!hs.run || refresh) {
+        if (!hs.runMap.get(qh) || refresh) {
           hs.cb(e);
-          hs.run = true;
+          hs.runMap.set(qh, true);
           // Store TTL on hook state for future staleness checks and focus refresh.
           if (e.ttl) hs.ttl = e.ttl;
-          if (e.refresh) hs.lastRefresh = Date.now();
+          if (e.refresh) hs.lastRefreshMap.set(qh, Date.now());
         }
       }
 
       if (e.val instanceof Promise) {
-        const h = hookPath;
+        const h = hasKeys(query) ? hash(hookPath, query) : hookPath;
         metaCache.set(h, {
           loading:  hookCurrentVal === undefined, // true only when no cached data yet
           fetching: true,                         // true any time request is in flight
@@ -1062,9 +1067,12 @@ export function accessPlugin(ctx) {
     for (const [path, hooks] of accessHooks) {
       let isStale = false;
       for (const hs of hooks.values()) {
-        if (hs.ttl && hs.lastRefresh && Date.now() - hs.lastRefresh > hs.ttl) {
-          hs.run  = false;
-          isStale = true;
+        if (!hs.ttl) continue;
+        for (const [qh, lr] of hs.lastRefreshMap) {
+          if (lr && Date.now() - lr > hs.ttl) {
+            hs.runMap.set(qh, false);
+            isStale = true;
+          }
         }
       }
       if (isStale) {
@@ -1075,6 +1083,16 @@ export function accessPlugin(ctx) {
       }
     }
   }
+
+	function getMeta(path, query) {
+		const h = hasKeys(query) ? hash(path, query) : path;
+		const meta = metaCache.get(h) || {};
+		return {
+			loading:  meta.loading  || false,
+			fetching: meta.fetching || false,
+			error:    meta.error    || null
+		};
+	}
 
   if (typeof document !== 'undefined') {
     document.addEventListener('visibilitychange', onVisibilityChange);
@@ -1088,7 +1106,7 @@ export function accessPlugin(ctx) {
         }
         if (!accessHooks.has(path)) accessHooks.set(path, new Map());
         accessHooks.get(path).set(cb, {
-          cb, run: false, lastRefresh: null, ttl: null,
+          cb, runMap: new Map(), lastRefreshMap: new Map(), ttl: null,
           pendingWrite: false, pendingVal: undefined
         });
         return () => {
@@ -1097,32 +1115,27 @@ export function accessPlugin(ctx) {
         };
       },
 
-      refresh(path) {
-        if (!path || typeof path !== 'string') {
-          throw new Error('[store] refresh() path must be a non-empty string');
-        }
-        const rawVal = ctx.readRaw(path);
-        const result = runAccessHook(path, rawVal, true);
-        return result !== undefined ? result : rawVal;
-      },
-
-      /**
-       * Returns { data, loading, fetching, error } for a path managed by onAccess.
-       *   loading  — true on first fetch when no cached data exists yet
-       *   fetching — true any time a request is in flight (initial or background)
-       */
-      query(path, query) {
+			query(path, opts) {
         if (!path || typeof path !== 'string') {
           throw new Error('[store] query() path must be a non-empty string');
         }
-        const h    = hasKeys(query) ? hash(path, query) : path;
-        const meta = metaCache.get(h) || {};
-        return {
-          data:     ctx.readRaw(path),
-          loading:  meta.loading  || false,
-          fetching: meta.fetching || false,
-          error:    meta.error    || null
-        };
+        const meta = getMeta(path, opts && opts.query);
+        meta.data = ctx.read(path, opts);
+        return meta;	
+			},
+
+      status(path, query) {
+        if (!path || typeof path !== 'string') {
+          throw new Error('[store] status() path must be a non-empty string');
+        }
+        return getMeta(path, query);
+      },
+
+      refresh(path, query) {
+        if (!path || typeof path !== 'string') {
+          throw new Error('[store] refresh() path must be a non-empty string');
+        }
+        return ctx.read(path, { query, refresh: true });
       },
 
       model(key, descriptor) {
@@ -1136,7 +1149,7 @@ export function accessPlugin(ctx) {
 
     onRead(e) {
       if (!accessHooks.size) return;
-      const result = runAccessHook(e.path, e.val, e.refresh);
+      const result = runAccessHook(e.path, e.val, e.query, e.refresh);
       if (result !== undefined) e.val = result;
     },
 
