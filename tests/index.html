@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8" />
+	<title>fstage — test suite</title>
+	<style>
+		body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', monospace; background: #111; color: #e8e6e0; padding: 24px; margin: 0; }
+		h1   { font-size: 16px; font-weight: 600; color: #6dbf95; margin: 0 0 20px; letter-spacing: 0.04em; }
+		.modules { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 20px; }
+		button {
+			background: #1e1d1c; border: 1px solid #3a3835; border-radius: 5px;
+			color: #c8c4bc; font-size: 12px; padding: 6px 14px; cursor: pointer;
+			font-family: inherit; transition: background 100ms, color 100ms;
+		}
+		button:hover  { background: #2e2c2a; color: #e8e6e0; }
+		button.run-all { border-color: #3d9e6a; color: #6dbf95; }
+		button.run-all:hover { background: rgba(61,158,106,0.15); }
+		#status { font-size: 12px; color: #7a7672; margin-bottom: 12px; min-height: 18px; }
+		#output {
+			background: #0d0d0c; border: 1px solid #2e2c2a; border-radius: 6px;
+			padding: 16px; font-size: 11px; line-height: 1.6; white-space: pre-wrap;
+			min-height: 200px; max-height: 70vh; overflow-y: auto;
+			color: #c8c4bc; font-family: 'SF Mono','Fira Code',monospace;
+		}
+		.pass  { color: #6dbf95; }
+		.fail  { color: #e07070; }
+		.suite { color: #8aaae8; }
+		.total { color: #d4904a; font-weight: 600; }
+	</style>
+</head>
+<body>
+	<h1>fstage test suite</h1>
+
+	<div class="modules">
+		<button class="run-all" data-run="all">▶ Run all</button>
+		<button data-run="store">store</button>
+		<button data-run="storage">storage</button>
+		<button data-run="sync">sync</button>
+		<button data-run="devtools">devtools</button>
+		<button data-run="utils">utils</button>
+		<button data-run="registry">registry</button>
+		<button data-run="pubsub">pubsub</button>
+		<button data-run="http">http</button>
+		<button data-run="observe">observe</button>
+		<button data-run="router">router</button>
+		<button data-run="clear">clear</button>
+		<button data-run="verbose" id="btn-verbose">verbose: off</button>
+	</div>
+
+	<div id="status">Ready.</div>
+	<div id="output"></div>
+
+	<script type="module">
+		import { runTests as store    } from '../src/js/store/tests/tests.mjs';
+		import { runTests as storage  } from '../src/js/storage/tests/tests.mjs';
+		import { runTests as sync     } from '../src/js/sync/tests/tests.mjs';
+		import { runTests as devtools } from '../src/js/devtools/tests/tests.mjs';
+		import { runTests as utils    } from '../src/js/utils/tests/tests.mjs';
+		import { runTests as registry } from '../src/js/registry/tests/tests.mjs';
+		import { runTests as pubsub   } from '../src/js/pubsub/tests/tests.mjs';
+		import { runTests as http     } from '../src/js/http/tests/tests.mjs';
+		import { runTests as observe  } from '../src/js/observe/tests/tests.mjs';
+		import { runTests as router   } from '../src/js/router/tests/tests.mjs';
+
+		const MODULES = { store, storage, sync, devtools, utils, registry, pubsub, http, observe, router };
+
+		let verbose = false;
+		window.FSTAGE_TESTS_VERBOSE = false;
+
+		const out    = document.getElementById('output');
+		const status = document.getElementById('status');
+
+		// Intercept console so output appears on-page.
+		['log', 'error', 'warn'].forEach(function(method) {
+			const orig = console[method].bind(console);
+			console[method] = function(...args) {
+				orig(...args);
+				const text = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+				let cls = method === 'error' ? 'fail' : null;
+				if (!cls) {
+					if      (text.includes('✓'))                                cls = 'pass';
+					else if (text.includes('✗') || text.includes('FAIL'))       cls = 'fail';
+					else if (text.startsWith('  ') && !text.startsWith('    ')) cls = 'suite';
+					else if (text.startsWith('#') || text.startsWith('TOTAL'))  cls = 'total';
+				}
+				const line = document.createElement('div');
+				if (cls) line.className = cls;
+				line.textContent = text;
+				out.appendChild(line);
+				out.scrollTop = out.scrollHeight;
+			};
+		});
+
+		async function runModule(name) {
+			status.textContent = `Running ${name}…`;
+			out.innerHTML = '';
+			try {
+				const result = await MODULES[name]();
+				status.textContent = `${name}: ${result.passed} passed, ${result.failed} failed`;
+			} catch (err) {
+				console.error(`[${name}] error: ${err.message}`);
+				status.textContent = `${name}: error`;
+			}
+		}
+
+		async function runAll() {
+			status.textContent = 'Running all…';
+			out.innerHTML = '';
+			let totalPassed = 0, totalFailed = 0;
+			for (const [name, fn] of Object.entries(MODULES)) {
+				try {
+					const r = await fn();
+					totalPassed += r.passed;
+					totalFailed += r.failed;
+				} catch (err) {
+					console.error(`[${name}] error: ${err.message}`);
+					totalFailed++;
+				}
+			}
+			status.textContent = `All: ${totalPassed} passed, ${totalFailed} failed`;
+		}
+
+		document.querySelector('.modules').addEventListener('click', function(e) {
+			const btn = e.target.closest('[data-run]');
+			if (!btn) return;
+			const target = btn.dataset.run;
+			if (target === 'all')   { runAll(); return; }
+			if (target === 'clear') { out.innerHTML = ''; status.textContent = 'Ready.'; return; }
+			if (target === 'verbose') {
+				verbose = !verbose;
+				window.FSTAGE_TESTS_VERBOSE = verbose;
+				document.getElementById('btn-verbose').textContent = 'verbose: ' + (verbose ? 'on' : 'off');
+				return;
+			}
+			runModule(target);
+		});
+	</script>
+</body>
+</html>

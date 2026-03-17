@@ -34,6 +34,13 @@ export function isEmpty(value) {
 	return (value === null || value === false || value == 0);
 }
 
+//remove item from array
+export function spliceArr(arr, val) {
+	const idx = arr.indexOf(val);
+	if (idx !== -1) arr.splice(idx, 1);
+	return arr;
+}
+
 //extend object
 export function extend(obj={}) {
 	var args = [].slice.call(arguments);
@@ -142,31 +149,22 @@ export function hash(input) {
 
 //cache function result
 export function memoize(fn) {
-	//set vars
 	var cache = {};
-	//return
 	return function() {
-		//create key
-		var key = hash(...arguments);
-		//get result
+		var key = hash.apply(null, arguments);
 		cache[key] = cache[key] || fn.apply(this, arguments);
-		//return
 		return cache[key];
-	}
+	};
 }
 
 //debounce function call
-export function debounce(fn, wait=100) {
-	//set vars
+export function debounce(fn, wait) {
+	wait = wait !== undefined ? wait : 100;
 	var tid;
-	//return closure
 	return function() {
-		//set vars
-		var ctx = this;
+		var ctx  = this;
 		var args = [].slice.call(arguments);
-		//clear timeout
 		tid && clearTimeout(tid);
-		//set timeout
 		tid = setTimeout(function() {
 			fn.apply(ctx, args);
 		}, wait);
@@ -190,6 +188,20 @@ export function parseHTML(input, first=false) {
 		var d = document.createElement('template');
 		d.innerHTML = input;
 		input = d.content.childNodes;
+	} else {
+		input = (input && input.tagName) ? [ input ] : (input || []);
+	}
+	//return
+	return first ? (input[0] || null) : input;
+}
+
+//parse svg
+export function parseSVG(input, first=false) {
+	//parse svg string?
+	if(typeof input === 'string') {
+		var d = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+		d.innerHTML = input;
+		input = d.childNodes;
 	} else {
 		input = (input && input.tagName) ? [ input ] : (input || []);
 	}
@@ -414,7 +426,7 @@ export function diffValues(oldVal, newVal, path='', processed=null) {
 
 	var prefix = path ? path + '.' : '';
 
-	// loop old keys — removals, updates, deep diffs
+	// loop old keys ï¿½ removals, updates, deep diffs
 	for (var key in oldVal) {
 		if (oldVal[key] === undefined) continue;
 
@@ -434,7 +446,7 @@ export function diffValues(oldVal, newVal, path='', processed=null) {
 
 		var newKeyType = getType(newVal[key]);
 
-		// deep diff — recurse if new side is an object/array (handles null?object transition)
+		// deep diff ï¿½ recurse if new side is an object/array (handles null?object transition)
 		if (diffObjArr.has(newKeyType)) {
 			var oldSide = diffObjArr.has(oldKeyType) ? oldVal[key] : {};
 			sub = diffValues(oldSide, newVal[key], pathKey, processed);
@@ -448,7 +460,7 @@ export function diffValues(oldVal, newVal, path='', processed=null) {
 		}
 	}
 
-	// loop new keys — additions
+	// loop new keys ï¿½ additions
 	for (var key in newVal) {
 		if (newVal[key] === undefined) continue;
 		if (oldVal[key] !== undefined) continue;
@@ -467,63 +479,66 @@ export function diffValues(oldVal, newVal, path='', processed=null) {
 	return changes;
 }
 
-//schedule helper
+//schedule helper â€” queues a fn for micro / macro / animation-frame execution
+//type: 'sync' | 'micro' | 'macro' | 'frame' | 'frame2'
+//allowDupes: allow the same fn to be queued more than once per flush
 export function schedule(fn, type, allowDupes) {
-	//setup caches?
 	if (!schedule.__queued) {
-		schedule.__queued = {};
+		schedule.__queued   = {};
 		schedule.__flushing = {};
 		schedule.__types = {
-			micro: function(fn) { queueMicrotask(fn); },
-			macro: function(fn) { setTimeout(fn, 0); },
-			frame: function(fn) { requestAnimationFrame(fn); },
-			frame2: function(fn) { requestAnimationFrame(function() { requestAnimationFrame(fn) }); }
+			micro:  function(fn) { queueMicrotask(fn); },
+			macro:  function(fn) { setTimeout(fn, 0); },
+			frame:  function(fn) { requestAnimationFrame(fn); },
+			frame2: function(fn) { requestAnimationFrame(function() { requestAnimationFrame(fn); }); },
 		};
 	}
-	//valid function?
-	if (typeof fn !== 'function') {
-		throw new Error("[utils/schedule] fn must be a function");
-	}
-	//is sync?
-	if (type === 'sync') {
-		return fn();
-	}
-	//valid type?
-	if (!schedule.__types[type]) {
-		throw new Error("[utils/schedule] type must be one of: micro, macro, frame");
-	}
-	//create key
+	if (typeof fn !== 'function') throw new Error('[utils/schedule] fn must be a function');
+	if (type === 'sync') return fn();
+	if (!schedule.__types[type]) throw new Error('[utils/schedule] type must be one of: micro, macro, frame, frame2');
+
 	var key = type + ':' + (allowDupes ? 'arr' : 'set');
-	//create queue?
-	if (!schedule.__queued[key]) {
-		schedule.__queued[key] = allowDupes ? [] : new Set();
-	}
-	//already in queue?
-	if (!allowDupes && schedule.__queued[key].has(fn)) {
-		return;
-	}
-	//add to queue
+	if (!schedule.__queued[key]) schedule.__queued[key] = allowDupes ? [] : new Set();
+	if (!allowDupes && schedule.__queued[key].has(fn)) return;
 	schedule.__queued[key][allowDupes ? 'push' : 'add'](fn);
-	//in progress?
-	if (schedule.__flushing[key]) {
-		return;
-	}
-	//mark as in progress
+
+	if (schedule.__flushing[key]) return;
 	schedule.__flushing[key] = true;
-	//run scheduler
+
 	schedule.__types[type](function() {
 		var fns = schedule.__queued[key];
-		schedule.__queued[key] = allowDupes ? [] : new Set();
+		schedule.__queued[key]   = allowDupes ? [] : new Set();
 		schedule.__flushing[key] = false;
-		//start loop
-		for (const fn of fns) {
-			try {
-				fn();
-			} catch (err) {
-				console.error("[utils/schedule] scheduled callback failed", err);
+		for (var f of fns) {
+			try { f(); } catch (err) {
+				console.error('[utils/schedule] scheduled callback failed', err);
 			}
 		}
 	});
+}
+
+// Clear any active text selection
+export function clearSelection() {
+	try {
+		var sel = globalThis.getSelection ? globalThis.getSelection() : null;
+		if (sel && sel.rangeCount) sel.removeAllRanges();
+	} catch (err) {}
+}
+
+// Creates a ref-counted toggle â€” safe for concurrent callers.
+// on() and off() are called only when the count transitions 0â†’1 and 1â†’0.
+// Returns a function: call with true to increment, false to decrement.
+export function createRefCountedToggle(on, off) {
+	var count = 0;
+	return function(active) {
+		if (active) {
+			count += 1;
+			if (count === 1) on();
+		} else {
+			count = Math.max(0, count - 1);
+			if (count === 0) off();
+		}
+	};
 }
 
 // css to string
@@ -594,4 +609,17 @@ export 	function callSuper(instance, method, args = []) {
 	}
 	//method not found
 	throw new Error(`Method ${method} not found in prototype chain`);
+}
+
+//hooks wrapper
+export function createHooks() {
+  const map = new Map();
+  return {
+		has(name) { return map.has(name); },
+		get(name) { return map.get(name) || []; },
+		add(name, fn) { if (!map.has(name)) map.set(name, []); map.get(name).push(fn); },
+		remove(name, fn) { if (!spliceArr(map.get(name) || [], fn).length) map.delete(name); },
+		run(name, e) { for (const fn of (map.get(name) || [])) fn(e); return e; },
+		clear() { map.clear(); }
+	};
 }

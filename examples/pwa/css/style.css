@@ -1,14 +1,14 @@
 /* ============================================================================
-   Fstage Tasks — Design System v2 (Warm Editorial)
+   Fstage Tasks  Design System v2 (Warm Editorial)
    ============================================================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap');
 
 
 /* --- Tokens: Light mode ---------------------------------------------------- */
 
 :root {
-	/* Brand — forest green accent */
+	/* Brand  forest green accent */
 	--color-primary:         #2D7A52;
 	--color-primary-dark:    #1E4D35;
 	--color-primary-subtle:  rgba(45, 122, 82, 0.12);
@@ -56,7 +56,17 @@
 	/* Layout */
 	--tab-height:  58px;
 
-	/* Keyboard height — set by config.js */
+	/* Platform UI tokens */
+	--pwa-back-label-display: none;
+	--pwa-header-title-align: left;
+	--pwa-header-back-title-offset: 24px;
+	--pwa-section-header-transform: uppercase;
+	--pwa-section-header-letter-spacing: 0.09em;
+	--pwa-section-header-font-size: 10.5px;
+	--pwa-row-active-transform: scale(0.98);
+	--pwa-row-active-bg: var(--bg-base);
+	--pwa-row-active-shadow: none;
+	/* Keyboard height  set by config.js */
 	--keyboard-height: 0px;
 
 	/* Toast */
@@ -64,11 +74,33 @@
 	--toast-color:  #F5F2ED;
 	--toast-action: #6DBF95;
 
+	/* Icons — SVG data URLs for mask-image usage */
+	--icon-tasks-inactive:     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M9 11l3 3L22 4' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E");
+	--icon-tasks-active:       url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='3' y='3' width='18' height='18' rx='2'/%3E%3C/svg%3E");
+	--icon-tasks-tick:         url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpolyline points='7.6 12.2 10.5 15.1 16.4 9.2' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+	--icon-completed-inactive: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='10' fill='none' stroke='black' stroke-width='1.8'/%3E%3Cpolyline points='9 12 11 14 15 10' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+	--icon-completed-active:   url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3C/svg%3E");
+	--icon-completed-tick:     url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpolyline points='9 12 11 14 15 10' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+	--icon-settings-inactive:  url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='3' fill='none' stroke='black' stroke-width='1.8'/%3E%3Cpath d='M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z' fill='none' stroke='black' stroke-width='1.8'/%3E%3C/svg%3E");
+	--icon-settings-active:    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill-rule='evenodd' d='M19.43 12.98c.04-.32.07-.64.07-.98s-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46c-.12-.22-.39-.3-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65C14.46 2.18 14.25 2 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1c-.23-.09-.49 0-.61.22l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98s.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46c.12.22.39.3.61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.58 1.69-.98l2.49 1c.23.09.49 0 .61-.22l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zM12 15.5c-1.93 0-3.5-1.57-3.5-3.5s1.57-3.5 3.5-3.5 3.5 1.57 3.5 3.5-1.57 3.5-3.5 3.5z'/%3E%3C/svg%3E");
+	--icon-close:  url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cline x1='18' y1='6' x2='6' y2='18' stroke='black' stroke-width='2' stroke-linecap='round'/%3E%3Cline x1='6' y1='6' x2='18' y2='18' stroke='black' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E");
+	--icon-check:  url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpolyline points='20 6 9 17 4 12' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+	--icon-bell:   url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'/%3E%3Cpath d='M13.73 21a2 2 0 0 1-3.46 0' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E");
+	--icon-edit:   url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'/%3E%3Cpath d='M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+	--icon-trash:  url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpolyline points='3 6 5 6 21 6' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'/%3E%3Cpath d='M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
+	/* Motion */
+	--motion-fast:      160ms;
+	--motion-medium:    220ms;
+	--motion-slow:      300ms;
+	--easing-standard:  cubic-bezier(0.2, 0, 0, 1);
+	--easing-emphasis:  cubic-bezier(0.34, 1.2, 0.64, 1);
+	--easing-exit:      cubic-bezier(0.4, 0, 1, 1);
+
 	/* Typography */
 	--font-body:   'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-	--font-serif:  'Instrument Serif', Georgia, 'Times New Roman', serif;
 
-	/* Safe areas — rely entirely on env() with a 0px fallback.
+	/* Safe areas  rely entirely on env() with a 0px fallback.
 	   For plain browser tabs (not standalone, not hybrid) the insets are
 	   always zero, so no extra rule is needed there. */
 	--safe-top:    env(safe-area-inset-top, 0px);
@@ -90,13 +122,29 @@ html:not([data-standalone]):not([data-hybrid]) {
 
 :root[data-platform="ios"] {
 	--tab-height:  76px;
+	--pwa-back-label-display: block;
+	--pwa-header-title-align: center;
+	--pwa-header-back-title-offset: 0px;
+}
+
+:root[data-platform="android"] {
+	--pwa-section-header-transform: none;
+	--pwa-section-header-letter-spacing: 0.01em;
+	--pwa-section-header-font-size: 12px;
+	--pwa-row-active-transform: none;
+	--pwa-row-active-bg: var(--bg-tertiary);
+	--pwa-row-active-shadow: var(--shadow-card);
 }
 
 
-/* --- Tokens: Dark mode (auto) --------------------------------------------- */
+/* --- Tokens: Dark mode ---------------------------------------------------- */
+/* data-theme is set on <html> by app.mjs whenever the user changes the theme.
+   Auto-dark (a) fires when the OS is in dark mode and data-theme is absent.
+   Manual dark (b) fires when data-theme="dark" is set explicitly.
+   Manual light suppresses auto-dark via the html:not([data-theme="light"]) guard. */
 
 @media (prefers-color-scheme: dark) {
-	:root:not([data-theme="light"]) {
+	html:not([data-theme="light"]) {
 		--bg-base:          #1C1C1A;
 		--bg-secondary:     #111210;
 		--bg-tertiary:      #242422;
@@ -112,6 +160,8 @@ html:not([data-standalone]):not([data-hybrid]) {
 		--separator-heavy:  rgba(245, 242, 237, 0.12);
 
 		--shadow-card:      0 1px 4px rgba(0,0,0,0.25), 0 2px 10px rgba(0,0,0,0.2);
+		--shadow-add:       0 3px 12px rgba(45, 122, 82, 0.35);
+		--shadow-btn:       0 4px 18px rgba(30, 77, 53, 0.4);
 
 		--chip-late-bg:    rgba(184,50,50,0.18);   --chip-late-text:  #E07070;
 		--chip-today-bg:   rgba(45,122,82,0.18);   --chip-today-text: #6DBF95;
@@ -127,10 +177,17 @@ html:not([data-standalone]):not([data-hybrid]) {
 		--color-danger-subtle:  rgba(208, 80, 80, 0.15);
 		--color-warning:        #CC8040;
 		--color-warning-subtle: rgba(204, 128, 64, 0.15);
+
+		--pwa-row-active-bg:     var(--bg-tertiary);
+		--pwa-row-active-shadow: var(--shadow-card);
+
+		--row-icon-blue-bg:    rgba(58, 111, 216, 0.15);
+		--row-icon-blue-color: #6B9FE8;
 	}
 }
 
-[data-theme="dark"] {
+/* Manual dark override. */
+html[data-theme="dark"] {
 	--bg-base:          #1C1C1A;
 	--bg-secondary:     #111210;
 	--bg-tertiary:      #242422;
@@ -146,6 +203,8 @@ html:not([data-standalone]):not([data-hybrid]) {
 	--separator-heavy:  rgba(245, 242, 237, 0.12);
 
 	--shadow-card:      0 1px 4px rgba(0,0,0,0.25), 0 2px 10px rgba(0,0,0,0.2);
+	--shadow-add:       0 3px 12px rgba(45, 122, 82, 0.35);
+	--shadow-btn:       0 4px 18px rgba(30, 77, 53, 0.4);
 
 	--chip-late-bg:    rgba(184,50,50,0.18);   --chip-late-text:  #E07070;
 	--chip-today-bg:   rgba(45,122,82,0.18);   --chip-today-text: #6DBF95;
@@ -161,9 +220,16 @@ html:not([data-standalone]):not([data-hybrid]) {
 	--color-danger-subtle:  rgba(208, 80, 80, 0.15);
 	--color-warning:        #CC8040;
 	--color-warning-subtle: rgba(204, 128, 64, 0.15);
+
+	--pwa-row-active-bg:     var(--bg-tertiary);
+	--pwa-row-active-shadow: var(--shadow-card);
+
+	--row-icon-blue-bg:    rgba(58, 111, 216, 0.15);
+	--row-icon-blue-color: #6B9FE8;
 }
 
-[data-theme="light"] {
+/* Manual light override. */
+html[data-theme="light"] {
 	--bg-base:          #FFFFFF;
 	--bg-secondary:     #F7F4EF;
 	--bg-tertiary:      #F0EDE7;
@@ -178,16 +244,30 @@ html:not([data-standalone]):not([data-hybrid]) {
 	--separator:        rgba(26, 24, 20, 0.07);
 	--separator-heavy:  rgba(26, 24, 20, 0.12);
 
-	--color-primary:    #2D7A52;
-	--color-primary-dark: #1E4D35;
-	--color-success:    #2D7A52;
-	--color-danger:     #B83232;
-	--color-warning:    #B86820;
+	--shadow-card:      0 1px 3px rgba(26, 24, 20, 0.05), 0 2px 8px rgba(26, 24, 20, 0.04);
+	--shadow-add:       0 3px 12px rgba(45, 122, 82, 0.22);
+	--shadow-btn:       0 4px 18px rgba(30, 77, 53, 0.25);
+
+	--color-primary:        #2D7A52;
+	--color-primary-dark:   #1E4D35;
+	--color-primary-subtle: rgba(45, 122, 82, 0.12);
+	--color-success:        #2D7A52;
+	--color-success-subtle: rgba(45, 122, 82, 0.12);
+	--color-danger:         #B83232;
+	--color-danger-subtle:  rgba(184, 50, 50, 0.10);
+	--color-warning:        #B86820;
+	--color-warning-subtle: rgba(184, 104, 32, 0.10);
 
 	--chip-late-bg:    #FBF0F0;   --chip-late-text:  #B83232;
 	--chip-today-bg:   #EBF5F0;   --chip-today-text: #2D7A52;
 	--chip-soon-bg:    #F0EDE7;   --chip-soon-text:  #7A756B;
 	--chip-done-bg:    #EBF5F0;   --chip-done-text:  #2D7A52;
+
+	--pwa-row-active-bg:     var(--bg-base);
+	--pwa-row-active-shadow: none;
+
+	--row-icon-blue-bg:    #EEF4FF;
+	--row-icon-blue-color: #3A6FD8;
 }
 
 
@@ -195,7 +275,6 @@ html:not([data-standalone]):not([data-hybrid]) {
 
 *, *::before, *::after {
 	box-sizing: border-box;
-	-webkit-touch-callout: none;
 	-webkit-tap-highlight-color: transparent;
 }
 
@@ -218,9 +297,6 @@ body {
 	overscroll-behavior: none;
 }
 
-input, textarea, [contenteditable] {
-	-webkit-touch-callout: default;
-}
 
 p, h1, h2, h3, h4 { margin: 0; }
 
@@ -263,3 +339,4 @@ a { color: var(--color-primary); text-decoration: none; }
 	::-webkit-scrollbar-thumb:hover { background: var(--text-tertiary); }
 	* { scrollbar-width: thin; scrollbar-color: var(--separator-heavy) transparent; }
 }
+

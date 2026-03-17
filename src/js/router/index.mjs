@@ -371,9 +371,21 @@ export function createRouter(options) {
 	var beforeHooks = [];
 	var afterHooks  = [];
 
+	function createRoute(match, location) {
+		const r = Object.assign({}, match);
+		for (var i in location) {
+			if (!r[i] && i !== 'route') {
+				r[i] = location[i];
+			}
+		}
+		return r;
+	}
+
 	async function runBefore(match, location) {
+		const route = createRoute(match, location);
+
 		for (var i = 0; i < beforeHooks.length; i++) {
-			var res = beforeHooks[i](match, location);
+			var res = beforeHooks[i](route);
 
 			if (res instanceof Promise) {
 				res = await res;
@@ -387,8 +399,10 @@ export function createRouter(options) {
 	}
 
 	function runAfter(match, location) {
+		const route = createRoute(match, location);
+	
 		for (var i = 0; i < afterHooks.length; i++) {
-			afterHooks[i](match, location);
+			afterHooks[i](route);
 		}
 	}
 
@@ -439,17 +453,21 @@ export function createRouter(options) {
 			navStack = navStack.slice(0, navIndex);
 		}
 
-		navStack[navIndex] = { route: path, state: {} };
+		var nextState = { id: navIndex, scroll: 0 };
 
-		state = Object.assign({}, state, { id: navIndex });
+		if (method === 'replace') {
+			nextState = Object.assign({}, state, { id: navIndex, scroll: 0 });
+		}
 
 		// for replace-as-back, force direction into state so onHistory
 		// can determine correct transition direction despite unchanged index
 		if (opts.back && method === 'replace') {
-			state.direction = 'back';
+			nextState.direction = 'back';
 		}
 
-		history[method](path, state, { back: opts.back });
+		navStack[navIndex] = { route: path, state: nextState };
+
+		history[method](path, nextState, { back: opts.back });
 
 		return true;
 	}
@@ -555,8 +573,11 @@ export function createRouter(options) {
 			if (!entry) return null;
 			var matches = matcher.resolve(entry.route);
 			if (!matches[0]) return null;
-			var state = (n == 0) ? history.location().state : entry.state;
-			return { match: matches[0], state: state || {} };
+			var loc = (n == 0) ? history.location() : {
+				state: entry.state || {},
+				direction: (n > 0 ? 'forward' : 'back')
+			};
+			return createRoute(matches[0], loc);
 		},
 
 		go: function(n, opts) {

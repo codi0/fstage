@@ -1,518 +1,791 @@
 // @fstage/component
 //
 // Definition-based web component runtime, based on LitElement for maximum compatibility.
+// Implements the Fstage Universal Component Definition Standard v1.9.
 //
-// Accepts component definition objects (per the Fstage Component Definition Standard) and registers them as custom elements.
+// === Reactive State Provider ===
+// The Fstage store is used as the reactive state provider (standard §4.4).
+// Each component instance gets two namespaced paths in the store:
+//   __cl.{id}.*  — local state    ($src: 'local')
+//   __cp.{id}.*  — prop mirror    ($src: 'prop', updated in willUpdate())
+//   <decl.key>   — external state ($src: 'external', aliased to decl.key)
+//
+// ctx.state is a per-instance thin proxy over the global store. Every access
+// is automatically wrapped in store.$withScope(component) so path translation
+// is always active — no manual $withScope at call sites.
+//
+// === Capability Claims ===
+//   asyncState       — ctx.state.$query / $status (via store.$query / $status)
+//   animation        — ctx.animate, declarative animate block
+//   screenHost       — activated / deactivated hooks
+//   hostMethods      — def.host.methods mounted onto the host element
+//   interactionExtensions — via config.interactionsManager
+//
+// === Declaration Extensions ===
+//
+//   state — bare values are shorthand for local state only:
+//     sheetOpen: false          ->  { $src: 'local', default: false }
+//     Descriptor form is required for $src: 'prop' or 'external'.
+//
+//   bind — declarative two-way bindings between selectors and state keys.
+//     bind: {
+//       '#task-title':      'newTitle',
+//       '.inline-textarea': { key: 'description', event: 'change' },
+//       '.rating':          { key: 'rating', extract: (el) => Number(el.dataset.value) },
+//     }
+//
+//   watch — unified reactive subscriptions, wired on connect, torn down on disconnect.
+//     All handlers receive (e, ctx) where e = { path, val, oldVal, diff }.
+//     Pre-render (default): state coordination, resets, optional immediate call.
+//       Handlers fire synchronously during the state mutation, before the async render.
+//     Post-render (afterRender: true): DOM operations after each render where value changed.
+//       diff is undefined for post-render handlers.
+//     watch: {
+//       theme:       (e, ctx) => { ... },                          // pre-render shorthand
+//       routeParams: { handler, immediate: true, reset: [...] },   // pre-render descriptor
+//       activeRoute: { reset: ['panel'] },                         // pre-render, reset only
+//       open:        { handler: fn, afterRender: true },           // post-render
+//       task:        { handler: fn, afterRender: true, trackBy: taskTrackBy }, // post-render + trackBy
+//     }
+//
+//   computed — declarative derived values, accessible as ctx.computed.<key>.
+//     computed: { isEmpty: (ctx) => ctx.state.items.length === 0 }
+//
+//   interactions — handler may be a plain function or a descriptor:
+//     interactions: {
+//       'click(.btn)': fn,
+//       'input(.search)': { handler: fn, debounce: 300 },
+//       'keydown(.field)': { handler: fn, keys: ['Enter'], prevent: true },
+//     }
+//
+//   host — host element configuration:
+//     host: {
+//       methods: { highlight: function() { ... } },
+//       attrs:   { 'data-theme': (ctx) => ctx.state.theme },
+//       vars:    { '--row-index': (ctx) => ctx.state.index },
+//     }
+//
+//   animate — declarative animation block (requires animation capability):
+//     enter  — host entry, fires once on first render
+//     exit   — host exit, fires when skipAttr is set on host
+//     toggle(selector) — state-driven animations on child elements:
+//     animate: {
+//       enter: 'slideUp',
+//       exit:  'slideDown',
+//       'toggle(.error-msg)': { state: 'hasError', show: 'fadeIn', hide: 'fadeOut' },
+//       'toggle(.badge)':     { state: 'count',    show: 'fadeIn', activate: 'pop' },
+//     }
 
-import { getType, copy, nestedKey, adoptStyleSheet, getGlobalCss } from '../utils/index.mjs';
+import { getType, adoptStyleSheet } from '../utils/index.mjs';
 
 
-function formatStateMap(stateMap, stores) {
-	const allowed = [ 'prop', 'local', 'store' ];
-	for (var i in stateMap) {
-		const def = stateMap[i];
-		if (!def || !def.$src) {
-			stateMap[i] = { $src: 'local', default: def };
+// =============================================================================
+// formatDefMap
+//
+// Normalises and validates all structured definition fields in one pass.
+// Mutates def in place; called once at define() time.
+// =============================================================================
+
+function formatDefMap(def) {
+
+	// state — bare values -> { $src: 'local', default: val }
+	const allowedSrc = [ 'prop', 'local', 'external' ];
+	for (let key in def.state) {
+		const s = def.state[key];
+		if (!s || !s.$src) {
+			def.state[key] = { $src: 'local', default: s };
 			continue;
 		}
-		if (!allowed.includes(def.$src)) {
-			throw new Error("[fstage/component] component definition state." + i + " has invalid $src: " + def.$src);
+		if (!allowedSrc.includes(s.$src)) {
+			throw new Error('[fstage/component] state.' + key + ' has invalid $src: ' + s.$src);
 		}
-		def.key = def.key || i;
-		if (def.$src === 'store') {
-			def.store = def.store || 'default';
-			def.storeObj = stores[stateMap[i].store];
-			if (!def.storeObj) {
-				throw new Error("[fstage/component] No store named '" + def.store + "' present");
-			}
+		s.key = s.key || key;
+		if (s.$src === 'prop' && !s.type) {
+			const t = getType(s.default);
+			s.type = t === 'boolean' ? Boolean : t === 'number' ? Number : String;
 		}
-		if (def.$src === 'prop') {
-			if (!def.type) {
-				const t = getType(def.default);
-				if (t === 'boolean') {
-					def.type = Boolean;
-				} else if (t === 'number') {
-					def.type = Number;
-				} else {
-					def.type = String;
-					def.default = String(def.default || '');
-				}
-			}
-		}
-		stateMap[i] = def;
 	}
-	return stateMap;
+
+	// bind — normalise shorthand; validate no event+selector conflicts with interactions
+	const interactionKeys = new Set();
+	for (let k in def.interactions) {
+		const m = k.match(/^(\w+)\((.+)\)$/);
+		if (m) interactionKeys.add(m[1] + '|' + m[2]);
+	}
+	const bind = {};
+	for (let sel in def.bind) {
+		const v = def.bind[sel];
+		let entry;
+		if (typeof v === 'string') {
+			entry = { key: v, event: 'input', extract: null };
+		} else {
+			if (!v || !v.key) throw new Error('[fstage/component] bind["' + sel + '"] must have a key');
+			entry = { key: v.key, event: v.event || 'input', extract: v.extract || null };
+		}
+		if (interactionKeys.has(entry.event + '|' + sel)) {
+			throw new Error('[fstage/component] bind["' + sel + '"] conflicts with interactions entry for ' + entry.event + '(' + sel + ')');
+		}
+		bind[sel] = entry;
+	}
+	def.bind = bind;
+
+	// watch — normalise all entries to descriptor form.
+	// Pre-render (default): { handler, immediate, reset, afterRender: false, trackBy: null }
+	// Post-render:          { handler, afterRender: true, trackBy }
+	// afterRender must not be combined with immediate or reset.
+	for (let key in def.watch) {
+		const w = def.watch[key];
+		if (typeof w === 'function') {
+			def.watch[key] = { handler: w, immediate: false, reset: [], afterRender: false, trackBy: null };
+		} else {
+			const afterRender = !!w.afterRender;
+			if (afterRender && (w.immediate || (w.reset && w.reset.length))) {
+				throw new Error('[fstage/component] watch.' + key + ': afterRender cannot be combined with immediate or reset');
+			}
+			def.watch[key] = {
+				handler:     typeof w.handler === 'function' ? w.handler : null,
+				immediate:   !afterRender && !!w.immediate,
+				reset:       !afterRender && Array.isArray(w.reset) ? w.reset : [],
+				afterRender: afterRender,
+				trackBy:     afterRender && typeof w.trackBy === 'function' ? w.trackBy : null,
+			};
+		}
+	}
+
+	// interactions — normalise plain function or handler-descriptor.
+	// Extension entries (gesture.*, transition.*, etc.) pass through unchanged.
+	for (let key in def.interactions) {
+		if (/^\w+\./.test(key)) continue;  // extension — skip
+		const v = def.interactions[key];
+		if (typeof v === 'function') {
+			def.interactions[key] = { handler: v, debounce: 0, throttle: 0, prevent: false, stop: false, once: false, keys: null };
+		} else if (v && typeof v.handler === 'function') {
+			if (v.debounce && v.throttle) {
+				throw new Error('[fstage/component] interactions["' + key + '"] cannot have both debounce and throttle');
+			}
+			def.interactions[key] = {
+				handler:  v.handler,
+				debounce: v.debounce || 0,
+				throttle: v.throttle || 0,
+				prevent:  !!v.prevent,
+				stop:     !!v.stop,
+				once:     !!v.once,
+				keys:     Array.isArray(v.keys) ? v.keys : null
+			};
+		}
+	}
+
+	// host — normalise methods/attrs/vars sub-blocks
+	const host = def.host || {};
+	def.host = {
+		methods: host.methods || {},
+		attrs:   host.attrs   || {},
+		vars:    host.vars    || {},
+	};
+
+	// animate — parse toggle(selector) keys; normalise enter/exit presets
+	function normalizePreset(v) {
+		if (!v) return null;
+		return typeof v === 'string'
+			? { preset: v, durationFactor: undefined }
+			: { preset: v.preset, durationFactor: v.durationFactor };
+	}
+	const anim     = def.animate || {};
+	const toggle   = {};
+	const toggleRe = /^toggle\((.+)\)$/;
+	for (let key in anim) {
+		const m = key.match(toggleRe);
+		if (!m) continue;
+		const sel = m[1];
+		const e   = anim[key];
+		if (!e || !e.state) {
+			throw new Error('[fstage/component] animate toggle("' + sel + '") must have a state key');
+		}
+		toggle[sel] = {
+			state:          e.state,
+			show:           e.show     || null,
+			hide:           e.hide     || null,
+			activate:       e.activate || null,
+			durationFactor: e.durationFactor || undefined
+		};
+	}
+	def.animate = { enter: normalizePreset(anim.enter), exit: normalizePreset(anim.exit), toggle: toggle };
 }
 
-export function createComponentState(config) {
-	config = config || {};
-	
-	// Assignments
 
-	const map = config.map || {};
-	const props = config.props || {};
-	const stores = config.stores || {};
-	const callbacks = config.callbacks || {};
-	const cleanup = config.cleanup || null;
-	const label = config.label || 'ctx.state';
+// =============================================================================
+// wireBind
+//
+// Attaches delegated listeners on root for each bind entry.
+// Returns a cleanup function that removes all listeners.
+// =============================================================================
 
-  const local = {};
-  const watchers = new Map();
-  const reserved = [ '$query', '$set', '$watch' ];
+function wireBind(def, ctx) {
+	if (!Object.keys(def.bind).length) return null;
+	const root      = ctx.root;
+	const listeners = [];
 
-	// Helpers
-
-  function na(action, msg) {
-		msg = msg ? '. ' + msg : '';
-		throw new Error('[fstage/component] ' + label + ' does not allow ' + action + msg);
-  }
-
-	function getKeyParts(key) {
-		const dot = key.indexOf('.');
-		if (dot === -1) {
-			return { root: key, sub: null };
-		}
-		return {
-			root: key.slice(0, dot),
-			sub: key.slice(dot + 1)
-		};
+	for (var sel in def.bind) {
+		(function(selector, entry) {
+			function listener(e) {
+				if (!e.target || !e.target.matches) return;
+				var matched = e.target.closest(selector);
+				if (!matched) return;
+				var val = entry.extract ? entry.extract(matched) : matched.value;
+				ctx.state.$set(entry.key, val);
+			}
+			root.addEventListener(entry.event, listener);
+			listeners.push({ event: entry.event, listener: listener });
+		})(sel, def.bind[sel]);
 	}
 
-  function notifyWatchers(key, newVal, oldVal) {
-    var fns = watchers.get(key);
-    if (fns) fns.forEach(function(fn) { fn(newVal, oldVal); });
-  }
+	return function() {
+		listeners.forEach(function(l) { root.removeEventListener(l.event, l.listener); });
+	};
+}
 
-  function $set(path, val) {
-    const keyParts = getKeyParts(path);
-    const src = map[keyParts.root];
-    if (!src) throw new Error('[fstage/component] ctx.state.$set cannot be used on an undeclared state key');
 
-    if (src.$src === 'store') {
-			const storeKey = src.key + (keyParts.sub ? '.' + keyParts.sub : '');
-      src.storeObj.set(storeKey, val);
-      return;
-		}
+// =============================================================================
+// scopePlugin
+//
+// Installed once on the store per createRuntime call.
+//
+// path hook — translates declared state keys to real store paths:
+//   local    __cl.{id}.key[.sub]
+//   prop     __cp.{id}.key[.sub]
+//   external decl.key[.sub]
+//   unknown  unchanged (global paths pass through)
+//
+// read hook — supplies declared defaults when the store has no value yet.
+// watch hook — auto-registers off() with ctx.cleanup on disconnect.
+// =============================================================================
 
-    const data = (src.$src === 'prop') ? props : local;
-		const oldVal = data[keyParts.root];
-		var newVal = copy(oldVal);
+function scopePlugin() {
+	const stack = [];
 
-		if (keyParts.sub) {
-			nestedKey(newVal, keyParts.sub, { val: val });
-		} else {
-			newVal = val;
-		}
-
-		data[keyParts.root] = newVal;
-		notifyWatchers(keyParts.root, data[keyParts.root], oldVal);
-		if (callbacks[src.$src]) callbacks[src.$src](keyParts.root, data[keyParts.root], oldVal);
-	}
-
-  function $watch(key, fn, opts) {
-		opts = opts || {};
-    const src = map[key]
-    if (!src) throw new Error('[fstage/component] ctx.state.$watch only accepts top-level declared state keys');
-
-    if (src.$src === 'store') {
-      const off = src.storeObj.onChange(src.key, function(e) {
-        fn(e.val, e.oldVal);
-      }, { oldVal: true, immediate: opts.immediate });
-      if (off && cleanup) {
-				cleanup(off);
+	return {
+		methods: {
+			withScope: function(component, fn) {
+				let res;
+				stack.push(component);
+				try { res = fn(); }
+				finally { stack.pop(); }
+				return res;
 			}
-			return off;
-		}
+		},
 
-		var fns = watchers.get(key);
-		if (!fns) {
-			fns = new Set();
-			watchers.set(key, fns);
-		}
-		const off = function() {
-			fns.delete(fn);
-		};
-		if (!fns.has(fn)) {
-			fns.add(fn);
-			if (cleanup) {
-				cleanup(off);
-			}
-		}
-		if (opts.immediate) {
-			const val = (src.$src === 'prop') ? props[key] : local[key];
-			fn(val, undefined);
-		}
-		return off;
-  }
+		hooks: {
+			path: function(e) {
+				if (!stack.length) return;
+				const component = stack[stack.length - 1];
+				const internal  = component.__internal;
+				const id        = internal.id;
+				const dot  = e.path.indexOf('.');
+				const root = dot !== -1 ? e.path.slice(0, dot) : e.path;
+				const sub  = dot !== -1 ? e.path.slice(dot)    : '';
+				const decl = internal.state[root];
+				if (!decl) return;
+				if      (decl.$src === 'local')    e.path = '__cl.' + id + '.' + root + sub;
+				else if (decl.$src === 'prop')     e.path = '__cp.' + id + '.' + root + sub;
+				else if (decl.$src === 'external') e.path = decl.key + sub;
+			},
 
-  function $query(key, opts) {
-		const src = map[key];
-		var res = { loading: false, error: null };
-		if (!src) throw new Error('[fstage/component] ctx.state.$query only accepts top-level declared state keys');
-    if (src.$src === 'store') {
-			if (src.storeObj.query) {
-				res = src.storeObj.query(src.key, opts);
-			} else {
-				res.data = src.storeObj.get(src.key, opts);
-			}
-		} else {
-			res.data = (src.$src === 'prop') ? props[key] : local[key];
-		}
-    return res;
-  }
-  
-  // INIT
-
-  for (var i in map) {
-		//get source
-		const src = map[i];
-  
-		//set local default?
-    if (src.$src === 'local') {
-      local[i] = src.default;
-      continue;
-    }
-    
-    //set store watcher?
-    if (src.$src === 'store') {
-			if (callbacks.store && !src.storeObj.track) {
-				const off = src.storeObj.onChange(src.key, function(e) {
-					if (callbacks.store) callbacks.store(i, e.val, e.oldVal);
-				}, { oldVal: true });
-				if (off && cleanup) {
-					cleanup(off);
+			read: function(e) {
+				if (!stack.length) return;
+				if (e.val !== undefined) return;
+				const component = stack[stack.length - 1];
+				const internal  = component.__internal;
+				const key       = e.pathOrg;
+				const decl      = internal.state[key];
+				if (!decl) return;
+				if (decl.$src === 'prop') {
+					e.val = component[key] !== undefined ? component[key] : decl.default;
+				} else if (decl.default !== undefined) {
+					e.val = decl.default;
 				}
+			},
+
+			watch: function(e) {
+				if (!stack.length) return;
+				const component = stack[stack.length - 1];
+				component.__ctx.cleanup(e.off);
 			}
 		}
-	}
+	};
+}
 
+
+// =============================================================================
+// createStateProxy
+//
+// Per-component proxy over the global store. Every access is auto-wrapped in
+// store.$withScope(component) so path translation is always active.
+// =============================================================================
+
+function createStateProxy(component, store) {
 	return new Proxy({}, {
-
-    has: function(t, key) {
-      return reserved.includes(key) || (key in map);
-    },
-
-    ownKeys: function() {
-      return Object.keys(map).concat(reserved);
-    },
-
-    get: function(t, key) {
-      if (typeof key === 'symbol') return undefined;
-      if (key === '$query') return $query;
-      if (key === '$set') return $set;
-      if (key === '$watch') return $watch;
-
-			var res;
-      const src = map[key];
-      if (!src) throw new Error('[fstage/component] ctx.state.' + key + ' is not declared');
-
-      if (src.$src === 'prop') {
-				res = props[key];
-			} else if (src.$src === 'store') {
-				res = src.storeObj.get(src.key);
-			} else {
-				res = local[key];
+		get: function(target, key) {
+			const val = store[key];
+			if (typeof key === 'symbol') return val;
+			if (key[0] === '$' && typeof val === 'function') {
+				return function() {
+					const args = arguments;
+					return store.$withScope(component, function() {
+						return val.apply(store, args);
+					});
+				};
 			}
-			
-			if (res === undefined) res = src.default;
-			return res;
-    },
-
-    set: function(t, key) { na('set', 'Use ctx.state.$set instead.'); },
-    deleteProperty: function(t, key) { na('deleteProperty'); },
-    defineProperty: function (t, p) { na('defineProperty'); },
-    setPrototypeOf: function () { na('setPrototypeOf'); },
-    preventExtensions: function () { na('preventExtensions'); }
-
-  });
+			return store.$withScope(component, function() {
+				return store.$get(key);
+			});
+		},
+		set: function() {
+			throw new Error('[fstage/component] Direct assignment to ctx.state is not allowed — use $set');
+		},
+		deleteProperty: function() {
+			throw new Error('[fstage/component] Direct deletion from ctx.state is not allowed — use $del');
+		}
+	});
 }
 
+
+// =============================================================================
+// createRuntime
+// =============================================================================
 
 export function createRuntime(config) {
-
 	config = config || {};
+	let idCounter = 0;
 
 	const extensions = {};
-	const helpers = config.ctx || {};
-	const stores = config.stores || {};
-	const baseClass = config.baseClass || null;;
+	const styleCtx   = {};
+	const renderCtx  = config.ctx || {};
+	const store      = config.store || null;
+	const baseClass  = config.baseClass || null;
+	const skipAttr   = config.skipAttr  || 'data-leaving';
+
+	[ 'css', 'unsafeCSS' ].forEach(function(key) {
+		if (renderCtx[key]) styleCtx[key] = renderCtx[key];
+	});
+
+	store.$extend(scopePlugin);
 
 	return {
 
 		define: function(def) {
+
 			const defaults = {
-				shadow: true,
-				globalStyles: !!config.globalStyles,
-				inject: {},
-				props: {},
-				state: {},
-				interactions: {}
+				shadow:       true,
+				state:        {},
+				bind:         {},
+				watch:        {},
+				computed:     {},
+				animate:      {},
+				inject:       {},
+				interactions: {},
+				host:         {}
 			};
-			
 			for (var i in defaults) {
-				if (def[i] === undefined || def[i] === null) {
-					def[i] = defaults[i];
-				} else if (i === 'state') {
-					def[i] = formatStateMap(def[i], stores);
-				}
+				if (def[i] === undefined) def[i] = defaults[i];
 			}
+
+			formatDefMap(def);
 
 			if (!baseClass) throw new Error('[fstage/component] baseClass required');
 			if (!def.tag || def.tag.indexOf('-') === -1) throw new Error('[fstage/component] Invalid tag: ' + def.tag);
 			if (customElements.get(def.tag)) throw new Error('[fstage/component] Already defined: ' + def.tag);
-			
-			const trackArr = Object.values(stores).filter(s => s && s.track);
 
 			class Component extends baseClass {
 
 				static get properties() {
 					const props = {};
 					for (var i in def.state) {
-						if (def.state[i].$src === 'prop') {
-							props[i] = def.state[i];
-						}
+						if (def.state[i].$src === 'prop') props[i] = def.state[i];
 					}
 					return props;
 				}
-				
+
 				static get styles() {
-						if (!def.style) return;
-
-						const res = typeof def.style === 'function' ? def.style(helpers) : def.style;
-						if (!res) return;
-
-						// Already a CSSResult (from css`` tag) — pass straight through
-						if (res.cssText !== undefined) return res;
-
-						// Plain string — wrap it
-						if (typeof res === 'string') return helpers.unsafeCSS(res);
-
-						throw new Error('[fstage/component] def.style must be a string or css template literal (or a function returning one)');
+					if (!def.style) return;
+					const res = typeof def.style === 'function' ? def.style(styleCtx) : def.style;
+					if (!res) return;
+					if (Array.isArray(res)) return res;
+					if (res.cssText !== undefined) return res;
+					if (typeof res === 'string') {
+						if (!styleCtx.unsafeCSS) throw new Error('[fstage/component] def.style returned a string but unsafeCSS is not available');
+						return styleCtx.unsafeCSS(res);
+					}
+					throw new Error('[fstage/component] def.style must return a string, CSSResult, or array of CSSResults.');
 				}
 
 				constructor() {
 					super();
 
-					// Per-instance context and cleanup store
-					const ctx        = this.__ctx = {};
-					const cleanupFns = this.__cleanupFns = [];
+					const ctx = this.__ctx = {};
 
-					// Helpers forwarded from runtime config
+					this.__internal = {
+						cleanup:           [],
+						tracker:           [],
+						toggleControllers: {},
+						activateState:     {},
+						watchState:        {},  // stores { key, val } for post-render watch change detection
+						state:             def.state,
+						id:                (++idCounter)
+					};
+
 					[ 'html', 'css', 'svg' ].forEach(function(key) {
-						if (helpers[key]) ctx[key] = helpers[key];
+						if (renderCtx[key]) ctx[key] = renderCtx[key];
 					});
 
-					// Host element and render root
-					ctx.host = this;
-					ctx.root = null;
+					ctx.host   = this;
+					ctx.root   = null;
+					ctx.state  = createStateProxy(this, store);
+					ctx.config = config.config || {};
 
-					// ctx.cleanup — register a teardown function run on disconnected
 					ctx.cleanup = (fn) => {
-						if (!ctx.host.isConnected) return;
-						if (typeof fn === 'function') cleanupFns.push(fn);
-					};
-					
-					// ctx.state - unified state (prop, local, store)
-					ctx.state = createComponentState({
-						map: def.state,
-						props: this,
-						stores: stores,
-						cleanup: ctx.cleanup,
-						callbacks: {
-							local: (key, newVal, oldVal) => {
-								this.requestUpdate(key, oldVal);
-							},
-							store: (key, newVal, oldVal) => {
-								this.requestUpdate();
-							}
+						if (this.isConnected && typeof fn === 'function') {
+							this.__internal.cleanup.push(fn);
 						}
-					});
-
-					// ctx.animate — animate an element
-					ctx.animate = function(el, preset, opts) {
-						return config.animator.animate(el, preset, opts);
 					};
 
-					// ctx.emit — dispatch a composed, bubbling CustomEvent from the host
 					ctx.emit = (type, detail, opts) => {
-						const event = new CustomEvent(type, Object.assign({ bubbles: true, composed: true, detail: detail || null }, opts || {}));
-						return this.dispatchEvent(event);
+						return config.interactionsManager.dispatch(this, type, detail, opts);
 					};
 
-					// ctx.requestUpdate - request manual render
-					ctx.requestUpdate = () => {
-						this.requestUpdate();
-					};
+					if (config.animator && typeof config.animator.animate === 'function') {
+						ctx.animate = (el, preset, opts) => config.animator.animate(el, preset, opts);
+					}
 
-					// Resolve props defaults
-					for (var i in def.state) {
-						if (def.state[i].$src === 'prop' && this[i] === undefined) {
-							this[i] = def.state[i].default;
+					// Declarative computed — lazy getters, reactive via $track in render.
+					if (Object.keys(def.computed).length) {
+						ctx.computed = {};
+						for (var key in def.computed) {
+							(function(k, fn) {
+								Object.defineProperty(ctx.computed, k, {
+									get: function() {
+										try {
+											return fn(ctx);
+										} catch (err) {
+											if (def.onError) def.onError(err, ctx);
+											else console.error('[fstage/component] computed.' + k + ' error in ' + def.tag + ':', err);
+										}
+									},
+									enumerable: true
+								});
+							})(key, def.computed[key]);
 						}
 					}
 
-					// Resolve registry services
-					for (var ctxKey in def.inject) {
-						const regKey = def.inject[ctxKey];
-						if (ctx[ctxKey] !== undefined) {
-							throw new Error('[fstage/component] ctx.' + ctxKey + ' already exists');
-						}
-						
+					// Inject services
+					for (var i in def.inject) {
+						const regKey = def.inject[i];
+						if (ctx[i] !== undefined) throw new Error('[fstage/component] ctx.' + i + ' already exists');
 						const service = config.registry.get(regKey);
-						if (service === undefined || service === null) {
-							throw new Error('[fstage/component] inject key not found in registry: ' + regKey);
-						}
-
-						ctx[ctxKey] = service;
+						if (!service) throw new Error('[fstage/component] inject key not found in registry: ' + regKey);
+						ctx[i] = service;
 					}
 
-					// Resolve extensions
-					for (var key in extensions) {
-						if (ctx[key] !== undefined) {
-							throw new Error('[fstage/component] ctx.' + key + ' already exists');
-						}
-						ctx[key] = extensions[key](ctx);
+					// extendCtx additions
+					for (var i in extensions) {
+						if (ctx[i] !== undefined) throw new Error('[fstage/component] ctx.' + i + ' already exists');
+						ctx[i] = extensions[i](ctx);
 					}
 
 					if (def.constructed) def.constructed(ctx);
 				}
 
 				createRenderRoot() {
-						const ctx = this.__ctx;
-						if (ctx.root) return ctx.root;
-
-						if (def.shadow) {
-								ctx.root = super.createRenderRoot();
-								if (def.globalStyles) getGlobalCss().forEach(function(s) { adoptStyleSheet(ctx.root, s); });
-						} else {
-								ctx.root = this;
-								if (!this.constructor.__adopted) {
-										this.constructor.__adopted = true;
-										const styles = this.constructor.styles;
-										if (styles) adoptStyleSheet(document, styles, def.tag);
-								}
-						}
-
-						return ctx.root;
-				}
-
-				render() {
 					const ctx = this.__ctx;
-					if (!def.render) return ctx.html``;
-					try {
-						const result = def.render(ctx);
-						return result;
-					} catch (err) {
-						if (def.onError) {
-							def.onError(err, ctx);
-						} else {
-							console.error('[fstage/component] render error in ' + def.tag + ':', err);
+					if (ctx.root) return ctx.root;
+					if (def.shadow) {
+						ctx.root = super.createRenderRoot();
+					} else {
+						ctx.root = this;
+						if (!this.constructor.__adopted) {
+							this.constructor.__adopted = true;
+							const styles = this.constructor.styles;
+							if (styles) adoptStyleSheet(document, styles, def.tag);
 						}
-						return ctx.html``;
 					}
+					return ctx.root;
 				}
 
 				connectedCallback() {
-					const ctx = this.__ctx;
 					super.connectedCallback();
+
+					const ctx      = this.__ctx;
+					const internal = this.__internal;
+
+					// Wire all watches — pre-render and post-render.
+					// Post-render watches also subscribe here so state changes trigger re-renders;
+					// the actual handler call happens in updated() after DOM commit.
+					for (var key in def.watch) {
+						(function(key) {
+							const descriptor = def.watch[key];
+
+							if (descriptor.afterRender) {
+								// Post-render: subscribe only to ensure re-renders fire.
+								// Handler is called in updated() after change detection.
+								ctx.state.$watch(key, function() { /* triggers re-render via reactive tracker */ });
+								return;
+							}
+
+							// Pre-render: invoke helper applies resets then calls handler.
+							// Fires synchronously during state mutation, before the async render.
+							function invoke(e) {
+								try {
+									if (descriptor.reset.length) {
+										ctx.state.$batch(function() {
+											descriptor.reset.forEach(function(rKey) {
+												const decl = def.state[rKey];
+												ctx.state.$set(rKey, decl ? decl.default : undefined);
+											});
+										});
+									}
+									if (descriptor.handler) descriptor.handler(e, ctx);
+								} catch (err) {
+									if (def.onError) def.onError(err, ctx);
+									else console.error('[fstage/component] watch.' + key + ' error in ' + def.tag + ':', err);
+								}
+							}
+
+							if (descriptor.immediate) {
+								invoke({ path: key, val: ctx.state[key], oldVal: undefined, diff: undefined });
+							}
+
+							ctx.state.$watch(key, function(e) {
+								invoke({ path: e.path, val: e.val, oldVal: e.oldVal, diff: e.diff });
+							});
+						})(key);
+					}
+
+					// Wire createToggle controllers for each toggle(selector) entry.
+					if (config.animator && config.animator.createToggle) {
+						const controllers = internal.toggleControllers;
+						for (var tSel in def.animate.toggle) {
+							(function(sel) {
+								const entry = def.animate.toggle[sel];
+								controllers[sel] = config.animator.createToggle({
+									show: entry.show ? { preset: entry.show, durationFactor: entry.durationFactor } : null,
+									hide: entry.hide ? { preset: entry.hide, durationFactor: entry.durationFactor } : null,
+								});
+							})(tSel);
+						}
+						ctx.cleanup(function() {
+							const controllers = internal.toggleControllers;
+							for (var s in controllers) controllers[s].cancel();
+						});
+					}
+
+					// Wire exit animation observer.
+					if (def.animate.exit && ctx.animate) {
+						const observer = new MutationObserver(() => {
+							if (this.hasAttribute(skipAttr)) {
+								observer.disconnect();
+								ctx.animate(ctx.host, def.animate.exit.preset, {
+									durationFactor: def.animate.exit.durationFactor
+								});
+							}
+						});
+						observer.observe(this, { attributes: true, attributeFilter: [ skipAttr ] });
+						ctx.cleanup(() => observer.disconnect());
+					}
 
 					if (def.connected) def.connected(ctx);
 
 					if (def.activated) {
-						ctx.cleanup(config.screenHost.on('activate', function(e) {
-							if (!e.target || !e.target.contains(ctx.host)) return;
+						ctx.cleanup(config.screenHost.on('activate', (e) => {
+							if (!e.target || !e.target.contains(this)) return;
 							def.activated(ctx);
 						}));
 					}
 
 					if (def.deactivated) {
-						ctx.cleanup(config.screenHost.on('deactivate', function(e) {
-							if (!e.target || !e.target.contains(ctx.host)) return;
+						ctx.cleanup(config.screenHost.on('deactivate', (e) => {
+							if (!e.target || !e.target.contains(this)) return;
 							def.deactivated(ctx);
 						}));
 					}
 				}
 
 				disconnectedCallback() {
-					const ctx        = this.__ctx;
-					const trackerFns = this.__trackerFns || [];
-					const cleanupFns = this.__cleanupFns || [];
-					
 					super.disconnectedCallback();
 
-					while (trackerFns.length) {
-						trackerFns.pop()();
+					const internal = this.__internal;
+
+					while (internal.tracker.length) {
+						const fn = internal.tracker.pop();
+						if (fn) fn();
 					}
 
-					while (cleanupFns.length) {
-						cleanupFns.pop()();
+					while (internal.cleanup.length) {
+						const fn = internal.cleanup.pop();
+						if (fn) fn();
 					}
 
-					if (def.disconnected) def.disconnected(ctx);
+					if (def.disconnected) def.disconnected(this.__ctx);
 				}
 
 				performUpdate() {
 					if (!this.isUpdatePending) return;
+					if (this.closest('[' + skipAttr + ']')) return;
 
-					const ctx = this.__ctx;						
-					this.__trackerFns = [];
+					const internal = this.__internal;
+					internal.tracker = [];
 
-					const wrap = (i) => {
-						if (i >= trackArr.length) {
-							super.performUpdate()
-							return;
+					const dispose = store.$track(this, () => {
+						super.performUpdate();
+						return () => this.requestUpdate();
+					});
+
+					if (dispose) internal.tracker.push(dispose);
+				}
+
+				render() {
+					const ctx = this.__ctx;
+					if (!def.render) return ctx.html``;
+					try {
+						return def.render(ctx);
+					} catch (err) {
+						if (def.onError) def.onError(err, ctx);
+						else console.error('[fstage/component] render error in ' + def.tag + ':', err);
+						return ctx.html``;
+					}
+				}
+
+				// Mirror prop values into the store BEFORE render so ctx.state reads the
+				// current value in the same render cycle that caused the change.
+				willUpdate(changedProperties) {
+					super.willUpdate(changedProperties);
+					const ctx = this.__ctx;
+					changedProperties.forEach((oldVal, key) => {
+						if (def.state[key] && def.state[key].$src === 'prop') {
+							ctx.state.$set(key, this[key]);
 						}
-						// track calls old disposal automatically
-						const dispose = trackArr[i].track(this, () => {
-							wrap(i + 1);
-							return () => this.requestUpdate();
-						});
-						if (dispose) this.__trackerFns.push(dispose);
-					};
-
-					wrap(0);
+					});
 				}
 
 				updated(changedProperties) {
-					const ctx = this.__ctx;
 					super.updated(changedProperties);
 
-					const isFirst = !this.__hasRendered;
-					if (isFirst) this.__hasRendered = true;
+					const ctx      = this.__ctx;
+					const internal = this.__internal;
 
+					const isFirst = !internal.rendered;
+					if (isFirst) internal.rendered = true;
+
+					// Wire interactions and bind on first render.
 					if (isFirst && config.interactionsManager) {
 						ctx.cleanup(config.interactionsManager.activate(def.interactions, ctx));
 					}
-
-					if (def.rendered) {
-						def.rendered(ctx, isFirst);
+					if (isFirst) {
+						const bindCleanup = wireBind(def, ctx);
+						if (bindCleanup) ctx.cleanup(bindCleanup);
 					}
+
+					// Entry animation — host only, first render.
+					if (isFirst && def.animate.enter && ctx.animate) {
+						ctx.animate(ctx.host, def.animate.enter.preset, {
+							durationFactor: def.animate.enter.durationFactor
+						});
+					}
+
+					// Toggle animations — delegated to createToggle controllers.
+					// activate fires on falsy->truthy after first render.
+					const controllers   = internal.toggleControllers;
+					const activateState = internal.activateState;
+					for (var sel in def.animate.toggle) {
+						const entry      = def.animate.toggle[sel];
+						const controller = controllers[sel];
+						if (!controller) continue;
+						const isVisible = !!ctx.state[entry.state];
+						const el        = ctx.root ? ctx.root.querySelector(sel) : null;
+						controller.update(el, isVisible);
+						if (!isFirst && entry.activate && isVisible && !activateState[sel]) {
+							if (el) ctx.animate(el, entry.activate, { durationFactor: entry.durationFactor });
+						}
+						activateState[sel] = isVisible;
+					}
+
+					// Post-render watches.
+					// On first render: seed { key, val } without calling handlers.
+					// On subsequent renders: compare change keys, call handler(e, ctx) if changed.
+					const watchState = internal.watchState;
+					for (var watchKey in def.watch) {
+						const descriptor = def.watch[watchKey];
+						if (!descriptor.afterRender) continue;
+
+						const currentVal = ctx.state[watchKey];
+						const currentKey = descriptor.trackBy ? descriptor.trackBy(currentVal) : currentVal;
+
+						if (isFirst) {
+							watchState[watchKey] = { key: currentKey, val: currentVal };
+							continue;
+						}
+
+						if (currentKey === watchState[watchKey].key) continue;
+
+						const oldVal = watchState[watchKey].val;
+						watchState[watchKey] = { key: currentKey, val: currentVal };
+
+						if (descriptor.handler) {
+							try {
+								descriptor.handler({ path: watchKey, val: currentVal, oldVal: oldVal, diff: undefined }, ctx);
+							} catch (err) {
+								if (def.onError) def.onError(err, ctx);
+								else console.error('[fstage/component] watch.' + watchKey + ' (afterRender) error in ' + def.tag + ':', err);
+							}
+						}
+					}
+
+					// host.attrs — applied every render.
+					for (var attrName in def.host.attrs) {
+						try {
+							const attrVal = def.host.attrs[attrName](ctx);
+							if (attrVal == null) ctx.host.removeAttribute(attrName);
+							else ctx.host.setAttribute(attrName, attrVal);
+						} catch (err) {
+							if (def.onError) def.onError(err, ctx);
+							else console.error('[fstage/component] host.attrs["' + attrName + '"] error in ' + def.tag + ':', err);
+						}
+					}
+
+					// host.vars — applied every render.
+					for (var varName in def.host.vars) {
+						try {
+							const varVal = def.host.vars[varName](ctx);
+							ctx.host.style.setProperty(varName, String(varVal));
+						} catch (err) {
+							if (def.onError) def.onError(err, ctx);
+							else console.error('[fstage/component] host.vars["' + varName + '"] error in ' + def.tag + ':', err);
+						}
+					}
+
+					if (def.rendered) def.rendered(ctx, isFirst);
 				}
 
 			}
 
-			// Copy any special methods function onto the prototype
-			// Allows imperative methods to be available on the element
-			for (var i in def) {
-				if (i.indexOf('__') !== 0) continue;
-				if (typeof def[i] !== 'function') continue;
-
-				(function(name, fn) {
-					Component.prototype[name] = function() {
-						return fn.apply(this, arguments);
+			// Mount host.methods onto the component prototype.
+			for (var name in def.host.methods) {
+				const fn = def.host.methods[name];
+				if (typeof fn !== 'function') continue;
+				(function(methodName, methodFn) {
+					Component.prototype[methodName] = function() {
+						return methodFn.apply(this, arguments);
 					};
-				})(i.slice(2), def[i]);
+				})(name, fn);
 			}
 
 			customElements.define(def.tag, Component);
 		},
 
-    extendCtx: function(key, fn) {
-				if (typeof fn !== 'function') {
-					throw new Error('[fstage/component] extendCtx fn must be a function');
-				}
-        extensions[key] = fn;
-    }
+		extendCtx: function(key, fn) {
+			if (typeof fn !== 'function') {
+				throw new Error('[fstage/component] extendCtx fn must be a function');
+			}
+			extensions[key] = fn;
+		}
 
 	};
 

@@ -11,9 +11,9 @@ export function defaultRegistry() {
 
 //create registry factory
 export function createRegistry() {
-	
-	//data bag
+	//set vars
 	const _data = {};
+	var locked = false;
 
 	//create function
 	const api = {
@@ -22,9 +22,9 @@ export function createRegistry() {
 			return !!_data[key];
 		},
 
-		get: function(key) {
+		get: function(key, defVal = null) {
 			//set vars
-			var res = null;
+			var res = defVal;
 			//has value?
 			if(_data[key]) {
 				//is factory?
@@ -52,9 +52,12 @@ export function createRegistry() {
 		},
 	
 		set: function(key, val, isFactory = false) {
+			if (locked) {
+				throw new Error("[fstage/registry] this registry is locked");
+			}
 			//is factory function?
 			if(isFactory && typeof val !== 'function') {
-				throw new Error("Registry requires a function when factory=true");
+				throw new Error("[fstage/registry] factory requires a function");
 			}
 			//add to data
 			_data[key] = {
@@ -68,9 +71,16 @@ export function createRegistry() {
 		},
 
 		del: function(key) {
+			if (locked) {
+				throw new Error("[fstage/registry] this registry is locked");
+			}
 			if(_data[key]) {
 				delete _data[key];
 			}
+		},
+
+		lock: function() {
+			locked = true;
 		}
 		
 	};

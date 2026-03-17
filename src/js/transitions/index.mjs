@@ -22,15 +22,17 @@
 //   location.state.scroll: number (for pop restore)
 //
 // Lifecycle order (both paths):
-//   mount ? animate ? activate ? deactivate ? unmount(from)
+//   deactivate (outgoing) -> mount (incoming) -> animate -> activate (incoming) -> unmount (outgoing)
+//
+//   deactivate fires at transition START on the outgoing screen (or with
+//   null entry if there is no outgoing screen). It sets data-transitioning
+//   immediately — before any await — so accompany components never see a
+//   window where a transition is in progress but the flag is absent.
 //
 // Cancellation:
 //   Each run() creates a { cancelled } token. Starting a new run()
 //   flips the previous token, aborting it at its next checkpoint.
-//
-// Exports:
-//   createTransitionEngine()
-//   createScreenHost()
+
 
 // ------------------------------------------------------
 // TRANSITION ENGINE (core)
@@ -45,7 +47,7 @@ export function createTransitionEngine(options) {
   // the currently committed screen entry
   var current = null;
 
-  // in-flight transition token � flipped to cancel the active run
+  // in-flight transition token - flipped to cancel the active run
   var activeTrans = null;
 
   // active interactive controller (if any)
@@ -68,202 +70,136 @@ export function createTransitionEngine(options) {
     } catch (err) {}
   }
 
+  function startAnimation(prevEntry, nextEntry, opts) {
+    if (!prevEntry || !animator || typeof animator.start !== 'function') return null;
+    try {
+      return animator.start({
+        direction:   nextEntry.direction,
+        from:        prevEntry.target,
+        to:          nextEntry.target,
+        interactive: opts.interactive || false,
+        transition:  opts.transition || null,
+        policy:      opts.policy || null,
+      });
+    } catch (err) { return null; }
+  }
+
+  async function awaitHandle(handle) {
+    if (!handle) return;
+    try {
+      if      (typeof handle.commit  === 'function')                           await handle.commit();
+      else if (handle.finished && typeof handle.finished.then === 'function') await handle.finished;
+      else if (typeof handle.finish  === 'function')                           await handle.finish();
+    } catch (err) {}
+  }
+
+  async function settle(transition, nextEntry, prevEntry) {
+    await safeCall(screenHost.activate, [ nextEntry ]);
+    if (transition.cancelled) {
+      await safeCall(screenHost.abort, [ nextEntry ]);
+      return;
+    }
+    if (prevEntry) await safeCall(screenHost.unmount, [ prevEntry ]);
+    current = nextEntry;
+    if (activeTrans === transition) activeTrans = null;
+  }
+
   async function run(nextEntry, opts) {
     if (!nextEntry) return;
-    ensureWired();
-
     opts = opts || {};
+
+    nextEntry = Object.assign({}, nextEntry);
+    ensureWired();
 
     // cancel any in-flight transition
     if (activeTrans) activeTrans.cancelled = true;
     if (activeCtl)  { await cleanupController(activeCtl); activeCtl = null; }
 
-    // create token for this run � checked at every async checkpoint
+    // create token for this run - checked at every async checkpoint
     var transition = { cancelled: false };
     activeTrans = transition;
 
     // snapshot current BEFORE anything changes
-    var from = current;
+    var prevEntry = current;
 
     // mount next
     await screenHost.mount(nextEntry);
     if (!nextEntry.target) throw new Error('screenHost.mount(entry) must set entry.target');
 
-    if (transition.cancelled) {
-      await safeCall(screenHost.abort, [ nextEntry ]);
-      return;
-    }
-
-    // -- Interactive path ----------------------------------------------------
-    // mount + animate; activate/deactivate/unmount fire on commit
-    if (opts.interactive) {
-      var handleI = null;
-      if (animator && typeof animator.start === 'function') {
-        try {
-          handleI = animator.start({
-            direction:   nextEntry.location && nextEntry.location.direction,
-            from:        from ? from.target : null,
-            to:          nextEntry.target,
-            interactive: true,
-            policy:      nextEntry.policy || null
-          });
-        } catch (err) {
-          handleI = null;
-        }
-      }
-
-      var done = false;
-
-      function clearCtl() {
-        if (activeCtl === ctl) activeCtl = null;
-      }
-
-      async function commit() {
-        if (done) return;
-        done = true;
-
-        if (transition.cancelled) {
-          await safeCall(screenHost.abort, [ nextEntry ]);
-          clearCtl();
-          return;
-        }
-
-        // finish animation to end position first
-        if (handleI) {
-          try {
-            if      (typeof handleI.commit  === 'function')                       await handleI.commit();
-            else if (handleI.finished && typeof handleI.finished.then === 'function') await handleI.finished;
-            else if (typeof handleI.finish  === 'function')                       await handleI.finish();
-          } catch (err) {}
-        }
-
-        if (transition.cancelled) {
-          await safeCall(screenHost.abort, [ nextEntry ]);
-          clearCtl();
-          return;
-        }
-
-        // activate new � animation done, screen visually in place
-        await safeCall(screenHost.activate, [ nextEntry ]);
-
-        if (transition.cancelled) {
-          await safeCall(screenHost.abort, [ nextEntry ]);
-          clearCtl();
-          return;
-        }
-
-        // deactivate + unmount old
-        if (from) {
-          await safeCall(screenHost.deactivate, [ from ]);
-          await safeCall(screenHost.unmount,    [ from ]);
-        }
-
-        current = nextEntry;
-        if (activeTrans === transition) activeTrans = null;
-        clearCtl();
-      }
-
-      async function cancel() {
-        if (done) return;
-        done = true;
-
-        if (handleI) {
-          try {
-            if      (typeof handleI.cancel  === 'function') await handleI.cancel();
-            else if (typeof handleI.destroy === 'function') handleI.destroy();
-          } catch (err) {}
-        }
-
-        await safeCall(screenHost.abort, [ nextEntry ]);
-        clearCtl();
-      }
-
-      async function destroy() {
-        try { await cancel(); } catch (err) {}
-      }
-
-      var ctl = {
-        progress: function(p) {
-          if (done || !handleI) return;
-          if      (typeof handleI.progress    === 'function') try { handleI.progress(p);    } catch (err) {}
-          else if (typeof handleI.setProgress === 'function') try { handleI.setProgress(p); } catch (err) {}
-        },
-        commit:  commit,
-        cancel:  cancel,
-        destroy: destroy
-      };
-
-      activeCtl = ctl;
-      return ctl;
-    }
-
-    // -- Non-interactive path ------------------------------------------------
-    // mount -> animate -> activate -> deactivate -> unmount(from)
-
-    // animate before any lifecycle hooks
-    var handle = null;
-    if (animator && typeof animator.start === 'function') {
-      try {
-        handle = animator.start({
-          direction: nextEntry.location && nextEntry.location.direction,
-          from:      from ? from.target : null,
-          to:        nextEntry.target,
-          policy:    nextEntry.policy || null
-        });
-      } catch (err) {
-        handle = null;
-      }
-    }
-
-    // wait for animation to finish
-    if (handle) {
-      try {
-        if (handle.finished && typeof handle.finished.then === 'function') {
-					await handle.finished;
-        } else if (typeof handle.finish === 'function') {
-					await handle.finish();
-				}
-      } catch (err) {}
-    }
+    // deactivate fires synchronously at transition start,
+    // so no component update can sneak in between.
+    if (prevEntry) screenHost.deactivate(prevEntry);
 
     if (transition.cancelled) {
       await safeCall(screenHost.abort, [ nextEntry ]);
       return;
     }
+    
+    // start animation
+    var ctl = null;
+    var done = false;
+    var handle = startAnimation(prevEntry, nextEntry, opts);
 
-    // activate new � animation done, screen visually in place
-    await safeCall(screenHost.activate, [ nextEntry ]);
+		function clearCtl() {
+			if (activeCtl === ctl) activeCtl = null;
+		}
 
-    if (transition.cancelled) {
-      await safeCall(screenHost.abort, [ nextEntry ]);
-      return;
-    }
+		async function commit() {
+			if (done) return;
+			done = true;
+			if (transition.cancelled) { await safeCall(screenHost.abort, [ nextEntry ]); clearCtl(); return; }
+			await awaitHandle(handle);
+			if (transition.cancelled) { await safeCall(screenHost.abort, [ nextEntry ]); clearCtl(); return; }
+			await settle(transition, nextEntry, prevEntry);
+			clearCtl();
+		}
 
-    // deactivate + unmount old
-    if (from) {
-      await safeCall(screenHost.deactivate, [ from ]);
-      await safeCall(screenHost.unmount,    [ from ]);
-    }
+		async function cancel() {
+			if (done) return;
+			done = true;
+			if (handle) {
+				try {
+					if (typeof handle.cancel  === 'function') await handle.cancel();
+					else if (typeof handle.destroy === 'function') handle.destroy();
+				} catch (err) {}
+			}
+			await safeCall(screenHost.abort, [ nextEntry ]);
+			clearCtl();
+		}
 
-    current     = nextEntry;
-    if (activeTrans === transition) activeTrans = null;
+		// interactive path?
+		if (opts.interactive) {
+			activeCtl = ctl = {
+				progress: function(p) {
+					if (done || !handle) return;
+					if (typeof handle.progress === 'function') try { handle.progress(p); } catch (err) {}
+					else if (typeof handle.setProgress === 'function') try { handle.setProgress(p); } catch (err) {}
+				},
+				commit:  commit,
+				cancel:  cancel,
+				destroy: function() { return cancel(); },
+			};
+			return activeCtl;
+		}
+
+    // non-interactive path
+    await awaitHandle(handle);
+    if (transition.cancelled) { await safeCall(screenHost.abort, [ nextEntry ]); return; }
+    await settle(transition, nextEntry, prevEntry);
   }
 
   return {
-    current: function() {
-      return current;
-    },
-
-    run: run,
-
-    cancel: function() {
+    current: function() { return current; },
+    run:     run,
+    cancel:  function() {
       if (activeTrans) activeTrans.cancelled = true;
-      if (activeCtl)  { cleanupController(activeCtl); activeCtl = null; } // fire-and-forget: destroy is best-effort
+      if (activeCtl)  { cleanupController(activeCtl); activeCtl = null; }
       activeTrans = null;
       return true;
     }
   };
 }
+
 
 // ------------------------------------------------------
 // SCREEN HOST
@@ -277,9 +213,9 @@ export function createScreenHost(options) {
   options.name      = options.name || '';
   options.inlineCss = (options.inlineCss !== false);
 
-  const events = {};
+  const events  = {};
   const docHtml = document.documentElement;
-  
+
   const dispatch = function(name, e) {
     (events[name] || []).forEach(function(fn) { fn(e); });
   };
@@ -287,18 +223,14 @@ export function createScreenHost(options) {
   const actions = Object.assign({
 
     mount(e) {
-      const routeConf = e.screen && e.screen.meta;
-      const state     = e.location && e.location.state;
-
-      if (!routeConf || !routeConf.component) {
-        throw new Error('screenHost.mount: entry.screen.meta.component missing');
+      if (!e.meta || !e.meta.component) {
+        throw new Error('screenHost.mount: e.meta.component missing');
       }
 
-      // transition wrapper
       const wrap = document.createElement('div');
-      wrap.setAttribute('data-screen', routeConf.component);
+      wrap.setAttribute('data-screen', e.meta.component);
+      wrap.setAttribute('data-entering', '');
 
-      // inner scroller
       const scroller = document.createElement('div');
       scroller.setAttribute('data-scroller', '');
 
@@ -307,77 +239,191 @@ export function createScreenHost(options) {
         scroller.style.cssText = 'position:absolute;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior-y:contain;';
       }
 
-      const view = document.createElement(routeConf.component);
+      const view = document.createElement(e.meta.component);
       scroller.appendChild(view);
       wrap.appendChild(scroller);
       options.el.appendChild(wrap);
       e.target = wrap;
 
-      if (state && state.scroll > 0) {
-        requestAnimationFrame(function() {
-          scroller.scrollTop = state.scroll;
-        });
+      // restore scroll top?
+      if (e.state && e.state.scroll) {
+				requestAnimationFrame(function() {
+					scroller.scrollTop = e.state.scroll;
+				});
       }
-
-      // signal transition start � cleared by activate (success) or abort (cancel/preempt)
+      
       docHtml.setAttribute('data-transitioning', '');
     },
 
-    unmount(e) {
-      // fires for the old screen after activate has already cleared data-transitioning
-      e.target.remove();
-    },
-
     activate(e) {
-      // animation complete � new screen is visually in place
-      docHtml.removeAttribute('data-transitioning');
+			e.target.removeAttribute('data-entering');
+    
+      if (e.state && e.state.scroll) {
+				e.target.querySelector('[data-scroller]').scrollTop = e.state.scroll;
+      }
 
-      const screen = e.screen && e.screen.meta;
-      if (screen && screen.title) {
-        document.title = screen.title + (options.name ? ' | ' + options.name : '');
+      if (e.meta && e.meta.title) {
+        document.title = e.meta.title + (options.name ? ' | ' + options.name : '');
       }
     },
 
     deactivate(e) {
-      // no-op � extend via options.actions if needed
+      e.target.setAttribute('data-leaving', '');
+    },
+
+    unmount(e) {
+      docHtml.removeAttribute('data-transitioning');
+      e.target.remove();
     },
 
     abort(e) {
-      // transition preempted or cancelled before activate fired
       docHtml.removeAttribute('data-transitioning');
-      if (e.target) e.target.remove();
+			e.target.remove();
     }
 
   }, options.actions);
 
   return {
-    mount(e) {
-			actions.mount(e);
-			dispatch('mount', e);
-		},
-    unmount(e) {
-			actions.unmount(e);
-			dispatch('unmount', e);
-		},
-    activate(e) {
-			actions.activate(e);
-			dispatch('activate', e);
-		},
-    deactivate(e) {
-			actions.deactivate(e);
-			dispatch('deactivate', e);
-		},
-    abort(e) {
-			actions.abort(e);
-			dispatch('abort', e);
-		},
+    mount(e)      { actions.mount(e);      dispatch('mount', e);      },
+    unmount(e)    { actions.unmount(e);    dispatch('unmount', e);    },
+    activate(e)   { actions.activate(e);   dispatch('activate', e);   },
+    deactivate(e) { actions.deactivate(e); dispatch('deactivate', e); },
+    abort(e)      { actions.abort(e);      dispatch('abort', e);      },
     on(name, fn) {
       events[name] = events[name] || new Set();
       events[name].add(fn);
       return function() { events[name].delete(fn); };
     },
     start(rootEl) {
-			options.el = rootEl || options.el;
+      options.el = rootEl || options.el;
     }
+  };
+}
+
+
+// ------------------------------------------------------
+// INTERACTION EXTENSIONS
+// ------------------------------------------------------
+
+// Pre-built interactions extension for elements that animate alongside
+// page transitions (e.g. tab bars, toolbars, side panels).
+//
+// Use accompanySettle(el, visible) for instant (no-transition) snaps,
+// e.g. in rendered() when data-transitioning is not set.
+//
+// The emitter must implement on(name, fn) -> off fn.
+// Defaults to screenHost event names; pass a custom events map to adapt
+// any other lifecycle emitter to this pattern.
+
+export const ACCOMPANY_ATTRS = {
+  hidden:   'data-accompany-hidden',
+  hiding:   'data-accompany-hiding',
+  showing:  'data-accompany-showing',
+  entering: 'data-accompany-entering',
+};
+
+export function accompanySettle(el, visible) {
+  var A = ACCOMPANY_ATTRS;
+  el.style.height = '';
+  el.removeAttribute(A.hiding);
+  el.removeAttribute(A.showing);
+  el.removeAttribute(A.entering);
+  if (visible) {
+    el.removeAttribute(A.hidden);
+    el.removeAttribute('aria-hidden');
+    try { el.inert = false; } catch (err) {}
+  } else {
+    el.setAttribute(A.hidden, '');
+    el.setAttribute('aria-hidden', 'true');
+    try { el.inert = true; } catch (err) {}
+  }
+}
+
+var DEFAULT_EVENTS = { mount: 'mount', activate: 'activate', abort: 'abort' };
+
+export function accompanyInteraction(emitter, events) {
+  events = Object.assign({}, DEFAULT_EVENTS, events || {});
+
+  return function(action, selector, value, ctx) {
+    // value must be a function: (ctx, e?) -> bool (is the element visible?)
+    if (typeof value !== 'function') return;
+
+    var el = selector
+      ? (ctx.root.querySelector(selector) || ctx.host)
+      : ctx.host;
+
+    var wasVisible = !!value(ctx);
+    var pinned = false;
+    var A = ACCOMPANY_ATTRS;
+
+    function setVisible(v) {
+      el.removeAttribute('aria-hidden');
+      try { el.inert = !v; } catch (err) {}
+      if (!v) el.setAttribute('aria-hidden', 'true');
+    }
+
+    function releasePin() {
+      if (!pinned) return;
+      pinned = false;
+      el.style.height = '';
+    }
+
+    var offMount = emitter.on(events.mount, function(e) {
+      var newVisible = !!value(ctx, e);
+      if (newVisible === wasVisible) return;
+
+      if (!newVisible) {
+        el.style.height = el.offsetHeight + 'px';
+        pinned = true;
+        el.removeAttribute(A.showing);
+        el.removeAttribute(A.entering);
+        el.setAttribute(A.hiding, '');
+      } else {
+        releasePin();
+        el.removeAttribute(A.hidden);
+        el.removeAttribute(A.hiding);
+        el.setAttribute(A.showing, '');
+        el.setAttribute(A.entering, '');
+        setVisible(true);
+        void el.offsetWidth;
+        requestAnimationFrame(function() {
+          if (el.isConnected) el.removeAttribute(A.entering);
+        });
+      }
+    });
+
+    var offActivate = emitter.on(events.activate, function(e) {
+      var newVisible = !!value(ctx, e);
+      if (newVisible === wasVisible) return;
+      releasePin();
+      wasVisible = newVisible;
+
+      if (!newVisible) {
+        el.setAttribute(A.hidden, '');
+        el.removeAttribute(A.hiding);
+        setVisible(false);
+      } else {
+        el.removeAttribute(A.showing);
+      }
+    });
+
+    var offAbort = emitter.on(events.abort, function() {
+      var newVisible = !!value(ctx);
+      if (newVisible === wasVisible) return;
+      accompanySettle(el, wasVisible);
+    });
+
+    return function() {
+      offMount();
+      offActivate();
+      offAbort();
+      releasePin();
+    };
+  };
+}
+
+export function screenHostInteraction(screenHost) {
+  return function(action, selector, value, ctx) {
+    return screenHost.on(action, function(e) { value(e, ctx); });
   };
 }

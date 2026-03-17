@@ -65,12 +65,15 @@ Rationale: Even when supported, these features can hide branching/error paths. E
 ## 6. Source Hygiene
 
 All Fstage module source files SHOULD:
-- Use UTF-8 encoding
-- Use LF (`\n`) line endings
+- Use UTF-8 file encoding
+- Ue LF (`\n`) line endings
+- Avoid non-ASCII characters, where possible
 - Prefer tab indentation to keep diffs compact
-- Avoid Windows-1252 "smart punctuation" bytes (e.g. `0x96`, `0x97`)
-
-Non-ASCII punctuation in comments is allowed only if it remains valid UTF-8, but plain ASCII is preferred.
+- Use exactly two new lines between function/method/class definitions
+- Have opening function braces on the same line as the declaration (e.g., func() {)
+- Avoid function braces on a single line (the body must be on a new line)
+- Avoid multiple contiguous whitespace characters on the same line
+- Avoid Windows-1252 "smart punctuation" bytes (e.g., 0x96, 0x97)
 
 ---
 

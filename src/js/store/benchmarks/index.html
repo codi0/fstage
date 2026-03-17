@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8" />
+	<title>fstage store — benchmarks</title>
+</head>
+<body>
+	<h2>fstage store benchmarks</h2>
+	<p>View results in devtools console.</p>
+	<button onclick="runBenchmarks()">Run benchmarks</button>
+	<script type="module">
+		import { runBenchmarks } from './bench.mjs';
+		globalThis.runBenchmarks = runBenchmarks;
+	</script>
+</body>
+</html>

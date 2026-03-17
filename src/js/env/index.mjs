@@ -1,16 +1,16 @@
-// Helpers
+// CACHE
 
 const _cache = {};
 
+// HELPERS
+
 function merge(target, src) {
 	for (var k in src) {
-		var v = src[k];
-		//replace array?
+		const v = src[k];
 		if (Array.isArray(v)) {
 			target[k] = v.slice();
 			continue;
 		}
-		//merge object?
 		if (v && typeof v === 'object') {
 			if (!target[k] || typeof target[k] !== 'object' || Array.isArray(target[k])) {
 				target[k] = {};
@@ -18,7 +18,6 @@ function merge(target, src) {
 			merge(target[k], v);
 			continue;
 		}
-		//primitive
 		target[k] = v;
 	}
 	return target;
@@ -29,33 +28,32 @@ function formatPath(path) {
 }
 
 function formatBasePath(path) {
-	path = formatPath(path);
-	var parts = path.replace(/\/$/g, '').split('/');
+	const parts = formatPath(path).replace(/\/$/g, '').split('/');
 	if(parts[parts.length-1].indexOf('.') !== -1) parts.pop();
 	return parts.join('/') + '/';
 }
 
 function parseUa(ua) {
-	var res = {
+	const res = {
 		os: '',
-		class: 'desktop'
+		deviceClass: 'desktop'
 	};
 
 	if(!ua) return res;
 
-	var isIPadOS = globalThis.navigator && navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+	const isIPadOS = globalThis.navigator && navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
 
 	if(/Android/i.test(ua)) {
 		res.os = 'android';
-		res.class = 'mobile';
+		res.deviceClass = 'mobile';
 	}
 	else if(/iPad|iPhone|watchOS/i.test(ua) || isIPadOS) {
 		res.os = 'ios';
-		res.class = 'mobile';
+		res.deviceClass = 'mobile';
 	}
 	else if(/Windows Phone/i.test(ua)) {
 		res.os = 'windows';
-		res.class = 'mobile';
+		res.deviceClass = 'mobile';
 	}
 	else if(/Windows/i.test(ua)) {
 		res.os = 'windows';
@@ -67,257 +65,110 @@ function parseUa(ua) {
 	return res;
 }
 
+function getCacheKey(ua, preset) {
+	return String(ua || '') + '::' + String(preset || '');
+}
 
-// Build env
+function camelToKebab(str) {
+	return str.replace(/([A-Z])/g, function(m) { return '-' + m.toLowerCase(); });
+}
 
-export function getEnv(opts) {
-	opts = opts || {};
-
-	//set user agent
-	const ua = opts.ua || (globalThis.navigator ? navigator.userAgent : '');
-
-	//is cached?
-	if (_cache[ua]) {
-		return _cache[ua];
+function isReservedKey(obj, reserved) {
+	if (!reserved || !obj || typeof obj !== 'object') {
+		return false;
 	}
-
-	var parsedUa = parseUa(ua);
-
-	var raw = {
-
-		runtime: {
-			browser: false,
-			node: false,
-			worker: false
-		},
-
-		device: {
-			userAgent: ua,
-			class: parsedUa.class
-		},
-
-		platform: {
-			os: opts.preset || parsedUa.os,
-			hybrid: false,
-			hybridEngine: '',
-			standalone: (globalThis.matchMedia && globalThis.matchMedia('(display-mode: standalone)').matches) || (globalThis.navigator && navigator.standalone === true)
-		},
-
-		capabilities: {
-			notifications: ('Notification' in globalThis),
-			serviceWorker: globalThis.navigator && ('serviceWorker' in globalThis.navigator),
-			touch: (!!opts.preset) || (globalThis.navigator && navigator.maxTouchPoints > 0)
-		},
-
-		location: {
-			host: globalThis.location ? location.protocol + "//" + location.hostname : '',
-			basePath: globalThis.location ? location.href : ''
-		}
-	};
-
-	// runtime detection
-	if(typeof __filename !== 'undefined') {
-		raw.runtime.node = true;
-		raw.location.basePath = process.cwd().replace(/\\/g,'/');
-	} else if(typeof WorkerGlobalScope !== 'undefined' && typeof self !== 'undefined' && self instanceof WorkerGlobalScope) {
-		raw.runtime.worker = true;
-	} else if(typeof window !== 'undefined') {
-		raw.runtime.browser = true;
-		raw.location.basePath = (document.querySelector('base')||{}).href || raw.location.basePath;
+	for (var k in obj) {
+		if (reserved.includes(k)) return true;
 	}
+	return false;
+}
 
-	// hybrid detection
-	if(globalThis.Capacitor && typeof globalThis.Capacitor.isNativePlatform === 'function' && globalThis.Capacitor.isNativePlatform()) {
-		raw.platform.hybrid = true;
-		raw.platform.hybridEngine = 'capacitor';
-	} else if(globalThis._cordovaNative) {
-		raw.platform.hybrid = true;
-		raw.platform.hybridEngine = 'cordova';
-	}
+function policyToCssArr(policy, reserved) {
+	const vars = [];
 
-	// format base path
-	raw.location.basePath = formatBasePath(raw.location.basePath);
+	function walk(obj, path) {
+		if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return;
+		if (isReservedKey(obj, reserved)) return;
 
-	// policy layering
-	var policyStack = []; // [{ fnOrObj, priority }]
-	var resolvedPolicy = null;
+		for (const key in obj) {
+			if (!Object.prototype.hasOwnProperty.call(obj, key)) continue;
+			const val = obj[key];
 
-	function getPath(obj, path) {
-
-		if(!obj || !path) return undefined;
-
-		var parts = path.split('.');
-		var cur = obj;
-
-		for(var i=0;i<parts.length;i++) {
-
-			if(cur && typeof cur === 'object' && parts[i] in cur) {
-				cur = cur[parts[i]];
-			} else {
-				return undefined;
-			}
-		}
-
-		return cur;
-	}
-
-	function resolvePolicy(e) {
-
-		if(resolvedPolicy) return resolvedPolicy;
-
-		var res = {};
-
-		// sort by priority ascending
-		var sorted = policyStack.slice().sort(function(a,b) {
-			return a.priority - b.priority;
-		});
-
-		for(var i=0;i<sorted.length;i++) {
-
-			var p = sorted[i].policy;
-
-			if(typeof p === 'function') {
-				p = p(e) || {};
+			if (val !== null && typeof val === 'object' && !Array.isArray(val)) {
+				walk(val, path.concat(key));
+				continue;
 			}
 
-			merge(res, p);
+			if (
+				typeof val !== 'string' &&
+				typeof val !== 'number' &&
+				typeof val !== 'boolean'
+			) continue;
+
+			const segments = path.concat(key).map(camelToKebab);
+			let cssVal = String(val);
+
+			if (key.endsWith('Ms')) {
+				segments[segments.length - 1] = camelToKebab(key.slice(0, -2));
+				cssVal = val + 'ms';
+			} else if (key.endsWith('Px')) {
+				segments[segments.length - 1] = camelToKebab(key.slice(0, -2));
+				cssVal = val + 'px';
+			}
+
+			vars.push(`--${segments.join('-')}: ${cssVal};`);
 		}
-
-		resolvedPolicy = res;
-
-		return res;
 	}
-	
-	var env = {
-	
-		raw: Object.freeze(raw),
 
-		getFact: function(path, fallback) {
-			var v = getPath(raw, path);
-			return (typeof v === 'undefined') ? fallback : v;
-		},
+	walk(policy, []);
 
-		getPolicy: function(path, fallback) {
-			var p = resolvePolicy(this);
-			var v = path ? getPath(p, path) : p;
-			return (typeof v === 'undefined') ? fallback : v;
-		},
+	return vars;
+}
 
-		registerPolicy: function(policy, priority) {
-			if(!policy) return;
+// POLICY KEY NAMING CONVENTION
+//
+// Structure:  domain -> feature -> token
+//             e.g.  gestures.edgePan.edgeWidthPx
+//
+// Casing:     camelCase for all JS keys
+//
+// Units:      Suffix raw numbers with their unit: Ms, Px
+//             Omit suffix for unitless ratios and booleans
+//             e.g.  durationMs: 400   edgeWidthPx: 24   commitThreshold: 0.35
+//
+// Naming:     Prefer semantic names — duration.normalMs not durationNormal
+//             Use nouns for domain/feature segments
+//             Only use from/to inside animation descriptors
+//             Make context explicit — transitions.pageNavigation.forward
+//             not motion.forward
+//
+// Keyframes:  Defined under transitions.<feature>.<direction>
+//             motion holds only duration and easing — never keyframes
+//
+// CSS output: CSS var names derived independently from JS keys
+//             JS: edgeWidthPx   CSS: --policy-gestures-edge-pan-edge-width
 
-			policyStack.push({
-				policy: policy,
-				priority: priority || 0
-			});
-			
-			resolvedPolicy = null;
-		},
+function policyDefaults() {
+	return {
 
-		hasCap: function(name) {
-			var p = resolvePolicy(this);
-			var caps = p.caps || {};
-			if(name in caps) return !!caps[name];
-
-			var rawCaps = raw.capabilities || {};
-			if(name in rawCaps) return !!rawCaps[name];
-
-			return false;
-		}
-	
-	};
-
-	// default policy
-	env.registerPolicy(function(e) {
-
-		var os = e.getFact('platform.os');
-		var isHybrid = e.getFact('platform.hybrid');
-		var isTouch = e.getFact('capabilities.touch');
-		var isAndroidIos = ['ios', 'android'].includes(os);
-		var preset = (isTouch && isAndroidIos) ? os : 'default';
-
-		var presetObj = {
-
-			default: function() {
-				return {};
+		default: {
+			haptics: {
+				minGapMs:         24,
+				fallbackLightMs:  8,
+				fallbackMediumMs: 14,
+				fallbackHeavyMs:  20
 			},
-
-			android: function() {
-				return {
-					motion: {
-						durationNormal: 250,
-						easing: 'cubic-bezier(0.2,0,0,1)',
-						keyframes: {
-							forward: {
-								from: [
-									{ transform: 'scale(1)',    opacity: 1 },
-									{ transform: 'scale(1.04)', opacity: 0 }
-								],
-								to: [
-									{ transform: 'scale(0.92)', opacity: 0 },
-									{ transform: 'scale(1)',    opacity: 1 }
-								]
-							},
-							back: {
-								from: [
-									{ transform: 'scale(1)',    opacity: 1 },
-									{ transform: 'scale(0.92)', opacity: 0 }
-								],
-								to: [
-									{ transform: 'scale(1.04)', opacity: 0 },
-									{ transform: 'scale(1)',    opacity: 1 }
-								]
-							}
-						}
-					}
-				};
-			},
-
-			ios: function() {
-				return {
-					gestures: {
-						edgePan: { edgeWidth: 44 }
-					},
-					motion: {
-						durationNormal: 350,
-						easing: 'cubic-bezier(0.4,0,0.2,1)',
-						keyframes: {
-							forward: {
-								from: [
-									{ transform: 'translate3d(0,0,0)',    opacity: 1    },
-									{ transform: 'translate3d(-20%,0,0)', opacity: 0.98 }
-								],
-								to: [
-									{ transform: 'translate3d(100%,0,0)', opacity: 0.98 },
-									{ transform: 'translate3d(0,0,0)',    opacity: 1    }
-								]
-							},
-							back: {
-								from: [
-									{ transform: 'translate3d(0,0,0)',    opacity: 1 },
-									{ transform: 'translate3d(100%,0,0)', opacity: 1 }
-								],
-								to: [
-									{ transform: 'translate3d(-20%,0,0)', opacity: 0.98 },
-									{ transform: 'translate3d(0,0,0)',    opacity: 1    }
-								]
-							}
-						}
-					}
-				};
-			}
-
-		};
-
-		return merge({
-
 			motion: {
-				durationNormal: 200,
 				easing: 'ease',
-				keyframes: {
+				duration: {
+					normalMs: 200
+				}
+			},
+			transitions: {
+				pageNavigation: {
 					forward: {
 						from: [
-							{ transform: 'translateX(0)',   opacity: 1 },
+							{ transform: 'translateX(0)',     opacity: 1 },
 							{ transform: 'translateX(-10px)', opacity: 0 }
 						],
 						to: [
@@ -335,26 +186,276 @@ export function getEnv(opts) {
 							{ transform: 'translateX(0)',     opacity: 1 }
 						]
 					}
+				},
+				edgePan: {
+					back: {
+						from: [
+							{ transform: 'translate3d(0,0,0)',    opacity: 1 },
+							{ transform: 'translate3d(100%,0,0)', opacity: 1 }
+						],
+						to: [
+							{ transform: 'translate3d(-20%,0,0)', opacity: 0.98 },
+							{ transform: 'translate3d(0,0,0)',    opacity: 1    }
+						]
+					}
 				}
 			},
-
 			gestures: {
 				edgePan: {
-					enabled: isTouch,
-					edgeWidth: 24,
-					commitThreshold: 0.35,
-					velocityThreshold: 0.35
+					edgeWidthPx:        24,
+					minSwipeDistancePx: 10,
+					commitThreshold:    0.35,
+					velocityThreshold:  0.35
+				},
+				swipe: {
+					threshold:          0.35,
+					velocityThreshold:  0.4,
+					resistanceFactor:   0.3
+				},
+				longPress: {
+					durationMs:         400,
+					moveThresholdPx:    8
+				},
+				tap: {
+					maxDistancePx:      10,
+					maxDurationMs:      350
 				}
 			}
+		},
 
-		}, presetObj[preset]());
+		android: {
+			motion: {
+				easing: 'cubic-bezier(0.2,0,0,1)',
+				duration: {
+					normalMs: 250
+				}
+			},
+			transitions: {
+				pageNavigation: {
+					forward: {
+						from: [
+							{ transform: 'scale(1)',    opacity: 1 },
+							{ transform: 'scale(1.04)', opacity: 0 }
+						],
+						to: [
+							{ transform: 'scale(0.92)', opacity: 0 },
+							{ transform: 'scale(1)',    opacity: 1 }
+						]
+					},
+					back: {
+						from: [
+							{ transform: 'scale(1)',    opacity: 1 },
+							{ transform: 'scale(0.92)', opacity: 0 }
+						],
+						to: [
+							{ transform: 'scale(1.04)', opacity: 0 },
+							{ transform: 'scale(1)',    opacity: 1 }
+						]
+					}
+				}
+			}
+		},
 
-	});
+		ios: {
+			gestures: {
+				edgePan: { edgeWidthPx: 44 }
+			},
+			motion: {
+				easing: 'cubic-bezier(0.4,0,0.2,1)',
+				duration: {
+					normalMs: 350
+				}
+			},
+			transitions: {
+				pageNavigation: {
+					forward: {
+						from: [
+							{ transform: 'translate3d(0,0,0)',    opacity: 1    },
+							{ transform: 'translate3d(-20%,0,0)', opacity: 0.98 }
+						],
+						to: [
+							{ transform: 'translate3d(100%,0,0)', opacity: 0.98 },
+							{ transform: 'translate3d(0,0,0)',    opacity: 1    }
+						]
+					},
+					back: {
+						from: [
+							{ transform: 'translate3d(0,0,0)',    opacity: 1 },
+							{ transform: 'translate3d(100%,0,0)', opacity: 1 }
+						],
+						to: [
+							{ transform: 'translate3d(-20%,0,0)', opacity: 0.98 },
+							{ transform: 'translate3d(0,0,0)',    opacity: 1    }
+						]
+					}
+				},
+				edgePan: {
+					back: {
+						from: [
+							{ transform: 'translate3d(0,0,0)',    opacity: 1 },
+							{ transform: 'translate3d(100%,0,0)', opacity: 1 }
+						],
+						to: [
+							{ transform: 'translate3d(-20%,0,0)', opacity: 0.98 },
+							{ transform: 'translate3d(0,0,0)',    opacity: 1    }
+						]
+					}
+				}
+			}
+		}
+
+	};
+}
+
+// EXPORTS
+
+export function getEnv(opts) {
+	opts = opts || {};
+
+	const ua = opts.ua || (globalThis.navigator ? navigator.userAgent : '');
+	const preset = opts.preset || '';
+	const cacheKey = getCacheKey(ua, preset);
+
+	if (_cache[cacheKey]) {
+		return _cache[cacheKey];
+	}
+
+	// FACTS
 	
-	//add to cache
-	_cache[ua] = env;
+	const parsedUa = parseUa(ua);
+
+	const facts = {
+		preset: preset,
+		userAgent: ua,
+		os: preset || parsedUa.os,
+		deviceClass: parsedUa.deviceClass,
+		hybrid: false,
+		hybridEngine: '',
+		standalone: !!(globalThis.matchMedia && globalThis.matchMedia('(display-mode: standalone)').matches) || (globalThis.navigator && navigator.standalone === true),
+		touch: !!(globalThis.navigator && navigator.maxTouchPoints > 0),
+		notifications: !!('Notification' in globalThis),
+		serviceWorker: !!(globalThis.navigator && ('serviceWorker' in globalThis.navigator)),
+		browser: false,
+		node: false,
+		worker: false,
+		host: globalThis.location ? location.protocol + '//' + location.hostname : '',
+		basePath: globalThis.location ? location.href : ''
+	};
+
+	//runtime detection
+	if(typeof __filename !== 'undefined') {
+		facts.node = true;
+		facts.basePath = process.cwd().replace(/\\/g, '/');
+	} else if(typeof WorkerGlobalScope !== 'undefined' && typeof self !== 'undefined' && self instanceof WorkerGlobalScope) {
+		facts.worker = true;
+	} else if(typeof window !== 'undefined') {
+		facts.browser = true;
+		facts.basePath = (document.querySelector('base') || {}).href || facts.basePath;
+	}
+
+	//hybrid detection
+	if(globalThis.Capacitor && typeof globalThis.Capacitor.isNativePlatform === 'function' && globalThis.Capacitor.isNativePlatform()) {
+		facts.hybrid = true;
+		facts.hybridEngine = 'capacitor';
+	} else if(globalThis._cordovaNative) {
+		facts.hybrid = true;
+		facts.hybridEngine = 'cordova';
+	}
+
+	//format base path
+	facts.basePath = formatBasePath(facts.basePath);
+	
+	// POLICY
+
+	var applied = false;
+	var policyStack = [];
+	var resolvedPolicy = null;
+
+	function resolvePolicy() {
+		if (resolvedPolicy) {
+			return resolvedPolicy;
+		}
+
+		const res = {};
+		const sorted = policyStack.slice().sort(function(a, b) { return a.priority - b.priority; });
+
+		for (var i = 0; i < sorted.length; i++) {
+			var p = sorted[i].policy;
+			if (typeof p === 'function') p = p(facts) || {};
+			merge(res, p);
+		}
+
+		resolvedPolicy = res;
+		return res;
+	}
+	
+	//default policy
+	const priority = 0;
+	const policies = policyDefaults();
+	const policy = Object.assign({}, policies.default);
+	
+	//extend policy?
+	if (facts.os && policies[facts.os]) {
+		merge(policy, policies[facts.os]);
+	}
+	
+	//register default policy
+	policyStack.push({ policy, priority });
+
+	//cache object
+	_cache[cacheKey] = {
+		getFacts: function() {
+			return Object.assign({}, facts);
+		},
+
+		registerPolicy: function(policy, priority = 50) {
+			policyStack.push({ policy, priority });
+			resolvedPolicy = null;
+		},
+
+		getPolicy: function(path, fallback) {
+			var p = resolvePolicy();
+			if (!path) return p;
+
+			var val = p;
+			var parts = path.split('.');
+			for (var i = 0; i < parts.length; i++) {
+				if (val && typeof val === 'object' && parts[i] in val) {
+					val = val[parts[i]];
+				} else {
+					return (typeof fallback !== 'undefined') ? fallback : undefined;
+				}
+			}
+			return val;
+		},
+
+			applyToDoc: function(el) {
+				if (applied) return;
+				applied = true;
+
+				el = el || document.documentElement;
+
+				el.setAttribute('data-platform', facts.os || 'web');
+				if (facts.hybrid)     el.setAttribute('data-hybrid', '');
+				if (facts.standalone) el.setAttribute('data-standalone', '');
+
+				if (globalThis.visualViewport) {
+					function sync() {
+						var kh = Math.max(0, globalThis.innerHeight - globalThis.visualViewport.offsetTop - globalThis.visualViewport.height);
+						el.style.setProperty('--keyboard-height', Math.round(kh) + 'px');
+					}
+					sync();
+					globalThis.visualViewport.addEventListener('resize', sync);
+					globalThis.visualViewport.addEventListener('scroll', sync);
+				}
+				
+				const vars = policyToCssArr(resolvePolicy(), [ 'from', 'to', 'keyframes' ]);
+				const style = document.createElement('style');
+				style.textContent = ":root {\n" + vars.join("\n") + "\n}";
+				el.querySelector('head, body').appendChild(style);
+			}
+	};
 
 	//return
-	return env;
-
+	return _cache[cacheKey]
 }

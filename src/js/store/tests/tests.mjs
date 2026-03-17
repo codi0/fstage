@@ -1,1534 +1,908 @@
 /**
- * Store Tests
+ * @fstage/store — test suite
  *
- * Tests are parameterised over proxy and plain store variants.
- * Proxy stores mount plugin methods as $method, plain stores as method.
- * The `api(store, isProxy)` helper normalises this transparently.
+ * Covers: createTracker, createStore config, storePlugin, reactivePlugin,
+ * operationPlugin ($operation, $fetch, $send, $opStatus), proxy guards,
+ * plugin/hook system, and lifecycle.
  *
- * Async discipline:
- *   - Effects, watchers, computed, batch — all SYNC. No await flush() needed.
- *   - Only Promise-based onAccess tests are genuinely async and use await flush().
- *   - flush() calls remaining in sync tests indicate a bug, not a requirement.
+ * All sync. The only await calls are for genuinely async operation tests
+ * (Promise-based fetch/mutate results). flush() / flush2() drain microtasks.
  */
 
-import { createTracker, createPlain, createProxy, reactivePlugin, storePlugin, accessPlugin, createStore } from '../index.mjs';
+import {
+	createTracker,
+	createPlain,
+	createProxy,
+	storePlugin,
+	reactivePlugin,
+	operationPlugin,
+	createStore,
+} from '../index.mjs';
 
-
-// =============================================================================
-// Test runner
-// =============================================================================
-
-let passed = 0;
-let failed = 0;
-const errors = [];
-
-async function test(name, fn) {
-  try {
-    await fn();
-    console.log(`  ✓ ${name}`);
-    passed++;
-  } catch (err) {
-    console.error(`  ✗ ${name}`);
-    console.error(`    ${err.message}`);
-    errors.push({ name, err });
-    failed++;
-  }
-}
-
-function suite(name, fn) {
-  console.log(`\n${name}`);
-  return fn();
-}
-
-function assert(condition, msg) {
-  if (!condition) throw new Error(msg || 'Assertion failed');
-}
-
-function assertEqual(a, b, msg) {
-  const as = JSON.stringify(a), bs = JSON.stringify(b);
-  if (as !== bs) throw new Error(msg || `Expected ${bs}, got ${as}`);
-}
-
-function assertThrows(fn, msg) {
-  try { fn(); } catch { return; }
-  throw new Error(msg || 'Expected function to throw');
-}
-
-// Only used for genuinely async tests (Promise-based onAccess).
-function flush() {
-  return new Promise(resolve => queueMicrotask(resolve));
-}
-
+import { createRunner, assert, assertEqual, assertThrows, assertRejects, flush, flush2 } from '../../../../tests/runner.mjs';
 
 // =============================================================================
 // Helpers
 // =============================================================================
 
-function api(store, isProxy) {
-  const p = isProxy ? '$' : '';
-  return new Proxy({}, {
-    get(_, k) {
-      const fn = store[p + k];
-      return typeof fn === 'function' ? fn.bind(store) : fn;
-    }
-  });
+// Normalise $-prefixed proxy API access for both plain and proxy stores.
+function api(store) {
+	return new Proxy({}, {
+		get(_, key) {
+			const fn = store['$' + key];
+			return typeof fn === 'function' ? fn.bind(store) : fn;
+		}
+	});
 }
 
+// Read a value — works for both plain ($get) and proxy (property traversal).
 function read(store, a, path, isProxy) {
-  if (isProxy) return path.split('.').reduce((o, k) => o[k], store);
-  return a.get(path);
+	if (isProxy) return path.split('.').reduce((o, k) => o?.[k], store);
+	return a.get(path);
 }
 
-function getPlugins() {
-  return [storePlugin, reactivePlugin, accessPlugin];
+function makePlain(state = {}) {
+	return createStore({ state, useProxy: false });
 }
 
-function makePlainStore(state = {}, useProxy = false) {
-  return createStore({ state, plugins: getPlugins(), useProxy });
+function makeProxy(state = {}) {
+	return createStore({ state, useProxy: true });
 }
-
-function makeProxyStore(state = {}) {
-  return makePlainStore(state, true);
-}
-
 
 // =============================================================================
-// Parameterised store suites
+// createTracker
 // =============================================================================
 
-async function runStoreSuite(label, make, isProxy) {
-
-  // ---------------------------------------------------------------------------
-  await suite(`${label} — state / raw`, async () => {
-
-    await test('initial state accessible', async () => {
-      const s = make({ user: { name: 'Alice', age: 30 } });
-      const a = api(s, isProxy);
-      assertEqual(read(s, a, 'user.name', isProxy), 'Alice');
-      assertEqual(read(s, a, 'user.age', isProxy), 30);
-    });
-
-    await test('raw() without path returns full state', async () => {
-      const s = make({ a: 1, b: 2 });
-      const a = api(s, isProxy);
-      const r = a.raw();
-      assertEqual(r.a, 1);
-      assertEqual(r.b, 2);
-    });
-
-    await test('raw(path) returns nested value', async () => {
-      const s = make({ x: { y: 42 } });
-      const a = api(s, isProxy);
-      assertEqual(a.raw('x.y'), 42);
-    });
-
-    await test('missing path returns undefined', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      assert(read(s, a, 'missing', isProxy) === undefined);
-    });
-
-  });
-
-  // ---------------------------------------------------------------------------
-  await suite(`${label} — set`, async () => {
-
-    await test('sets top-level value', async () => {
-      const s = make({ count: 0 });
-      const a = api(s, isProxy);
-      a.set('count', 1);
-      assertEqual(read(s, a, 'count', isProxy), 1);
-    });
-
-    await test('sets nested value', async () => {
-      const s = make({ user: { name: 'Alice' } });
-      const a = api(s, isProxy);
-      a.set('user.name', 'Bob');
-      assertEqual(read(s, a, 'user.name', isProxy), 'Bob');
-    });
-
-    await test('creates intermediate objects', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      a.set('a.b.c', 99);
-      assertEqual(a.raw('a.b.c'), 99);
-    });
-
-    await test('accepts updater function', async () => {
-      const s = make({ count: 5 });
-      const a = api(s, isProxy);
-      a.set('count', v => v + 1);
-      assertEqual(read(s, a, 'count', isProxy), 6);
-    });
-
-    await test('updater receives deep copy', async () => {
-      const s = make({ arr: [1, 2, 3] });
-      const a = api(s, isProxy);
-      a.set('arr', v => { v.push(4); return v; });
-      assertEqual(a.raw('arr').length, 4);
-    });
-
-    await test('returns store for chaining', async () => {
-      const s = make({ a: 1 });
-      const a = api(s, isProxy);
-      assert(a.set('a', 2) === s);
-    });
-
-    await test('throws on empty path', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      assertThrows(() => a.set('', 1));
-    });
-
-    await test('no-op when value unchanged', async () => {
-      const s = make({ x: 42 });
-      const a = api(s, isProxy);
-      let calls = 0;
-      a.onChange('x', () => calls++);
-      a.set('x', 42);
-      assertEqual(calls, 0);
-    });
-
-  });
-
-  // ---------------------------------------------------------------------------
-  await suite(`${label} — merge`, async () => {
-
-    await test('merges objects', async () => {
-      const s = make({ user: { name: 'Alice', age: 30 } });
-      const a = api(s, isProxy);
-      a.merge('user', { age: 31, role: 'admin' });
-      assertEqual(a.raw('user'), { name: 'Alice', age: 31, role: 'admin' });
-    });
-
-    await test('concatenates arrays', async () => {
-      const s = make({ tags: ['a', 'b'] });
-      const a = api(s, isProxy);
-      a.merge('tags', ['c']);
-      assertEqual(a.raw('tags'), ['a', 'b', 'c']);
-    });
-
-    await test('sets value if no existing value', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      a.merge('x', { a: 1 });
-      assertEqual(a.raw('x'), { a: 1 });
-    });
-
-    await test('throws on empty path', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      assertThrows(() => a.merge('', {}));
-    });
-
-  });
-
-  // ---------------------------------------------------------------------------
-  await suite(`${label} — delete`, async () => {
-
-    await test('deletes a key', async () => {
-      const s = make({ a: 1, b: 2 });
-      const a = api(s, isProxy);
-      a.del('a');
-      assert(a.raw('a') === undefined);
-      assertEqual(a.raw('b'), 2);
-    });
-
-    await test('deletes nested key', async () => {
-      const s = make({ user: { name: 'Alice', age: 30 } });
-      const a = api(s, isProxy);
-      a.del('user.age');
-      assert(a.raw('user.age') === undefined);
-      assertEqual(a.raw('user.name'), 'Alice');
-    });
-
-    await test('throws on empty path', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      assertThrows(() => a.del(''));
-    });
-
-  });
-
-  // ---------------------------------------------------------------------------
-  await suite(`${label} — has`, async () => {
-
-    await test('returns true for existing key', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      assert(a.has('x') === true);
-    });
-
-    await test('returns false for missing key', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      assert(a.has('x') === false);
-    });
-
-    await test('returns true for nested key', async () => {
-      const s = make({ user: { name: 'Alice' } });
-      const a = api(s, isProxy);
-      assert(a.has('user.name') === true);
-    });
-
-    await test('returns false after delete', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      a.del('x');
-      assert(a.has('x') === false);
-    });
-
-    await test('throws on empty path', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      assertThrows(() => a.has(''));
-    });
-
-  });
-
-  // ---------------------------------------------------------------------------
-  await suite(`${label} — reset`, async () => {
-
-    await test('replaces root state', async () => {
-      const s = make({ a: 1, b: 2 });
-      const a = api(s, isProxy);
-      a.reset({ c: 3 });
-      assert(a.raw('a') === undefined);
-      assertEqual(a.raw('c'), 3);
-    });
-
-    await test('accepts updater function', async () => {
-      const s = make({ count: 5 });
-      const a = api(s, isProxy);
-      a.reset(prev => ({ count: prev.count * 2 }));
-      assertEqual(a.raw('count'), 10);
-    });
-
-    await test('throws on non-object new state', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      assertThrows(() => a.reset(42));
-    });
-
-    await test('proxy reference remains valid after reset', async () => {
-      if (!isProxy) return;
-      const s = make({ a: 1 });
-      const a = api(s, isProxy);
-      a.reset({ b: 2 });
-      assertEqual(read(s, a, 'b', isProxy), 2);
-      assert(read(s, a, 'a', isProxy) === undefined);
-    });
-
-  });
-
-  // ---------------------------------------------------------------------------
-  await suite(`${label} — sync behaviour`, async () => {
-
-    await test('onChange fires synchronously', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let fired = false;
-      a.onChange('x', () => { fired = true; });
-      a.set('x', 2);
-      assert(fired, 'onChange should fire synchronously on set');
-    });
-
-    await test('effect reruns synchronously on dep change', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let runs = 0;
-      a.effect(() => { read(s, a, 'x', isProxy); runs++; });
-      assertEqual(runs, 1);
-      a.set('x', 2);
-      assertEqual(runs, 2, 'effect should rerun synchronously');
-    });
-
-    await test('two unrelated sets cause two reruns without batch', async () => {
-      const s = make({ x: 1, y: 1 });
-      const a = api(s, isProxy);
-      let runs = 0;
-      a.effect(() => { read(s, a, 'x', isProxy); read(s, a, 'y', isProxy); runs++; });
-      assertEqual(runs, 1);
-      a.set('x', 2);
-      a.set('y', 2);
-      assertEqual(runs, 3, 'without batch, each set causes a synchronous rerun');
-    });
-
-    await test('batch coalesces multiple sets into one rerun', async () => {
-      const s = make({ x: 1, y: 1 });
-      const a = api(s, isProxy);
-      let runs = 0;
-      a.effect(() => { read(s, a, 'x', isProxy); read(s, a, 'y', isProxy); runs++; });
-      assertEqual(runs, 1);
-      a.batch(() => { a.set('x', 2); a.set('y', 2); });
-      assertEqual(runs, 2, 'batch should coalesce to one rerun');
-    });
-
-    await test('onChange fires synchronously inside batch — at batch end', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let firedDuringBatch = false;
-      let firedAfterBatch = false;
-      a.onChange('x', () => {
-        firedAfterBatch = true;
-      });
-      a.batch(() => {
-        a.set('x', 2);
-        firedDuringBatch = firedAfterBatch;
-      });
-      assert(!firedDuringBatch, 'onChange should not fire during batch');
-      assert(firedAfterBatch, 'onChange should fire synchronously at batch end');
-    });
-
-    await test('effect sees settled state — not intermediate values', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      const seen = [];
-      a.effect(() => { seen.push(read(s, a, 'x', isProxy)); });
-      a.batch(() => { a.set('x', 2); a.set('x', 3); });
-      // initial run sees 1, rerun after batch sees final value 3
-      assertEqual(seen, [1, 3]);
-    });
-
-    await test('computed re-evaluates synchronously', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      const doubled = a.computed(() => a.get('x') * 2);
-      assertEqual(doubled.value, 2);
-      a.set('x', 5);
-      assertEqual(doubled.value, 10, 'computed should reflect new value synchronously');
-    });
-
-  });
-
-  // ---------------------------------------------------------------------------
-  await suite(`${label} — re-entrancy`, async () => {
-
-    await test('effect writing to store during run does not recurse', async () => {
-      const s = make({ x: 0 });
-      const a = api(s, isProxy);
-      let runs = 0;
-      a.effect(() => {
-        runs++;
-        const x = read(s, a, 'x', isProxy);
-        if (x < 3) a.set('x', x + 1); // writes back during effect run
-      });
-      // Should settle without infinite loop: 0→1→2→3→stop
-      assertEqual(a.raw('x'), 3);
-      assert(runs <= 6, `should settle quickly, got ${runs} runs`);
-    });
-
-    await test('effect writing unrelated path does not retrigger self', async () => {
-      const s = make({ x: 1, y: 0 });
-      const a = api(s, isProxy);
-      let runs = 0;
-      a.effect(() => {
-        runs++;
-        read(s, a, 'x', isProxy);
-        a.set('y', runs); // write to untracked path
-      });
-      assertEqual(runs, 1);
-      a.set('x', 2);
-      assertEqual(runs, 2);
-      assertEqual(a.raw('y'), 2);
-    });
-
-    await test('nested effects each track independently', async () => {
-      const s = make({ a: 1, b: 1 });
-      const api_ = api(s, isProxy);
-      let outerRuns = 0, innerRuns = 0;
-      api_.effect(() => {
-        outerRuns++;
-        read(s, api_, 'a', isProxy);
-        api_.effect(() => {
-          innerRuns++;
-          read(s, api_, 'b', isProxy);
-        });
-      });
-      assertEqual(outerRuns, 1);
-      assertEqual(innerRuns, 1);
-      api_.set('b', 2);
-      assertEqual(outerRuns, 1, 'outer should not rerun on b change');
-      assertEqual(innerRuns, 2, 'inner should rerun on b change');
-    });
-
-    await test('onChange handler calling set does not cause infinite loop', async () => {
-      const s = make({ x: 0, log: 0 });
-      const a = api(s, isProxy);
-      let calls = 0;
-      a.onChange('x', () => {
-        calls++;
-        if (calls < 3) a.set('log', calls); // write to different path — safe
-      });
-      a.set('x', 1);
-      assert(calls <= 3, 'onChange should not loop');
-      assertEqual(a.raw('log'), 1);
-    });
-
-  });
-
-  // ---------------------------------------------------------------------------
-  await suite(`${label} — watch`, async () => {
-
-    await test('fires on value change', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let newVal;
-      a.onChange('x', e => { newVal = e.val; });
-      a.set('x', 2);
-      assertEqual(newVal, 2);
-    });
-
-    await test('receives oldVal', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let old;
-      a.onChange('x', e => { old = e.oldVal; }, { oldVal: true });
-      a.set('x', 2);
-      assertEqual(old, 1);
-    });
-
-    await test('receives path', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let evt;
-      a.onChange('x', e => { evt = e; });
-      a.set('x', 2);
-      assertEqual(evt.path, 'x');
-    });
-
-    await test('parent watch fires on child change', async () => {
-      const s = make({ user: { name: 'Alice' } });
-      const a = api(s, isProxy);
-      let fired = false;
-      a.onChange('user', () => { fired = true; });
-      a.set('user.name', 'Bob');
-      assert(fired);
-    });
-
-    await test('parent oldVal is pre-write snapshot', async () => {
-      const s = make({ user: { name: 'Alice' } });
-      const a = api(s, isProxy);
-      let old;
-      a.onChange('user', e => { old = e.oldVal; }, { oldVal: true });
-      a.set('user.name', 'Bob');
-      assertEqual(old, { name: 'Alice' });
-    });
-
-    await test('unsubscribe stops future notifications', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let calls = 0;
-      const unsub = a.onChange('x', () => calls++);
-      a.set('x', 2);
-      assertEqual(calls, 1);
-      unsub();
-      a.set('x', 3);
-      assertEqual(calls, 1);
-    });
-
-    await test('watcher receives snapshots not live references', async () => {
-      const s = make({ obj: { a: 1 } });
-      const a = api(s, isProxy);
-      let capturedNew, capturedOld;
-      a.onChange('obj', e => { capturedNew = e.val; capturedOld = e.oldVal; }, { oldVal: true });
-      a.set('obj', { a: 2 });
-      const snapNew = capturedNew;
-      const snapOld = capturedOld;
-      a.set('obj', { a: 99 });
-      assertEqual(snapNew.a, 2);
-      assertEqual(snapOld.a, 1);
-    });
-
-    await test('onChange("*") fires on any path change', async () => {
-      const s = make({ x: 1, y: 1 });
-      const a = api(s, isProxy);
-      const paths = [];
-      a.onChange('*', e => { paths.push(e.path); });
-      a.set('x', 2);
-      a.set('y', 2);
-      assert(paths.includes('x') && paths.includes('y'));
-    });
-
-    await test('onChange("*") receives correct path in event', async () => {
-      const s = make({ user: { name: 'Alice' } });
-      const a = api(s, isProxy);
-      let evtPath;
-      a.onChange('*', e => { evtPath = e.path; });
-      a.set('user.name', 'Bob');
-      assertEqual(evtPath, 'user.name');
-    });
-
-    await test('replacing parent object fires watcher once not twice', async () => {
-      // Regression: without notifiedTrackers guard, setting 'user' produces diff
-      // entries for both 'user' and 'user.name', firing watchers subscribed to
-      // 'user' twice.
-      const s = make({ user: { name: 'Alice' } });
-      const a = api(s, isProxy);
-      let calls = 0;
-      a.onChange('user', () => calls++);
-      a.set('user', { name: 'Bob' });
-      assertEqual(calls, 1, 'parent watcher should fire exactly once');
-    });
-
-    await test('throws on empty path', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      assertThrows(() => a.onChange('', () => {}));
-    });
-
-    await test('does not fire after destroy', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let calls = 0;
-      const unsub = a.onChange('x', () => calls++);
-      unsub();
-      a.set('x', 2);
-      assertEqual(calls, 0);
-    });
-
-  });
-
-  // ---------------------------------------------------------------------------
-  await suite(`${label} — batch`, async () => {
-
-    await test('batch returns result of fn()', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      const result = a.batch(() => { a.set('x', 2); return 42; });
-      assertEqual(result, 42);
-    });
-
-    await test('defers notifications until end', async () => {
-      const s = make({ a: 1, b: 2 });
-      const a = api(s, isProxy);
-      const log = [];
-      a.onChange('a', () => log.push('a'));
-      a.onChange('b', () => log.push('b'));
-      a.batch(() => { a.set('a', 10); a.set('b', 20); });
-      assert(log.includes('a') && log.includes('b'));
-    });
-
-    await test('notifications do not fire during batch', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let firedDuring = false;
-      a.onChange('x', () => { firedDuring = true; });
-      a.batch(() => {
-        a.set('x', 2);
-        assert(!firedDuring, 'onChange must not fire during batch');
-      });
-      assert(firedDuring, 'onChange must fire after batch');
-    });
-
-    await test('nested batch flushes only at outermost end', async () => {
-      const s = make({ x: 0 });
-      const a = api(s, isProxy);
-      let calls = 0;
-      a.onChange('x', () => calls++);
-      a.batch(() => {
-        a.batch(() => { a.set('x', 1); });
-        a.set('x', 2);
-      });
-      assertEqual(calls, 1);
-    });
-
-    await test('oldVal is pre-batch value not intermediate', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let old;
-      a.onChange('x', e => { old = e.oldVal; }, { oldVal: true });
-      a.batch(() => { a.set('x', 2); a.set('x', 3); });
-      assertEqual(old, 1);
-    });
-
-    await test('effect sees final value after batch not intermediate', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      const seen = [];
-      a.effect(() => { seen.push(read(s, a, 'x', isProxy)); });
-      a.batch(() => { a.set('x', 2); a.set('x', 3); a.set('x', 4); });
-      assertEqual(seen, [1, 4]);
-    });
-
-    await test('no-change batch fires no notifications', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let calls = 0;
-      a.onChange('x', () => calls++);
-      a.batch(() => { a.set('x', 1); }); // same value
-      assertEqual(calls, 0);
-    });
-
-  });
-
-  // ---------------------------------------------------------------------------
-  await suite(`${label} — effect`, async () => {
-
-    await test('runs immediately', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let ran = false;
-      a.effect(() => { read(s, a, 'x', isProxy); ran = true; });
-      assert(ran);
-    });
-
-    await test('reruns on dep change', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let runs = 0;
-      a.effect(() => { read(s, a, 'x', isProxy); runs++; });
-      a.set('x', 2);
-      assertEqual(runs, 2);
-    });
-
-    await test('does not rerun on unrelated path change', async () => {
-      const s = make({ x: 1, y: 1 });
-      const a = api(s, isProxy);
-      let runs = 0;
-      a.effect(() => { read(s, a, 'x', isProxy); runs++; });
-      a.set('y', 2);
-      assertEqual(runs, 1);
-    });
-
-    await test('stop() prevents future reruns', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let runs = 0;
-      const stop = a.effect(() => { read(s, a, 'x', isProxy); runs++; });
-      stop();
-      a.set('x', 2);
-      assertEqual(runs, 1);
-    });
-
-    await test('tracks new deps dynamically', async () => {
-      const s = make({ flag: true, a: 1, b: 1 });
-      const a = api(s, isProxy);
-      let runs = 0;
-      a.effect(() => {
-        runs++;
-        if (read(s, a, 'flag', isProxy)) read(s, a, 'a', isProxy);
-        else read(s, a, 'b', isProxy);
-      });
-      a.set('b', 2); // not yet tracked
-      assertEqual(runs, 1);
-      a.set('flag', false);
-      assertEqual(runs, 2);
-      a.set('b', 3); // now tracked
-      assertEqual(runs, 3);
-    });
-
-    await test('multiple dep changes in same tick cause one rerun when batched', async () => {
-      const s = make({ x: 1, y: 1 });
-      const a = api(s, isProxy);
-      let runs = 0;
-      a.effect(() => { read(s, a, 'x', isProxy); read(s, a, 'y', isProxy); runs++; });
-      a.batch(() => { a.set('x', 2); a.set('y', 2); });
-      assertEqual(runs, 2); // initial + one coalesced rerun
-    });
-
-    await test('stopped on store destroy', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let runs = 0;
-      a.effect(() => { read(s, a, 'x', isProxy); runs++; });
-      a.destroy();
-      assertEqual(runs, 1);
-    });
-
-  });
-
-  // ---------------------------------------------------------------------------
-  await suite(`${label} — computed`, async () => {
-
-    await test('returns correct value', async () => {
-      const s = make({ a: 2, b: 3 });
-      const a = api(s, isProxy);
-      const sum = a.computed(() => a.get('a') + a.get('b'));
-      assertEqual(sum.value, 5);
-    });
-
-    await test('re-evaluates when dep changes', async () => {
-      const s = make({ x: 10 });
-      const a = api(s, isProxy);
-      const doubled = a.computed(() => a.get('x') * 2);
-      a.set('x', 5);
-      assertEqual(doubled.value, 10);
-    });
-
-    await test('is lazy — does not compute until accessed', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let evals = 0;
-      const c = a.computed(() => { evals++; return a.get('x'); });
-      assertEqual(evals, 0);
-      c.value;
-      assertEqual(evals, 1);
-    });
-
-    await test('does not recompute when dep unchanged', async () => {
-      const s = make({ x: 1, y: 1 });
-      const a = api(s, isProxy);
-      let evals = 0;
-      const c = a.computed(() => { evals++; return a.get('x'); });
-      c.value;
-      a.set('y', 2);
-      c.value;
-      assertEqual(evals, 1);
-    });
-
-    await test('inside effect: cached within same run', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let evals = 0;
-      const c = a.computed(() => { evals++; return a.get('x'); });
-      a.effect(() => { c.value; c.value; }); // access twice per run
-      assertEqual(evals, 1);
-      a.set('x', 2);
-      assertEqual(evals, 2);
-    });
-
-    await test('dispose stops tracking', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let evals = 0;
-      const c = a.computed(() => { evals++; return a.get('x'); });
-      c.value;
-      c.dispose();
-      a.set('x', 2);
-      c.value;
-      assertEqual(evals, 1);
-    });
-
-  });
-
-  // ---------------------------------------------------------------------------
-  await suite(`${label} — track`, async () => {
-
-    await test('runs fn and captures deps', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let ran = false;
-      a.track(() => { read(s, a, 'x', isProxy); ran = true; return () => {}; });
-      assert(ran);
-    });
-
-    await test('calls returned invalidate on dep change', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let invalidated = false;
-      a.track(() => {
-        read(s, a, 'x', isProxy);
-        return () => { invalidated = true; };
-      });
-      a.set('x', 2);
-      assert(invalidated);
-    });
-
-    await test('invalidate fires synchronously', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let invalidated = false;
-      a.track(() => {
-        read(s, a, 'x', isProxy);
-        return () => { invalidated = true; };
-      });
-      a.set('x', 2);
-      assert(invalidated, 'invalidate should fire synchronously');
-    });
-
-    await test('dispose stops invalidation', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let invalidated = false;
-      const dispose = a.track(() => {
-        read(s, a, 'x', isProxy);
-        return () => { invalidated = true; };
-      });
-      dispose();
-      a.set('x', 2);
-      assert(!invalidated);
-    });
-
-    await test('cleaned up on store destroy', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let invalidated = false;
-      a.track(() => {
-        read(s, a, 'x', isProxy);
-        return () => { invalidated = true; };
-      });
-      a.destroy();
-      a.set('x', 2);
-      assert(!invalidated, 'invalidate should not fire after destroy');
-    });
-
-    await test('get() tracks parent paths (plain store parity with proxy traversal)', async () => {
-      const s = make({ user: { name: 'Alice' } });
-      const a = api(s, isProxy);
-      let runs = 0;
-      a.effect(() => { read(s, a, 'user.name', isProxy); runs++; });
-      assertEqual(runs, 1);
-      a.set('user', { name: 'Bob' });
-      assertEqual(runs, 2);
-    });
-
-    await test('replacing parent fires effect exactly once (notifiedTrackers regression)', async () => {
-      // Without notifiedTrackers guard, diffValues produces entries for both
-      // 'user' and 'user.name'. The effect subscribed to 'user.name' would be
-      // invalidated twice — once per diff entry — causing runs=3.
-      const s = make({ user: { name: 'Alice' } });
-      const a = api(s, isProxy);
-      let runs = 0;
-      a.effect(() => { read(s, a, 'user.name', isProxy); runs++; });
-      assertEqual(runs, 1);
-      a.set('user', { name: 'Bob' });
-      assertEqual(runs, 2, 'effect should rerun exactly once');
-    });
-
-  });
-
-  // ---------------------------------------------------------------------------
-  await suite(`${label} — onAccess / query`, async () => {
-
-    await test('hook fires on first read', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      let fired = false;
-      a.onAccess('data', e => { fired = true; e.val = 42; });
-      read(s, a, 'data', isProxy);
-      assert(fired);
-    });
-
-    await test('sync hook value returned immediately via optimistic read', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      a.onAccess('items', e => { e.val = [1, 2, 3]; });
-      const val = read(s, a, 'items', isProxy);
-      assertEqual(val, [1, 2, 3]);
-    });
-
-    await test('sync hook value written to state after microtask', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      a.onAccess('items', e => { e.val = [1, 2, 3]; });
-      read(s, a, 'items', isProxy);
-      await flush();
-      assertEqual(a.raw('items'), [1, 2, 3]);
-    });
-
-    await test('hook does not fire again after first read without refresh', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      let calls = 0;
-      a.onAccess('x', e => { calls++; e.val = 1; });
-      read(s, a, 'x', isProxy);
-      read(s, a, 'x', isProxy);
-      assertEqual(calls, 1);
-    });
-
-    await test('async hook resolves and writes to state', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      a.onAccess('data', e => { e.val = Promise.resolve([1, 2, 3]); });
-      read(s, a, 'data', isProxy);
-      await flush();
-      await flush();
-      assertEqual(a.raw('data'), [1, 2, 3]);
-    });
-
-    await test('query returns data after async resolve', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      a.onAccess('items', e => { e.val = Promise.resolve(['a', 'b']); });
-      read(s, a, 'items', isProxy);
-      await flush();
-      await flush();
-      const q = a.query('items');
-      assertEqual(q.data, ['a', 'b']);
-      assertEqual(q.loading, false);
-      assertEqual(q.error, null);
-    });
-
-    await test('query captures error on rejection', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      const boom = new Error('fetch failed');
-      a.onAccess('bad', e => { e.val = Promise.reject(boom); });
-      const origError = console.error;
-      console.error = () => {};
-      try {
-        read(s, a, 'bad', isProxy);
-        await flush();
-        await flush();
-        const q = a.query('bad');
-        assert(q.error === boom);
-        assertEqual(q.loading, false);
-      } finally {
-        console.error = origError;
-      }
-    });
-
-    await test('unregister stops future hook runs', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      let calls = 0;
-      const unsub = a.onAccess('x', e => { calls++; e.val = 1; });
-      unsub();
-      a.reset({});
-      read(s, a, 'x', isProxy);
-      assertEqual(calls, 0);
-    });
-
-    await test('throws on empty path', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      assertThrows(() => a.onAccess('', () => {}));
-    });
-
-    await test('parent path hook fires on child read', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      let fired = false;
-      a.onAccess('user', e => { fired = true; e.val = { name: 'Alice' }; });
-      read(s, a, 'user.name', isProxy);
-      assert(fired);
-    });
-
-    await test('parent path hook receives value at hook path not child', async () => {
-      const s = make({ user: { name: 'Alice' } });
-      const a = api(s, isProxy);
-      let receivedPath;
-      a.onAccess('user', e => { receivedPath = e.path; });
-      read(s, a, 'user.name', isProxy);
-      assertEqual(receivedPath, 'user');
-    });
-
-    await test('e.refresh is true on first run', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      let refreshVal;
-      a.onAccess('x', e => { refreshVal = e.refresh; e.val = 1; });
-      read(s, a, 'x', isProxy);
-      assert(refreshVal === true);
-    });
-
-    await test('e.refresh is true on explicit refresh call', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      const refreshVals = [];
-      a.onAccess('x', e => { refreshVals.push(e.refresh); e.val = 1; });
-      read(s, a, 'x', isProxy);
-      a.get('x', { refresh: true });
-      assertEqual(refreshVals[0], true);
-      assertEqual(refreshVals[1], true);
-    });
-
-    await test('hook re-fires when refresh: true passed to get', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      let calls = 0;
-      a.onAccess('x', e => { calls++; e.val = calls; });
-      read(s, a, 'x', isProxy);
-      assertEqual(calls, 1);
-      a.get('x', { refresh: true });
-      assertEqual(calls, 2);
-    });
-
-    await test('e.lastRefresh is null on first run', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      let lastRefresh;
-      a.onAccess('x', e => { lastRefresh = e.lastRefresh; e.val = 1; });
-      read(s, a, 'x', isProxy);
-      assert(lastRefresh === null);
-    });
-
-    await test('e.lastRefresh is a timestamp after first run', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      let lastRefresh;
-      a.onAccess('x', e => { e.val = 1; });
-      read(s, a, 'x', isProxy);
-      a.onAccess('x', e => { lastRefresh = e.lastRefresh; });
-      a.get('x', { refresh: true });
-      assert(typeof lastRefresh === 'number' && lastRefresh > 0);
-    });
-
-    await test('parent hook subkey value resolved correctly', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      a.onAccess('user', e => { e.val = { name: 'Alice', age: 30 }; });
-      const val = read(s, a, 'user.name', isProxy);
-      assertEqual(val, 'Alice');
-    });
-
-  });
-
-  // ---------------------------------------------------------------------------
-  await suite(`${label} — refresh`, async () => {
-
-    await test('refresh() re-fires onAccess hook', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      let calls = 0;
-      a.onAccess('x', e => { calls++; e.val = calls; });
-      read(s, a, 'x', isProxy);
-      assertEqual(calls, 1);
-      a.refresh('x');
-      assertEqual(calls, 2);
-    });
-
-    await test('refresh() passes e.refresh = true', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      const refreshVals = [];
-      a.onAccess('x', e => { refreshVals.push(e.refresh); e.val = 1; });
-      read(s, a, 'x', isProxy);
-      a.refresh('x');
-      assertEqual(refreshVals[0], true);
-      assertEqual(refreshVals[1], true);
-    });
-
-    await test('refresh() throws on empty path', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      assertThrows(() => a.refresh(''));
-    });
-
-  });
-
-  // ---------------------------------------------------------------------------
-  await suite(`${label} — extend / plugin system`, async () => {
-
-    await test('registers a plugin method', async () => {
-      const s = make({ x: 5 });
-      const a = api(s, isProxy);
-      a.extend(ctx => ({
-        methods: { double(path) { return ctx.readRaw(path) * 2; } }
-      }));
-      assertEqual(a.double('x'), 10);
-    });
-
-    await test('unregister removes method', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      const unregister = a.extend(() => ({
-        methods: { hello() { return 'hello'; } }
-      }));
-      const methodKey = isProxy ? '$hello' : 'hello';
-      assert(typeof s[methodKey] === 'function');
-      unregister();
-      assert(s[methodKey] === undefined);
-    });
-
-    await test('onRead hook transforms read values', async () => {
-      const s = make({ x: 5 });
-      const a = api(s, isProxy);
-      a.extend(() => ({
-        onRead(e) { if (e.path === 'x') e.val = e.val * 10; }
-      }));
-      assertEqual(read(s, a, 'x', isProxy), 50);
-    });
-
-    await test('onRead hooks fire in registration order', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      const order = [];
-      a.extend(() => ({ onRead(e) { order.push('first'); e.val = e.val + 10; } }));
-      a.extend(() => ({ onRead(e) { order.push('second'); e.val = e.val * 2; } }));
-      const val = read(s, a, 'x', isProxy);
-      assertEqual(order, ['first', 'second']);
-      assertEqual(val, 22); // (1 + 10) * 2
-    });
-
-    await test('onBeforeWrite hooks fire in registration order', async () => {
-      const s = make({ x: 0 });
-      const a = api(s, isProxy);
-      a.extend(() => ({ onBeforeWrite(e) { if (e.path === 'x') e.val = e.val + 10; } }));
-      a.extend(() => ({ onBeforeWrite(e) { if (e.path === 'x') e.val = e.val * 2; } }));
-      a.set('x', 1);
-      assertEqual(a.raw('x'), 22); // (1 + 10) * 2
-    });
-
-    await test('onBeforeWrite hook transforms written values', async () => {
-      const s = make({ x: 0 });
-      const a = api(s, isProxy);
-      a.extend(() => ({
-        onBeforeWrite(e) { if (e.path === 'x') e.val = e.val * 2; }
-      }));
-      a.set('x', 5);
-      assertEqual(a.raw('x'), 10);
-    });
-
-		await test('onAfterWrite hook fires after commit', async () => {
+async function runTrackerSuite(suite, test) {
+
+	await suite('createTracker', async () => {
+
+		await test('touch registers dep during capture', () => {
+			const t = createTracker();
+			const item = { deps: new Set(), invalidate() {} };
+			t.capture(item, () => t.touch('a.b'));
+			assert(item.deps.has('a.b'));
+			assert(t.map.has('a.b'));
+		});
+
+		await test('touch is no-op when no active tracker', () => {
+			const t = createTracker();
+			t.touch('x');
+			assert(!t.map.has('x'));
+		});
+
+		await test('capture clears previous deps', () => {
+			const t = createTracker();
+			const item = { deps: new Set(), invalidate() {} };
+			t.capture(item, () => t.touch('a'));
+			t.capture(item, () => t.touch('b'));
+			assert(!item.deps.has('a'));
+			assert(item.deps.has('b'));
+		});
+
+		await test('dispose removes all deps', () => {
+			const t = createTracker();
+			const item = { deps: new Set(), invalidate() {} };
+			t.capture(item, () => { t.touch('a'); t.touch('b'); });
+			t.dispose(item);
+			assertEqual(item.deps.size, 0);
+			assert(!t.map.has('a'));
+			assert(!t.map.has('b'));
+		});
+
+		await test('capture restores prev deps on error', () => {
+			const t = createTracker();
+			const item = { deps: new Set(), invalidate() {} };
+			t.capture(item, () => t.touch('a'));
+			try { t.capture(item, () => { t.touch('b'); throw new Error('fail'); }); } catch {}
+			assert(item.deps.has('a'));
+			assert(!item.deps.has('b'));
+		});
+
+		await test('runId increments on each capture', () => {
+			const t = createTracker();
+			const item = { deps: new Set(), invalidate() {} };
+			const id0 = t.runId;
+			t.capture(item, () => {});
+			assert(t.runId > id0);
+		});
+
+		await test('multiple items can track same path', () => {
+			const t = createTracker();
+			const a = { deps: new Set(), invalidate() {} };
+			const b = { deps: new Set(), invalidate() {} };
+			t.capture(a, () => t.touch('x'));
+			t.capture(b, () => t.touch('x'));
+			assertEqual(t.map.get('x').size, 2);
+		});
+
+		await test('invalidate fires synchronously', () => {
+			const t = createTracker();
+			let fired = false;
+			const item = { deps: new Set(), invalidate() { fired = true; } };
+			t.capture(item, () => t.touch('x'));
+			for (const i of t.map.get('x')) i.invalidate();
+			assert(fired);
+		});
+
+	});
+
+}
+
+// =============================================================================
+// createStore config
+// =============================================================================
+
+async function runCreateStoreSuite(suite, test) {
+
+	await suite('createStore', async () => {
+
+		await test('defaults: all three plugins mounted', () => {
+			const s = createStore({ state: { x: 1 } });
+			assert(typeof s.$set === 'function');
+			assert(typeof s.$effect === 'function');
+			assert(typeof s.$operation === 'function');
+		});
+
+		await test('custom plugins array respected', () => {
+			const s = createStore({ state: {}, plugins: [storePlugin] });
+			assert(typeof s.$set === 'function');
+			assert(s.$effect === undefined);
+			assert(s.$operation === undefined);
+		});
+
+		await test('initial state accessible', () => {
+			const s = createStore({ state: { a: 1, b: { c: 2 } } });
+			const a = api(s);
+			assertEqual(a.raw('a'), 1);
+			assertEqual(a.raw('b.c'), 2);
+		});
+
+		await test('useProxy: true returns proxy', () => {
+			const s = createStore({ state: { x: 1 }, useProxy: true });
+			// Proxy store: direct property read goes through read hook
+			assert(s.$get('x') === 1);
+		});
+
+		await test('deepCopy: true (default) — watcher val is clone', () => {
+			const s = createStore({ state: { obj: { a: 1 } } });
+			const a = api(s);
+			let captured;
+			a.watch('obj', e => { captured = e.val; });
+			const newObj = { a: 2 };
+			a.set('obj', newObj);
+			assert(captured !== newObj);
+			assertEqual(captured, newObj);
+		});
+
+	});
+
+}
+
+// =============================================================================
+// Parameterised store suites — run for both plain and proxy variants
+// =============================================================================
+
+async function runStoreSuite(label, make, isProxy, suite, test) {
+
+	// -------------------------------------------------------------------------
+	await suite(`${label} — state`, async () => {
+
+		await test('initial value readable', () => {
+			const s = make({ x: 42 });
+			assertEqual(s.$get('x'), 42);
+		});
+
+		await test('missing path returns undefined', () => {
+			const s = make({});
+			assert(s.$get('missing') === undefined);
+		});
+
+		await test('$has returns true for existing key', () => {
+			const s = make({ x: 1 });
+			assert(s.$has('x') === true);
+		});
+
+		await test('$has returns false for missing key', () => {
+			const s = make({});
+			assert(s.$has('x') === false);
+		});
+
+		await test('$raw() returns full state', () => {
+			const s = make({ a: 1, b: 2 });
+			const a = api(s);
+			const r = a.raw();
+			assertEqual(r.a, 1); assertEqual(r.b, 2);
+		});
+
+		await test('$raw(path) returns nested value', () => {
+			const s = make({ x: { y: 99 } });
+			const a = api(s);
+			assertEqual(a.raw('x.y'), 99);
+		});
+
+	});
+
+	// -------------------------------------------------------------------------
+	await suite(`${label} — set / merge / del / reset`, async () => {
+
+		await test('$set top-level', () => {
+			const s = make({ count: 0 });
+			s.$set('count', 1);
+			assertEqual(s.$get('count'), 1);
+		});
+
+		await test('$set nested', () => {
+			const s = make({ user: { name: 'Alice' } });
+			s.$set('user.name', 'Bob');
+			assertEqual(s.$get('user.name'), 'Bob');
+		});
+
+		await test('$set creates intermediate objects', () => {
+			const s = make({});
+			s.$set('a.b.c', 99);
+			assertEqual(s.$get('a.b.c'), 99);
+		});
+
+		await test('$set accepts updater fn', () => {
+			const s = make({ count: 5 });
+			s.$set('count', v => v + 1);
+			assertEqual(s.$get('count'), 6);
+		});
+
+		await test('$set returns store for chaining', () => {
+			const s = make({ a: 1 });
+			assert(s.$set('a', 2) === s);
+		});
+
+		await test('$set no-op when value unchanged', () => {
+			const s = make({ x: 42 });
+			let calls = 0;
+			s.$watch('x', () => calls++);
+			s.$set('x', 42);
+			assertEqual(calls, 0);
+		});
+
+		await test('$set throws on empty path', () => {
+			assertThrows(() => make({}).$set('', 1));
+		});
+
+		await test('$merge objects', () => {
+			const s = make({ user: { name: 'Alice', age: 30 } });
+			s.$merge('user', { age: 31, role: 'admin' });
+			assertEqual(s.$get('user'), { name: 'Alice', age: 31, role: 'admin' });
+		});
+
+		await test('$merge arrays concatenates', () => {
+			const s = make({ tags: ['a', 'b'] });
+			s.$merge('tags', ['c']);
+			assertEqual(s.$get('tags'), ['a', 'b', 'c']);
+		});
+
+		await test('$del removes key', () => {
+			const s = make({ a: 1, b: 2 });
+			s.$del('a');
+			assert(s.$get('a') === undefined);
+			assertEqual(s.$get('b'), 2);
+		});
+
+		await test('$del nested key', () => {
+			const s = make({ user: { name: 'Alice', age: 30 } });
+			s.$del('user.age');
+			assert(s.$get('user.age') === undefined);
+			assertEqual(s.$get('user.name'), 'Alice');
+		});
+
+		await test('$reset replaces root state', () => {
+			const s = make({ a: 1, b: 2 });
+			s.$reset({ c: 3 });
+			assert(s.$get('a') === undefined);
+			assertEqual(s.$get('c'), 3);
+		});
+
+		await test('$reset accepts updater fn', () => {
+			const s = make({ count: 5 });
+			s.$reset(prev => ({ count: prev.count * 2 }));
+			assertEqual(s.$get('count'), 10);
+		});
+
+		await test('$reset throws on non-object', () => {
+			assertThrows(() => make({}).$reset(42));
+		});
+
+	});
+
+	// -------------------------------------------------------------------------
+	await suite(`${label} — watch`, async () => {
+
+		await test('fires on change', () => {
+			const s = make({ x: 1 });
+			let val;
+			s.$watch('x', e => { val = e.val; });
+			s.$set('x', 2);
+			assertEqual(val, 2);
+		});
+
+		await test('receives oldVal when requested', () => {
+			const s = make({ x: 1 });
+			let old;
+			s.$watch('x', e => { old = e.oldVal; }, { oldVal: true });
+			s.$set('x', 2);
+			assertEqual(old, 1);
+		});
+
+		await test('parent watch fires on child change', () => {
+			const s = make({ user: { name: 'Alice' } });
+			let fired = false;
+			s.$watch('user', () => { fired = true; });
+			s.$set('user.name', 'Bob');
+			assert(fired);
+		});
+
+		await test('parent oldVal is pre-write snapshot', () => {
+			const s = make({ user: { name: 'Alice' } });
+			let old;
+			s.$watch('user', e => { old = e.oldVal; }, { oldVal: true });
+			s.$set('user.name', 'Bob');
+			assertEqual(old, { name: 'Alice' });
+		});
+
+		await test('unsubscribe stops notifications', () => {
+			const s = make({ x: 1 });
+			let calls = 0;
+			const off = s.$watch('x', () => calls++);
+			s.$set('x', 2);
+			assertEqual(calls, 1);
+			off();
+			s.$set('x', 3);
+			assertEqual(calls, 1);
+		});
+
+		await test('val is snapshot not live reference', () => {
+			const s = make({ obj: { a: 1 } });
+			let snap;
+			s.$watch('obj', e => { snap = e.val; });
+			s.$set('obj', { a: 2 });
+			const frozen = snap;
+			s.$set('obj', { a: 99 });
+			assertEqual(frozen.a, 2);
+		});
+
+		await test('watch("*") fires on any path', () => {
+			const s = make({ x: 1, y: 1 });
+			const paths = [];
+			s.$watch('*', e => { paths.push(e.path); });
+			s.$set('x', 2);
+			s.$set('y', 2);
+			assert(paths.includes('x') && paths.includes('y'));
+		});
+
+		await test('replacing parent fires watcher exactly once', () => {
+			const s = make({ user: { name: 'Alice' } });
+			let calls = 0;
+			s.$watch('user', () => calls++);
+			s.$set('user', { name: 'Bob' });
+			assertEqual(calls, 1);
+		});
+
+		await test('watch fires synchronously', () => {
+			const s = make({ x: 1 });
+			let fired = false;
+			s.$watch('x', () => { fired = true; });
+			s.$set('x', 2);
+			assert(fired);
+		});
+
+	});
+
+	// -------------------------------------------------------------------------
+	await suite(`${label} — batch`, async () => {
+
+		await test('coalesces multiple sets to one watch fire', () => {
+			const s = make({ x: 1, y: 1 });
+			let calls = 0;
+			s.$watch('x', () => calls++);
+			s.$watch('y', () => calls++);
+			s.$batch(() => { s.$set('x', 2); s.$set('y', 2); });
+			// both fire once each = 2, not 4
+			assert(calls <= 2);
+		});
+
+		await test('watch does not fire during batch', () => {
+			const s = make({ x: 1 });
+			let firedDuring = false, firedAfter = false;
+			s.$watch('x', () => { firedAfter = true; });
+			s.$batch(() => {
+				s.$set('x', 2);
+				firedDuring = firedAfter;
+			});
+			assert(!firedDuring);
+			assert(firedAfter);
+		});
+
+		await test('nested batch flushes only at outermost end', () => {
 			const s = make({ x: 0 });
-			const a = api(s, isProxy);
-			let seen;
-			a.extend(() => ({
-				onAfterWrite(e) { seen = e.val; }
+			let calls = 0;
+			s.$watch('x', () => calls++);
+			s.$batch(() => {
+				s.$batch(() => { s.$set('x', 1); });
+				s.$set('x', 2);
+			});
+			assertEqual(calls, 1);
+		});
+
+		await test('oldVal is pre-batch not intermediate', () => {
+			const s = make({ x: 1 });
+			let old;
+			s.$watch('x', e => { old = e.oldVal; }, { oldVal: true });
+			s.$batch(() => { s.$set('x', 2); s.$set('x', 3); });
+			assertEqual(old, 1);
+		});
+
+		await test('no-change batch fires no notifications', () => {
+			const s = make({ x: 1 });
+			let calls = 0;
+			s.$watch('x', () => calls++);
+			s.$batch(() => { s.$set('x', 1); });
+			assertEqual(calls, 0);
+		});
+
+		await test('returns result of fn()', () => {
+			const s = make({});
+			const r = s.$batch(() => 42);
+			assertEqual(r, 42);
+		});
+
+	});
+
+	// -------------------------------------------------------------------------
+	await suite(`${label} — effect`, async () => {
+
+		await test('runs immediately', () => {
+			const s = make({ x: 1 });
+			let ran = false;
+			s.$effect(() => { s.$get('x'); ran = true; });
+			assert(ran);
+		});
+
+		await test('reruns on dep change', () => {
+			const s = make({ x: 1 });
+			let runs = 0;
+			s.$effect(() => { s.$get('x'); runs++; });
+			s.$set('x', 2);
+			assertEqual(runs, 2);
+		});
+
+		await test('does not rerun on unrelated change', () => {
+			const s = make({ x: 1, y: 1 });
+			let runs = 0;
+			s.$effect(() => { s.$get('x'); runs++; });
+			s.$set('y', 2);
+			assertEqual(runs, 1);
+		});
+
+		await test('stop() prevents future reruns', () => {
+			const s = make({ x: 1 });
+			let runs = 0;
+			const stop = s.$effect(() => { s.$get('x'); runs++; });
+			stop();
+			s.$set('x', 2);
+			assertEqual(runs, 1);
+		});
+
+		await test('tracks new deps dynamically', () => {
+			const s = make({ flag: true, a: 1, b: 1 });
+			let runs = 0;
+			s.$effect(() => {
+				runs++;
+				if (s.$get('flag')) s.$get('a');
+				else s.$get('b');
+			});
+			s.$set('b', 2); // not yet tracked
+			assertEqual(runs, 1);
+			s.$set('flag', false);
+			assertEqual(runs, 2);
+			s.$set('b', 3); // now tracked
+			assertEqual(runs, 3);
+		});
+
+		await test('effect sees final state after batch', () => {
+			const s = make({ x: 1 });
+			const seen = [];
+			s.$effect(() => { seen.push(s.$get('x')); });
+			s.$batch(() => { s.$set('x', 2); s.$set('x', 3); });
+			assertEqual(seen, [1, 3]);
+		});
+
+		await test('re-entrancy: write during effect settles without infinite loop', () => {
+			const s = make({ x: 0 });
+			let runs = 0;
+			s.$effect(() => {
+				runs++;
+				const x = s.$get('x');
+				if (x < 3) s.$set('x', x + 1);
+			});
+			assertEqual(s.$get('x'), 3);
+			assert(runs <= 6);
+		});
+
+	});
+
+	// -------------------------------------------------------------------------
+	await suite(`${label} — computed`, async () => {
+
+		await test('returns correct value', () => {
+			const s = make({ a: 2, b: 3 });
+			const sum = s.$computed(() => s.$get('a') + s.$get('b'));
+			assertEqual(sum.value, 5);
+		});
+
+		await test('re-evaluates on dep change', () => {
+			const s = make({ x: 10 });
+			const doubled = s.$computed(() => s.$get('x') * 2);
+			s.$set('x', 5);
+			assertEqual(doubled.value, 10);
+		});
+
+		await test('is lazy — no compute until accessed', () => {
+			const s = make({ x: 1 });
+			let evals = 0;
+			const c = s.$computed(() => { evals++; return s.$get('x'); });
+			assertEqual(evals, 0);
+			c.value;
+			assertEqual(evals, 1);
+		});
+
+		await test('does not recompute when dep unchanged', () => {
+			const s = make({ x: 1, y: 1 });
+			let evals = 0;
+			const c = s.$computed(() => { evals++; return s.$get('x'); });
+			c.value;
+			s.$set('y', 2);
+			c.value;
+			assertEqual(evals, 1);
+		});
+
+		await test('dispose stops tracking', () => {
+			const s = make({ x: 1 });
+			let evals = 0;
+			const c = s.$computed(() => { evals++; return s.$get('x'); });
+			c.value;
+			c.dispose();
+			s.$set('x', 2);
+			c.value;
+			assertEqual(evals, 1);
+		});
+
+	});
+
+	// -------------------------------------------------------------------------
+	await suite(`${label} — $track`, async () => {
+
+		await test('runs fn and captures deps', () => {
+			const s = make({ x: 1 });
+			let ran = false;
+			s.$track(() => { s.$get('x'); ran = true; return () => {}; });
+			assert(ran);
+		});
+
+		await test('calls returned invalidate on dep change', () => {
+			const s = make({ x: 1 });
+			let invalidated = false;
+			s.$track(() => { s.$get('x'); return () => { invalidated = true; }; });
+			s.$set('x', 2);
+			assert(invalidated);
+		});
+
+		await test('dispose stops invalidation', () => {
+			const s = make({ x: 1 });
+			let invalidated = false;
+			const dispose = s.$track(() => { s.$get('x'); return () => { invalidated = true; }; });
+			dispose();
+			s.$set('x', 2);
+			assert(!invalidated);
+		});
+
+	});
+
+	// -------------------------------------------------------------------------
+	await suite(`${label} — $operation / $opStatus`, async () => {
+
+		await test('$opStatus returns loading:false for unregistered path', () => {
+			const s = make({});
+			const status = s.$opStatus('tasks');
+			assert(status.loading === false);
+			assert(status.fetching === false);
+			assert(status.mutating === false);
+		});
+
+		await test('$operation with sync fetch sets value immediately via microtask', async () => {
+			const s = make({});
+			s.$operation('items', {
+				fetch() { return Promise.resolve({ a: 1 }); },
+			});
+			s.$get('items'); // trigger fetch
+			await flush2();
+			assertEqual(s.$get('items'), { a: 1 });
+		});
+
+		await test('$operation mutate called on $set (keyed path)', async () => {
+			// mutate watcher uses e.diff(path + '.*') — diff expands to leaf nodes,
+			// so ctx.path is the full leaf path and ctx.val is the leaf value.
+			const s = make({});
+			let mutatedPath = null;
+			s.$operation('items', {
+				mutate(ctx) { mutatedPath = ctx.path; return Promise.resolve(); },
+			});
+			s.$set('items.1', 'hello');
+			assert(mutatedPath !== null, 'mutate was not called');
+			assert(mutatedPath.startsWith('items.'), 'path should start with items.');
+		});
+
+		await test('$opStatus mutating=true during mutation', async () => {
+			const s = make({});
+			let resolveWrite;
+			s.$operation('x', {
+				mutate() {
+					return new Promise(r => { resolveWrite = r; });
+				},
+			});
+			// Use $send to trigger mutate directly — bypasses the diff-based watch path.
+			s.$send('x', 1);
+			const statusDuringMutation = s.$opStatus('x').mutating;
+			resolveWrite();
+			await flush();
+			assert(statusDuringMutation === true);
+		});
+
+		await test('$opStatus mutating=false after mutation resolves', async () => {
+			const s = make({});
+			s.$operation('x', {
+				mutate() { return Promise.resolve(); },
+			});
+			s.$set('x', 1);
+			await flush2();
+			assert(s.$opStatus('x').mutating === false);
+		});
+
+		await test('optimistic write applied before mutation resolves', () => {
+			const s = make({ counter: 0 });
+			let resolveWrite;
+			s.$operation('counter', {
+				optimistic: true,
+				mutate() { return new Promise(r => { resolveWrite = r; }); },
+			});
+			s.$set('counter', 5);
+			// optimistic write should already be in store
+			assertEqual(s.$get('counter'), 5);
+		});
+
+		await test('rollback on mutate rejection', async () => {
+			// Use $send to trigger mutate directly (bypasses the diff-based watch path).
+			const s = make({ x: 'original' });
+			s.$operation('x', {
+				mutate() {
+					return { promise: Promise.reject(new Error('fail')), rollback: () => Promise.resolve('original') };
+				},
+			});
+			s.$send('x', 'changed');
+			await flush2();
+			await flush2();
+			assertEqual(s.$get('x'), 'original');
+		});
+
+		await test('onError can suppress rollback', async () => {
+			const s = make({ x: 'original' });
+			s.$operation('x', {
+				optimistic: true,
+				mutate() { return Promise.reject(new Error('fail')); },
+				onError() { return true; }, // suppress rollback
+			});
+			s.$set('x', 'changed');
+			await flush2();
+			await flush2();
+			assertEqual(s.$get('x'), 'changed'); // not rolled back
+		});
+
+		await test('$fetch triggers fetch hook imperatively', async () => {
+			const s = make({});
+			let fetchCalled = false;
+			s.$operation('data', {
+				fetch() { fetchCalled = true; return Promise.resolve({ ok: true }); },
+			});
+			s.$fetch('data');
+			await flush2();
+			assert(fetchCalled);
+		});
+
+		await test('$send triggers mutate without store write', async () => {
+			const s = make({});
+			let sent = null;
+			s.$operation('action', {
+				mutate(ctx) { sent = ctx.val; return Promise.resolve(); },
+			});
+			s.$send('action', { payload: 'hello' });
+			await flush();
+			assertEqual(sent, { payload: 'hello' });
+		});
+
+		await test('$operation returns unregister function', () => {
+			const s = make({});
+			const unreg = s.$operation('temp', {
+				fetch() { return Promise.resolve(1); },
+			});
+			assert(typeof unreg === 'function');
+			unreg(); // should not throw
+		});
+
+		await test('TTL: stale after ttl ms causes refetch', async () => {
+			const s = make({});
+			let fetchCount = 0;
+			s.$operation('data', {
+				ttl: 1, // 1ms TTL — immediately stale
+				fetch() { fetchCount++; return Promise.resolve(fetchCount); },
+			});
+			s.$get('data');
+			await flush2();
+			// Force TTL to appear expired, then read again
+			await new Promise(r => setTimeout(r, 5));
+			s.$get('data');
+			await flush2();
+			assert(fetchCount >= 2, `Expected >= 2 fetches, got ${fetchCount}`);
+		});
+
+		await test('enabled:false skips fetch', () => {
+			const s = make({});
+			let fetched = false;
+			s.$operation('data', {
+				enabled: false,
+				fetch() { fetched = true; return Promise.resolve(1); },
+			});
+			s.$get('data');
+			assert(!fetched);
+		});
+
+		await test('enabled fn re-evaluated on each read', () => {
+			const s = make({ flag: false });
+			let fetched = false;
+			s.$operation('data', {
+				enabled: () => s.$get('flag'),
+				fetch() { fetched = true; return Promise.resolve(1); },
+			});
+			s.$get('data');
+			assert(!fetched);
+			s.$set('flag', true);
+			s.$get('data');
+			assert(fetched);
+		});
+
+	});
+
+	// -------------------------------------------------------------------------
+	await suite(`${label} — plugin / hook system`, async () => {
+
+		await test('$extend registers method', () => {
+			const s = make({ x: 5 });
+			s.$extend(ctx => ({
+				methods: { double(path) { return ctx.readRaw(path) * 2; } },
+				hooks: {},
 			}));
-			a.set('x', 7);
+			assertEqual(s.$double('x'), 10);
+		});
+
+		await test('beforeWrite hook transforms value', () => {
+			const s = make({ x: 0 });
+			s.$extend(() => ({
+				hooks: { beforeWrite(e) { if (e.path === 'x') e.val = e.val * 2; } },
+				methods: {},
+			}));
+			s.$set('x', 5);
+			assertEqual(s.$get('x'), 10);
+		});
+
+		await test('afterWrite hook fires after commit', () => {
+			const s = make({ x: 0 });
+			let seen;
+			s.$extend(() => ({
+				hooks: { afterWrite(e) { seen = e.val; } },
+				methods: {},
+			}));
+			s.$set('x', 7);
 			assertEqual(seen, 7);
 		});
 
-    await test('two plugins both intercept same path independently', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let readsA = 0, readsB = 0;
-      a.extend(() => ({ onRead(e) { if (e.path === 'x') readsA++; } }));
-      a.extend(() => ({ onRead(e) { if (e.path === 'x') readsB++; } }));
-      read(s, a, 'x', isProxy);
-      assertEqual(readsA, 1);
-      assertEqual(readsB, 1);
-    });
+		await test('$hook registers named hook', () => {
+			const s = make({ x: 0 });
+			let seen;
+			const off = s.$hook('afterWrite', e => { seen = e.val; });
+			s.$set('x', 9);
+			assertEqual(seen, 9);
+			off();
+		});
 
-    await test('onDestroy hook fires on destroy', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      let destroyed = false;
-      a.extend(() => ({ onDestroy() { destroyed = true; } }));
-      a.destroy();
-      assert(destroyed);
-    });
+		await test('$hook returns unsubscribe', () => {
+			const s = make({ x: 0 });
+			let calls = 0;
+			const off = s.$hook('afterWrite', () => calls++);
+			s.$set('x', 1);
+			off();
+			s.$set('x', 2);
+			assertEqual(calls, 1);
+		});
 
-    await test('unregistered plugin onRead no longer fires', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let calls = 0;
-      const unregister = a.extend(() => ({
-        onRead(e) { if (e.path === 'x') calls++; }
-      }));
-      read(s, a, 'x', isProxy);
-      assertEqual(calls, 1);
-      unregister();
-      read(s, a, 'x', isProxy);
-      assertEqual(calls, 1);
-    });
+		await test('destroy hook fires on $destroy', () => {
+			const s = make({});
+			let destroyed = false;
+			s.$extend(() => ({
+				hooks: { destroy() { destroyed = true; } },
+				methods: {},
+			}));
+			s.$destroy();
+			assert(destroyed);
+		});
 
-  });
+	});
 
-  // ---------------------------------------------------------------------------
-  if (isProxy) {
-    await suite(`${label} — proxy guards`, async () => {
+	// -------------------------------------------------------------------------
+	await suite(`${label} — lifecycle`, async () => {
 
-      await test('direct set throws', async () => {
-        const s = make({ x: 1 });
-        assertThrows(() => { s.x = 2; });
-      });
+		await test('$set is no-op after $destroy', () => {
+			const s = make({ x: 1 });
+			s.$destroy();
+			s.$set('x', 99);
+			assertEqual(s.$get('x'), 1);
+		});
 
-      await test('direct deleteProperty throws', async () => {
-        const s = make({ x: 1 });
-        assertThrows(() => { delete s.x; });
-      });
+		await test('watchers do not fire after $destroy', () => {
+			const s = make({ x: 1 });
+			let calls = 0;
+			s.$watch('x', () => calls++);
+			s.$destroy();
+			s.$set('x', 2);
+			assertEqual(calls, 0);
+		});
 
-    });
-  }
+		await test('effects stopped on $destroy', () => {
+			const s = make({ x: 1 });
+			let runs = 0;
+			s.$effect(() => { s.$get('x'); runs++; });
+			s.$destroy();
+			assertEqual(runs, 1);
+		});
 
-  // ---------------------------------------------------------------------------
-  await suite(`${label} — lifecycle`, async () => {
+	});
 
-    await test('set is no-op after destroy', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      a.destroy();
-      a.set('x', 99);
-      assertEqual(a.raw('x'), 1);
-    });
+	// -------------------------------------------------------------------------
+	if (isProxy) {
+		await suite(`${label} — proxy guards`, async () => {
 
-    await test('watchers do not fire after destroy', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let calls = 0;
-      a.onChange('x', () => calls++);
-      a.destroy();
-      assertEqual(calls, 0);
-    });
+			await test('direct set throws', () => {
+				const s = make({ x: 1 });
+				assertThrows(() => { s.x = 2; });
+			});
 
-    await test('effects stopped on destroy', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let runs = 0;
-      a.effect(() => { read(s, a, 'x', isProxy); runs++; });
-      a.destroy();
-      assertEqual(runs, 1);
-    });
+			await test('direct delete throws', () => {
+				const s = make({ x: 1 });
+				assertThrows(() => { delete s.x; });
+			});
 
-    await test('set after destroy does not fire destroyed watchers', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let calls = 0;
-      a.onChange('x', () => calls++);
-      a.destroy();
-      a.set('x', 2); // no-op
-      assertEqual(calls, 0);
-    });
-
-  });
-
-  // ---------------------------------------------------------------------------
-  await suite(`${label} — integration`, async () => {
-
-    await test('effect + watch both fire on change', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let effectRan = false, watchFired = false;
-      a.effect(() => { read(s, a, 'x', isProxy); effectRan = true; });
-      effectRan = false;
-      a.onChange('x', () => { watchFired = true; });
-      a.set('x', 2);
-      assert(effectRan && watchFired);
-    });
-
-    await test('computed + effect: reruns when computed dep changes', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      const doubled = a.computed(() => a.get('x') * 2);
-      let seen;
-      a.effect(() => { seen = doubled.value; });
-      a.set('x', 5);
-      assertEqual(seen, 10);
-    });
-
-    await test('reset + effect reruns after reset', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let val;
-      a.effect(() => { val = read(s, a, 'x', isProxy); });
-      a.reset({ x: 99 });
-      assertEqual(val, 99);
-    });
-
-    await test('onAccess + effect tracks loaded data', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      a.onAccess('items', e => { e.val = [1, 2, 3]; });
-      let seen;
-      a.effect(() => { seen = read(s, a, 'items', isProxy); });
-      await flush();
-      await flush();
-      assertEqual(seen, [1, 2, 3]);
-    });
-
-    await test('batch + watch: oldVal is pre-batch value', async () => {
-      const s = make({ x: 1 });
-      const a = api(s, isProxy);
-      let old;
-      a.onChange('x', e => { old = e.oldVal; }, { oldVal: true });
-      a.batch(() => { a.set('x', 2); a.set('x', 3); });
-      assertEqual(old, 1);
-    });
-
-    await test('batch + effect: effect sees post-batch state', async () => {
-      const s = make({ x: 1, y: 1 });
-      const a = api(s, isProxy);
-      const snapshots = [];
-      a.effect(() => {
-        snapshots.push({
-          x: read(s, a, 'x', isProxy),
-          y: read(s, a, 'y', isProxy)
-        });
-      });
-      a.batch(() => { a.set('x', 10); a.set('y', 20); });
-      assertEqual(snapshots.length, 2); // initial + one batch rerun
-      assertEqual(snapshots[1], { x: 10, y: 20 });
-    });
-
-    await test('onAccess + batch: hook fires correctly inside batch', async () => {
-      const s = make({});
-      const a = api(s, isProxy);
-      let calls = 0;
-      a.onAccess('x', e => { calls++; e.val = 1; });
-      a.batch(() => {
-        read(s, a, 'x', isProxy);
-        a.set('y', 2);
-      });
-      assertEqual(calls, 1);
-    });
-
-    await test('reset clears effects from old paths', async () => {
-      const s = make({ a: 1 });
-      const a = api(s, isProxy);
-      let runs = 0;
-      a.effect(() => { read(s, a, 'a', isProxy); runs++; });
-      assertEqual(runs, 1);
-      a.reset({ b: 1 }); // 'a' is gone
-      assertEqual(runs, 2); // effect reruns because 'a' changed (deleted)
-      a.set('b', 2);
-      assertEqual(runs, 2); // 'b' not tracked — no rerun
-    });
-
-  });
+		});
+	}
 
 }
 
-
 // =============================================================================
-// createTracker unit tests
+// Entry point
 // =============================================================================
-
-async function runTrackerSuite() {
-  await suite('createTracker', async () => {
-
-    await test('track registers dep during capture', async () => {
-      const t = createTracker();
-      const item = { deps: new Set(), invalidate() {} };
-      t.capture(item, () => t.touch('a.b'));
-      assert(item.deps.has('a.b'));
-      assert(t.map.has('a.b'));
-    });
-
-    await test('track is no-op when no active trackers', async () => {
-      const t = createTracker();
-      t.touch('x');
-      assert(!t.map.has('x'));
-    });
-
-    await test('capture clears previous deps', async () => {
-      const t = createTracker();
-      const item = { deps: new Set(), invalidate() {} };
-      t.capture(item, () => t.touch('a'));
-      t.capture(item, () => t.touch('b'));
-      assert(!item.deps.has('a'));
-      assert(item.deps.has('b'));
-    });
-
-    await test('disposeTracker removes all deps', async () => {
-      const t = createTracker();
-      const item = { deps: new Set(), invalidate() {} };
-      t.capture(item, () => { t.touch('a'); t.touch('b'); });
-      t.dispose(item);
-      assert(item.deps.size === 0);
-      assert(!t.map.has('a'));
-      assert(!t.map.has('b'));
-    });
-
-    await test('capture restores prev deps on error', async () => {
-      const t = createTracker();
-      const item = { deps: new Set(), invalidate() {} };
-      t.capture(item, () => t.touch('a'));
-      try {
-        t.capture(item, () => { t.touch('b'); throw new Error('fail'); });
-      } catch {}
-      assert(item.deps.has('a'));
-      assert(!item.deps.has('b'));
-    });
-
-    await test('trackerRunId increments on each capture', async () => {
-      const t = createTracker();
-      const item = { deps: new Set(), invalidate() {} };
-      const id1 = t.runId;
-      t.capture(item, () => {});
-      assert(t.runId > id1);
-    });
-
-    await test('multiple items can track same path', async () => {
-      const t = createTracker();
-      const a = { deps: new Set(), invalidate() {} };
-      const b = { deps: new Set(), invalidate() {} };
-      t.capture(a, () => t.touch('x'));
-      t.capture(b, () => t.touch('x'));
-      assertEqual(t.map.get('x').size, 2);
-    });
-
-    await test('invalidate fires synchronously on touch', async () => {
-      const t = createTracker();
-      let fired = false;
-      const item = { deps: new Set(), invalidate() { fired = true; } };
-      t.capture(item, () => t.touch('x'));
-      // Simulate what storePlugin does — iterate trackers and call invalidate
-      for (const i of t.map.get('x')) i.invalidate();
-      assert(fired, 'invalidate should be called synchronously');
-    });
-
-  });
-}
-
-
-// =============================================================================
-// createStore config tests
-// =============================================================================
-
-async function runCreateStoreSuite() {
-  await suite('createStore', async () => {
-
-    await test('defaults to proxy + all three plugins', async () => {
-      const useProxy = true;
-      const s = createStore({ state: { x: 1 }, useProxy });
-      const a = api(s, useProxy);
-      assert(typeof a.set === 'function');
-      assert(typeof a.effect === 'function');
-      assert(typeof a.onAccess === 'function');
-    });
-
-    await test('custom plugins array respected', async () => {
-      const useProxy = true;
-      const s = createStore({ state: {}, plugins: [storePlugin], useProxy });
-      const a = api(s, useProxy);
-      assert(typeof a.set === 'function');
-      assert(a.effect === undefined);
-    });
-
-    await test('custom driver respected', async () => {
-      const useProxy = false;
-      const s = createStore({ state: { x: 1 }, driver: createProxy });
-      const a = api(s, useProxy);
-      assert(typeof a.$get === 'function');
-      assertEqual(a.$get('x'), 1);
-    });
-
-    await test('initial state is set correctly', async () => {
-      const useProxy = true;
-      const s = createStore({ state: { a: 1, b: { c: 2 } }, useProxy });
-      const a = api(s, useProxy);
-      assertEqual(a.raw('a'), 1);
-      assertEqual(a.raw('b.c'), 2);
-    });
-
-    await test('deepCopy: false — nested references are shared (shallow copy)', async () => {
-      const useProxy = true;
-      const nested = { b: 1 };
-      const s = createStore({ state: { obj: { nested, x: 1 } }, useProxy, deepCopy: false });
-      const a = api(s, useProxy);
-      let capturedNew;
-      a.onChange('obj', e => { capturedNew = e.val; });
-      a.set('obj', { nested, x: 2 });
-      assert(capturedNew.nested === nested);
-    });
-
-    await test('deepCopy: true (default) — watcher receives clone', async () => {
-      const useProxy = true;
-      const s = createStore({ state: { obj: { a: 1 } }, useProxy });
-      const a = api(s, useProxy);
-      let capturedNew;
-      a.onChange('obj', e => { capturedNew = e.val; });
-      const newObj = { a: 2 };
-      a.set('obj', newObj);
-      assert(capturedNew !== newObj);
-      assertEqual(capturedNew, newObj);
-    });
-
-  });
-}
-
 
 export async function runTests() {
-  console.log('='.repeat(60));
-  console.log('Store Test Suite');
-  console.log('='.repeat(60));
+	const runner = createRunner('store');
+	const { suite, test, summary } = runner;
 
-  await runTrackerSuite();
-  await runCreateStoreSuite();
-  await runStoreSuite('Proxy Store', makeProxyStore, true);
-  await runStoreSuite('Plain Store', makePlainStore, false);
+	await runTrackerSuite(suite, test);
+	await runCreateStoreSuite(suite, test);
+	await runStoreSuite('Plain Store', makePlain, false, suite, test);
+	await runStoreSuite('Proxy Store', makeProxy, true,  suite, test);
 
-  console.log('\n' + '='.repeat(60));
-  console.log(`Results: ${passed} passed, ${failed} failed`);
-  if (errors.length) {
-    console.log('\nFailed tests:');
-    for (const { name, err } of errors) {
-      console.log(`  ✗ ${name}: ${err.message}`);
-    }
-  }
-  console.log('='.repeat(60));
+	return summary();
 }

@@ -1,289 +1,543 @@
-//imports
-import { nestedKey } from '../utils/index.mjs';
+// imports
+import { nestedKey, copy } from '../utils/index.mjs';
 import { fetchHttp, formatUrl } from '../http/index.mjs';
+import { createStorage } from '../storage/index.mjs';
 
-//is default helper
-function isDefault(val) {
+// Re-export storage and http so callers can import from one place.
+export { createStorage } from '../storage/index.mjs';
+export { fetchHttp }     from '../http/index.mjs';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function isAbsent(val) {
 	return val === null || val === undefined;
 }
 
-//parse key helper
-function parseKey(key) {
-	var res = {
-		base: '',
-		sub:  '',
-		org:  key
-	};
-	var arr = key.split('.');
-	if (arr.length) {
-		res.base = arr.shift();
-		res.sub  = arr.join('.');
-	}
-	return res;
+function backoffMs(attempt, base, max) {
+	return Math.min(base * Math.pow(2, attempt), max);
 }
 
-//create sync manager
-export function createSyncManager(config={}) {
+// Normalise the `remote` opt accepted by read() and write().
+//   'tasks'                      → { key: 'tasks' }
+//   { key: 'tasks', uri: '...' } → as-is
+//   null / undefined / false     → null (remote disabled)
+function normaliseRemote(remote) {
+	if (!remote) return null;
+	if (typeof remote === 'string') return { key: remote };
+	if (typeof remote === 'object' && remote.key) return remote;
+	return null;
+}
 
-	//config defaults
-	config = Object.assign({
-		queueKey: 'remoteQueue',
-		interval: 30000
-	}, config);
+// ---------------------------------------------------------------------------
+// createHandler(driver, opts)
+//
+// Unified factory for remote handlers. Two driver types:
+//
+//   driver = 'http' (or omitted)
+//     opts.baseUrl        — prepended to key to form the request URL
+//     opts.routes         — { [key]: url } — per-key URL overrides
+//     opts.read.dataPath  — unwrap response body before returning
+//     opts.read.keyPath   — convert array response to { [keyPath]: record } map
+//     opts.write.dataPath — wrap request payload: { [dataPath]: payload }
+//
+//   driver = storageInstance (duck-typed: has .read and .write)
+//     opts.namespace      — storage namespace (defaults to key at call time)
+//     opts.seedUrl        — fetch + populate on first read when store empty
+//     opts.read.keyPath   — convert rows to { [keyPath]: record } map
+//     opts.write.idPath   — path in response where new id is returned
+//
+//   Both drivers:
+//     opts.latency        — artificial delay ms (dev/testing, default 0)
+//
+// Handler interface — both drivers expose:
+//   read(key, callOpts)
+//     callOpts: { signal?, params?, uri?, dataPath?, keyPath? }
+//     Per-call opts override handler-level defaults.
+//
+//   write(key, payload, callOpts)
+//     callOpts: { signal?, params?, uri?, dataPath?, delete?, id?, idPath? }
+//     delete: true — DELETE regardless of payload
+//     id — record id to delete when payload is absent
+// ---------------------------------------------------------------------------
 
-	//create queue
-	var queue = [];
+export function createHandler(driver, opts) {
+	opts = opts || {};
 
-	//remote handler
-	config.remoteHandler = config.remoteHandler || {
+	var latencyMs = opts.latency || 0;
 
-		// In-flight request deduplication � concurrent reads to the same URI
-		// are merged onto a single promise rather than firing multiple requests.
-		_inflight: new Map(),
+	function delay(val) {
+		if (!latencyMs) return Promise.resolve(val);
+		return new Promise(function(r) { setTimeout(function() { r(val); }, latencyMs); });
+	}
 
-		read: function(uri, opts={}) {
-			//format uri
-			var url = formatUrl(uri, opts.params || {});
-			//deduplicate concurrent requests to the same URL
-			if (this._inflight.has(url)) return this._inflight.get(url);
-			//make request
-			var prom = fetchHttp(url, opts).then(function(response) {
-				//extract data path?
-				if (opts.resDataPath) {
-					response = response[opts.resDataPath];
+	// -----------------------------------------------------------------------
+	// Storage driver
+	// -----------------------------------------------------------------------
+	if (driver && typeof driver === 'object' && typeof driver.read === 'function') {
+		var _storage          = driver;
+		var _namespace        = opts.namespace || null;
+		var _seedUrl          = opts.seedUrl   || null;
+		var _seeded           = false;
+		var _seedProm         = null;
+		var _handlerReadOpts  = opts.read  || {};
+		var _handlerWriteOpts = opts.write || {};
+
+		function ns(key) { return _namespace || key; }
+
+		function maybeSeed(key) {
+			if (_seeded || !_seedUrl) { _seeded = true; return Promise.resolve(); }
+			// Return in-flight promise to prevent concurrent duplicate seeds.
+			if (_seedProm) return _seedProm;
+			_seedProm = _storage.read(ns(key)).then(function(map) {
+				if (map && Object.keys(map).length > 0) { _seeded = true; return; }
+				return fetch(_seedUrl)
+					.then(function(r) { return r.json(); })
+					.then(function(data) {
+						var records = Array.isArray(data) ? data
+							: (data.records || data.data || Object.values(data));
+						return Promise.all(records.map(function(rec) {
+							return _storage.write(
+								ns(key) + '.' + rec.id,
+								Object.assign({}, rec, { id: String(rec.id) })
+							);
+						}));
+					})
+					.then(function() { _seeded = true; _seedProm = null; });
+			});
+			return _seedProm;
+		}
+
+		return {
+			read: function(key, callOpts) {
+				callOpts = callOpts || {};
+				var keyPath = callOpts.keyPath !== undefined ? callOpts.keyPath : _handlerReadOpts.keyPath;
+
+				return maybeSeed(key)
+					.then(function() { return _storage.read(ns(key)); })
+					.then(function(map) {
+						// Return null when empty/absent — syncManager's isAbsent()
+						// check then correctly triggers a remote fetch on first load.
+						if (!map || Object.keys(map).length === 0) return delay(null);
+						var rows = Object.values(map);
+						if (keyPath) {
+							map = Object.fromEntries(
+								rows.map(function(item) { return [String(item[keyPath]), item]; })
+							);
+						}
+						return delay(map);
+					});
+			},
+
+			write: function(key, payload, callOpts) {
+				callOpts = callOpts || {};
+
+				var isDelete = callOpts.delete || (payload === undefined && !!callOpts.id);
+				if (isDelete) {
+					var deleteId = callOpts.id
+						|| (payload && typeof payload === 'object' ? payload.id : null)
+						|| null;
+					var del = deleteId
+						? _storage.write(ns(key) + '.' + String(deleteId), undefined)
+						: Promise.resolve();
+					return del.then(function() { return delay({ result: 'ok' }); });
 				}
-				//key array response by field into object?
-				//e.g. resKeyPath:'id' converts [{id:'1',...}] ? {'1':{id:'1',...}}
-				if (opts.resKeyPath && Array.isArray(response)) {
+
+				if (payload === undefined) return delay({ result: 'ok' });
+
+				var rec   = (typeof payload === 'object' && payload !== null) ? payload : { value: payload };
+				var isNew = !rec.id;
+				var id    = rec.id
+					? String(rec.id)
+					: (Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
+
+				return _storage.write(ns(key) + '.' + id, Object.assign({}, rec, { id: id }))
+					.then(function() {
+						var idPath = callOpts.idPath !== undefined ? callOpts.idPath : _handlerWriteOpts.idPath;
+						if (isNew && idPath) {
+							var resp = {};
+							nestedKey(resp, idPath, { val: id });
+							return delay(Object.assign({ result: 'ok' }, resp));
+						}
+						return delay({ result: 'ok' });
+					});
+			}
+		};
+	}
+
+	// -----------------------------------------------------------------------
+	// HTTP driver (default)
+	// -----------------------------------------------------------------------
+	var _routes           = opts.routes  || {};
+	var _baseUrl          = opts.baseUrl || '';
+	var _handlerReadOpts  = opts.read    || {};
+	var _handlerWriteOpts = opts.write   || {};
+	var _inflight         = new Map();
+
+	function resolveUrl(key, callUri) {
+		if (callUri)        return callUri;
+		if (_routes[key])   return _routes[key];
+		return _baseUrl ? _baseUrl.replace(/\/$/, '') + '/' + key : key;
+	}
+
+	return {
+		read: function(key, callOpts) {
+			callOpts = callOpts || {};
+			var dataPath = callOpts.dataPath !== undefined ? callOpts.dataPath : _handlerReadOpts.dataPath;
+			var keyPath  = callOpts.keyPath  !== undefined ? callOpts.keyPath  : _handlerReadOpts.keyPath;
+			var url      = formatUrl(resolveUrl(key, callOpts.uri), callOpts.params || {});
+
+			if (_inflight.has(url)) return _inflight.get(url);
+
+			var prom = fetchHttp(url, { signal: callOpts.signal }).then(function(response) {
+				if (dataPath) response = nestedKey(response, dataPath);
+				if (keyPath && Array.isArray(response)) {
 					response = Object.fromEntries(
-						response.map(function(item) {
-							return [ item[opts.resKeyPath], item ];
-						})
+						response.map(function(item) { return [String(item[keyPath]), item]; })
 					);
 				}
-				return response;
+				return delay(response);
 			});
-			//track in-flight, remove when settled
-			this._inflight.set(url, prom);
-			var that = this;
-			prom.finally(function() {
-				that._inflight.delete(url);
-			});
+
+			_inflight.set(url, prom);
+			prom.finally(function() { _inflight.delete(url); });
 			return prom;
 		},
 
-		write: function(uri, payload, opts={}) {
-			//set body?
-			if (payload) {
-				if (opts.reqDataPath) {
-					opts.body = nestedKey(opts.body || {}, opts.reqDataPath, { val: payload });
-				} else {
-					opts.body = opts.body || payload;
-				}
+		write: function(key, payload, callOpts) {
+			callOpts = callOpts || {};
+			var dataPath     = callOpts.dataPath !== undefined ? callOpts.dataPath : _handlerWriteOpts.dataPath;
+			var fetchOptions = { signal: callOpts.signal };
+
+			if (payload === undefined || callOpts.delete) {
+				fetchOptions.method = 'DELETE';
+			} else {
+				fetchOptions.body = dataPath
+					? nestedKey({}, dataPath, { val: payload })
+					: payload;
 			}
-			//is delete?
-			if (payload === undefined) {
-				opts.method = opts.method || 'DELETE';
-			}
-			//make request (writes are never deduplicated)
-			return this.read(uri, opts);
+
+			return fetchHttp(
+				formatUrl(resolveUrl(key, callOpts.uri), callOpts.params || {}),
+				fetchOptions
+			).then(function(response) { return delay(response); });
 		}
-
 	};
+}
 
-	//local handler
-	config.localHandler = config.localHandler || {
+// ---------------------------------------------------------------------------
+// createSyncManager(config)
+//
+// config:
+//   localHandler   — storage instance (default: createStorage())
+//   remoteHandler  — handler from createHandler(), or any { read, write }
+//   queueKey       — local key for persisting the write queue (default: 'syncQueue')
+//   interval       — ms between processQueue polls (default: 30000)
+//   maxRetries     — default max remote write retries (default: 5)
+//   backoffBase    — ms base for exponential backoff (default: 1000)
+//   backoffMax     — ms cap for backoff delay (default: 30000)
+// ---------------------------------------------------------------------------
 
-		read: function(key, opts={}) {
-			var keyObj = parseKey(key);
-			return new Promise(function(resolve) {
-				var res = localStorage.getItem(keyObj.base);
-				try {
-					res = JSON.parse(res);
-				} catch(err) {
-					//do nothing
-				}
-				if (keyObj.sub) {
-					res = nestedKey(res || {}, keyObj.sub);
-				}
-				resolve(res);
-			});
+export function createSyncManager(config) {
+	config = Object.assign({
+		queueKey:    'syncQueue',
+		interval:    30000,
+		maxRetries:  5,
+		backoffBase: 1000,
+		backoffMax:  30000
+	}, config || {});
+
+	var local  = config.localHandler  || createStorage(config.storage || {});
+	var remote = config.remoteHandler || null;
+
+	// -------------------------------------------------------------------------
+	// Write queue
+	// Each entry: { key, payload, opts, attempts, nextRetry }
+	//
+	// payload is stored explicitly rather than re-reading local on retry.
+	// For skipLocal writes local was never touched; for normal writes a later
+	// edit may have already updated local to a newer value — retrying with the
+	// original payload is intentionally correct (last-write-wins per key).
+	// -------------------------------------------------------------------------
+	var queue    = [];
+	var retryTid = null;
+
+	function scheduleRetry() {
+		if (retryTid) return;
+		var next = Infinity;
+		for (var i = 0; i < queue.length; i++) {
+			if (queue[i].nextRetry < next) next = queue[i].nextRetry;
+		}
+		if (next === Infinity) return;
+		var ms = Math.max(0, next - Date.now());
+		retryTid = setTimeout(function() { retryTid = null; api.processQueue(); }, ms);
+	}
+
+	function enqueue(key, payload, opts, attempts, nextRetry) {
+		// Latest write for the same key supersedes any earlier queued entry.
+		for (var i = 0; i < queue.length; i++) {
+			if (queue[i].key === key) {
+				queue[i].payload   = payload;
+				queue[i].opts      = opts;
+				queue[i].attempts  = attempts || 0;
+				queue[i].nextRetry = nextRetry || Date.now();
+				return;
+			}
+		}
+		queue.push({ key: key, payload: payload, opts: opts, attempts: attempts || 0, nextRetry: nextRetry || Date.now() });
+	}
+
+	// -------------------------------------------------------------------------
+	// Public API
+	// -------------------------------------------------------------------------
+
+	var api = {
+
+		local:  local,
+		remote: remote,
+
+		isOnline: function() {
+			return !!(globalThis.navigator && ('onLine' in navigator) && navigator.onLine);
 		},
 
-		write: function(key, payload, opts={}) {
-			var that  = this;
-			var keyObj = parseKey(key);
-			return new Promise(function(resolve) {
-				var prom = Promise.resolve(payload);
-				//has subkey � read parent first, merge, then write
-				if (keyObj.sub) {
-					prom = that.read(keyObj.base, opts).then(function(data) {
-						return nestedKey(data || {}, keyObj.sub, { val: payload });
+		// -------------------------------------------------------------------
+		// read(key, opts)
+		//
+		// opts:
+		//   default    — fallback when both local and remote absent
+		//   refresh    — force remote fetch even when local data exists
+		//   cache      — write remote result to local (default true)
+		//   signal     — AbortSignal
+		//   params     — query params forwarded to remote
+		//   remote     — string key, or { key, uri?, dataPath?, keyPath?, params? }
+		//                Omit or falsy to skip remote.
+		//
+		// Returns a Promise resolving to the local value.
+		// .next is attached when a background fetch is in flight — await it
+		// to get the refreshed value once remote resolves.
+		// -------------------------------------------------------------------
+		read: function(key, opts) {
+			opts = Object.assign({
+				default: null,
+				refresh: false,
+				cache:   true,
+			}, opts || {});
+
+			var r          = normaliseRemote(opts.remote);
+			var localProm  = local.read(key);
+			var remoteProm = null;
+
+			function startRemote() {
+				return remote.read(r.key, {
+					signal:   opts.signal,
+					params:   r.params || opts.params,
+					uri:      r.uri,
+					dataPath: r.dataPath,
+					keyPath:  r.keyPath,
+				});
+			}
+
+			function attachNext(rp) {
+				return rp.then(function(remoteRes) {
+					return local.write(key, remoteRes).then(function() {
+						return local.read(key);
+					});
+				});
+			}
+
+			if (remote && r && opts.refresh) {
+				remoteProm = startRemote();
+			}
+
+			var prom = localProm.then(function(res) {
+				if (!remoteProm && remote && r && isAbsent(res)) {
+					remoteProm = startRemote();
+					if (opts.cache) prom.next = attachNext(remoteProm);
+				}
+				return isAbsent(res) ? opts.default : res;
+			});
+
+			if (remoteProm && opts.cache) {
+				prom.next = attachNext(remoteProm);
+			}
+
+			return prom;
+		},
+
+		// -------------------------------------------------------------------
+		// write(key, payload, opts)
+		//
+		// opts:
+		//   remote      — string key, or { key, uri?, dataPath?, params? }
+		//                 Omit or falsy for local-only write.
+		//   skipLocal   — skip the local write (caller already wrote locally).
+		//                 Rollback is a no-op. Payload stored explicitly in queue.
+		//   delete      — treat as a delete (passes delete:true to handler)
+		//   idPath      — dot-path in remote response where server id lives;
+		//                 if present, patches local record with the returned id
+		//   maxRetries  — override config.maxRetries for this write
+		//   signal      — AbortSignal
+		//
+		// Returns: { promise, rollback, signal }
+		// -------------------------------------------------------------------
+		write: function(key, payload, opts) {
+			opts = Object.assign({
+				skipLocal:  false,
+				maxRetries: config.maxRetries,
+			}, opts || {});
+
+			var r = normaliseRemote(opts.remote);
+
+			// -----------------------------------------------------------------
+			// Local write + rollback
+			// -----------------------------------------------------------------
+			var snapshotProm, localProm;
+
+			if (opts.skipLocal) {
+				snapshotProm = Promise.resolve(null);
+				localProm    = Promise.resolve();
+			} else {
+				snapshotProm = local.read(key).then(function(prev) { return copy(prev, true); });
+				localProm    = local.write(key, payload);
+			}
+
+			var rollback = opts.skipLocal
+				? function() { return Promise.resolve(); }
+				: function() { return snapshotProm.then(function(prev) { return local.write(key, prev); }); };
+
+			// -----------------------------------------------------------------
+			// Remote write + retry
+			// -----------------------------------------------------------------
+			var controller = (r && remote && typeof AbortController !== 'undefined')
+				? new AbortController() : null;
+			var signal = opts.signal || (controller && controller.signal) || null;
+
+			var promise = localProm.then(function() {
+				if (!remote || !r) return payload;
+
+				var attempts   = 0;
+				var maxRetries = opts.maxRetries;
+
+				function attempt() {
+					return remote.write(r.key, payload, {
+						signal:   signal,
+						params:   r.params || opts.params,
+						uri:      r.uri,
+						dataPath: r.dataPath,
+						delete:   opts.delete,
+					})
+					.then(function(response) {
+						// Patch local with server-assigned id if idPath is provided.
+						var idPath = opts.idPath;
+						if (idPath && payload && typeof payload === 'object') {
+							var id = nestedKey(response, idPath);
+							if (id) {
+								var updated = Object.assign({}, payload);
+								updated[idPath.split('.').pop()] = id;
+								return local.write(key, updated).then(function() { return response; });
+							}
+						}
+						return response;
+					})
+					.catch(function(err) {
+						if (err && err.name === 'AbortError') throw err;
+
+						attempts++;
+						if (attempts > maxRetries) {
+						throw err;
+						}
+
+					var delayMs = backoffMs(attempts - 1, config.backoffBase, config.backoffMax);
+
+						return new Promise(function(resolve, reject) {
+							enqueue(key, payload, Object.assign({}, opts, {
+								_resolve: resolve,
+								_reject:  reject,
+							}), attempts, Date.now() + delayMs);
+							scheduleRetry();
+						});
 					});
 				}
-				return prom.then(function(data) {
-					if (isDefault(data)) {
-						localStorage.removeItem(keyObj.base);
-					} else {
-						localStorage.setItem(keyObj.base, JSON.stringify(data));
+
+				return attempt();
+			});
+
+			return { promise: promise, rollback: rollback, signal: signal };
+		},
+
+		// -------------------------------------------------------------------
+		// processQueue — retry writes that are due.
+		// Called on: online event, interval timer, scheduled backoff.
+		// -------------------------------------------------------------------
+		processQueue: function() {
+			if (!remote || !api.isOnline() || !queue.length) return;
+
+			var now = Date.now();
+			var due = queue.filter(function(e) { return e.nextRetry <= now; });
+			queue   = queue.filter(function(e) { return e.nextRetry > now; });
+
+			due.forEach(function(entry) {
+				var o        = entry.opts;
+				var r        = normaliseRemote(o.remote);
+				var attempts = entry.attempts || 0;
+
+				if (!r) {
+					if (o._resolve) o._resolve(entry.payload);
+					return;
+				}
+
+				remote.write(r.key, entry.payload, {
+					params:   r.params || o.params,
+					uri:      r.uri,
+					dataPath: r.dataPath,
+					delete:   o.delete,
+				})
+				.then(function(response) {
+					if (o._resolve) o._resolve(response);
+				})
+				.catch(function(err) {
+					attempts++;
+					var maxRetries = (o.maxRetries !== undefined) ? o.maxRetries : config.maxRetries;
+					if (attempts > maxRetries) {
+						console.error('[sync] queue write permanently failed', entry.key, err);
+						if (o._reject) o._reject(err);
+						return;
 					}
-					resolve(nestedKey(data || {}, keyObj.sub));
+					var delayMs = backoffMs(attempts - 1, config.backoffBase, config.backoffMax);
+					entry.attempts  = attempts;
+					entry.nextRetry = Date.now() + delayMs;
+					queue.push(entry);
+					scheduleRetry();
 				});
 			});
 		}
 
 	};
 
-	//public api
-	const api = {
-
-		local:  config.localHandler,
-		remote: config.remoteHandler,
-
-		isOnline() {
-			return !!(globalThis.navigator && ('onLine' in navigator) && navigator.onLine);
-		},
-
-		read: function(key, opts={}) {
-			opts = Object.assign({
-				default: null,
-				retry:   false,
-				refresh: false,
-				cache:   true,
-				local:   {},
-				remote:  {}
-			}, opts);
-
-			//read local first
-			var prom = api.local.read(key, opts.local);
-
-			prom = prom.then(function(res) {
-				//call remote if no local data or refresh requested
-				if (opts.remote.uri && (opts.refresh || isDefault(res))) {
-					var remote = new Promise(function(resolve) {
-						api.remote.read(opts.remote.uri, opts.remote).then(function(res) {
-							resolve(res);
-							opts.resolve && opts.resolve(res);
-						}).catch(function(err) {
-							opts.resolve = resolve;
-							console.error('Remote read failed', err);
-							api.addQueue('read', [ key, opts ]);
-						});
-					});
-
-					//cache remote result locally and re-read
-					if (opts.cache) {
-						prom.next = remote.then(function(res) {
-							return api.local.write(key, res, opts.local).then(function() {
-								delete opts.remote.uri;
-								return api.read(key, opts);
-							});
-						});
-					}
-				}
-
-				//fall back to default if nothing found
-				if (isDefault(res)) {
-					res = opts.default;
-				}
-
-				return res;
-			});
-
-			return prom;
-		},
-
-		write: function(key, payload, opts={}) {
-			opts = Object.assign({
-				retry:  false,
-				local:  {},
-				remote: {}
-			}, opts);
-
-			//retry reads from local rather than re-writing
-			var prom = opts.retry
-				? api.local.read(key, opts.local)
-				: api.local.write(key, payload, opts.local);
-
-			prom = prom.then(function(payload) {
-				if (opts.remote.uri) {
-					var remote = new Promise(function(resolve) {
-						api.remote.write(opts.remote.uri, payload, opts.remote).then(function(response) {
-							//write server-assigned ID back to local if provided
-							if (opts.remote.resIdPath) {
-								var id = nestedKey(response, opts.remote.resIdPath);
-								if (id) {
-									payload[opts.remote.resIdPath.split('.').pop()] = id;
-									api.local.write(key, payload, opts.local);
-								}
-							}
-							resolve(payload);
-						}).catch(function(err) {
-							console.error('Remote write failed', err);
-							//queue for retry when back online.
-							//note: local write already succeeded � this is optimistic UI.
-							//the store sees success immediately; remote sync happens later.
-							api.addQueue('write', [ key, null, opts ]);
-							return null;
-						});
-					});
-
-					prom.next = remote;
-				}
-
-				return payload;
-			});
-
-			return prom;
-		},
-
-		addQueue: function(method, args=[]) {
-			//skip if already queued for this key and method
-			for (var i=0; i < queue.length; i++) {
-				if (method === queue[i].method && args[0] === queue[i].args[0]) {
-					return false;
-				}
-			}
-			//mark as retry so write() reads from local rather than re-writing
-			args[args.length-1].retry = true;
-			queue.push({ method, args });
-		},
-
-		processQueue: function() {
-			if (!api.isOnline()) return;
-			while (queue.length) {
-				var item = queue.shift();
-				api[item.method](...item.args);
-			}
+	// -------------------------------------------------------------------------
+	// Startup — restore persisted queue from previous session
+	// -------------------------------------------------------------------------
+	local.read(config.queueKey).then(function(saved) {
+		if (saved && saved.length) {
+			queue = saved;
+			local.write(config.queueKey, undefined);
+			api.processQueue();
 		}
-
-	};
-
-	//load persisted queue from last session
-	api.local.read(config.queueKey).then(function(res) {
-		queue = res || [];
-		api.local.write(config.queueKey, undefined);
-		api.processQueue();
 	});
 
-	//persist write queue across page unloads (reads are not worth retrying)
 	globalThis.addEventListener('beforeunload', function() {
-		queue = queue.filter(function(item) {
-			return item.method !== 'read';
+		var toSave = queue.map(function(e) {
+			var o = Object.assign({}, e.opts);
+			delete o._resolve;
+			delete o._reject;
+			return { key: e.key, payload: e.payload, opts: o, attempts: e.attempts, nextRetry: e.nextRetry };
 		});
-		api.local.write(config.queueKey, queue.length ? queue : undefined);
+		local.write(config.queueKey, toSave.length ? toSave : undefined);
 	});
 
-	//retry queue on a timer
-	setInterval(function() {
-		api.processQueue();
-	}, config.interval);
-
-	//retry queue immediately when coming back online
-	globalThis.addEventListener('online', function() {
-		api.processQueue();
-	});
+	setInterval(function() { api.processQueue(); }, config.interval);
+	globalThis.addEventListener('online', function() { api.processQueue(); });
 
 	return api;
-
 }
