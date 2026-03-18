@@ -58,7 +58,7 @@ function toggleTaskFromList(taskData, ctx, toCompleted, opts) {
 
 	ctx.animator.collapse(host, { durationFactor: 1.1 }).finished.then(function() {
 		resetSwipeRevealState(ctx.root);
-		var didToggle = toggleTaskWithUndo(ctx.models, taskData, { toCompleted: toCompleted, undoToastMs: undoToastMs, animator: ctx.animator });
+		var didToggle = toggleTaskWithUndo(ctx.models, taskData, { toCompleted: toCompleted, undoToastMs: undoToastMs, animate: ctx.animate });
 		ctx._transitioning = false;
 		if (!didToggle) return;
 	});
@@ -76,7 +76,7 @@ function deleteTask(taskData, ctx, opts) {
 
 	ctx.animator.collapse(host, { durationFactor: 1.1 }).finished.then(function() {
 		resetSwipeRevealState(ctx.root);
-		var deletedTask = deleteTaskWithUndo(ctx.models, taskData, { undoToastMs: undoToastMs, animator: ctx.animator });
+		var deletedTask = deleteTaskWithUndo(ctx.models, taskData, { undoToastMs: undoToastMs, animate: ctx.animate });
 		ctx._transitioning = false;
 		if (!deletedTask) return;
 	});
@@ -108,13 +108,13 @@ function showTaskActions(task, ctx) {
 			if (ctx._transitioning || ctx._deleteBusy || ctx._swiping) return;
 
 			if (action.id === 'toggle') {
-				hapticLight();
-				toggleTaskFromList(taskData, ctx, !taskData.completed, { undoToastMs: 4000, animator: ctx.animator });
-				return;
+			hapticLight();
+			toggleTaskFromList(taskData, ctx, !taskData.completed, { undoToastMs: 4000, animate: ctx.animate });
+			return;
 			}
 			if (action.id === 'delete') {
-				hapticHeavy();
-				deleteTask(taskData, ctx, { undoToastMs: 4000, animator: ctx.animator });
+			hapticHeavy();
+			deleteTask(taskData, ctx, { undoToastMs: 4000, animate: ctx.animate });
 			}
 		},
 		onClose: function() {
@@ -167,7 +167,7 @@ export default {
 			if (!task || ctx._transitioning || ctx._deleteBusy || ctx._swiping) return;
 			hapticLight();
 			ctx.animate(e.matched, 'pop', { durationFactor: 1.2 });
-			toggleTaskFromList(Object.assign({}, task), ctx, !task.completed, { undoToastMs: 4000 });
+			toggleTaskFromList(Object.assign({}, task), ctx, !task.completed, { undoToastMs: 4000, animate: ctx.animate });
 		},
 
 		'gesture.swipe(.row-content)': {
@@ -209,12 +209,12 @@ export default {
 				if (e.direction === 'right') {
 					hapticLight();
 					toggleTaskFromList(Object.assign({}, task), ctx, !task.completed, {
-						skipExit: true, undoToastMs: 4000
+						skipExit: true, undoToastMs: 4000, animate: ctx.animate
 					});
 				} else {
 					ctx._deleteBusy = true;
 					hapticHeavy();
-					deleteTask(Object.assign({}, task), ctx, { undoToastMs: 4000 });
+					deleteTask(Object.assign({}, task), ctx, { undoToastMs: 4000, animate: ctx.animate });
 				}
 			},
 			onCancel: function(e, ctx) {

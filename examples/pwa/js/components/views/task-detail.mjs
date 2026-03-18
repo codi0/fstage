@@ -382,9 +382,10 @@ export default {
 			deleteTaskWithUndo(ctx.models, id, {
 				politeness: 'assertive',
 				undoToastMs: 4000,
+				animate: ctx.animate,
 				afterDelete: function() {
 					ctx.router.go(-1);
-				}
+				},
 			});
 		},
 	},
@@ -487,7 +488,6 @@ export default {
 					${ctx.state.confirmingDelete ? ctx.html`
 						<div class="delete-confirm">
 							<div class="delete-confirm-msg">Delete this task?</div>
-							<div class="delete-confirm-sub">This cannot be undone.</div>
 							<div class="delete-confirm-btns">
 								<button class="delete-cancel-btn">Cancel</button>
 								<button class="delete-confirm-btn">Delete</button>

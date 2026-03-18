@@ -69,11 +69,19 @@ export default {
 		defHome:   '/',
 		def404:    '/',
 		routes: [
-			{ id: '/',           path: '/',           meta: { component: 'pwa-tasks',       title: 'Active',    tab: { id: 'tasks',     label: 'Active',    icon: 'tasks'     }, menu: 1, headerAction: { label: 'Add task', event: 'addTask', icon: 'add' } } },
-			{ id: '/completed',  path: '/completed',  meta: { component: 'pwa-completed',   title: 'Completed', tab: { id: 'completed', label: 'Completed', icon: 'completed' }, menu: 1 } },
-			{ id: '/tasks/:id',  path: '/tasks/:id',  meta: { component: 'pwa-task-detail', title: 'Task',                                                                        menu: 0 } },
-			{ id: '/settings',   path: '/settings',   meta: { component: 'pwa-settings',    title: 'Settings',  tab: { id: 'settings',  label: 'Settings',  icon: 'settings'  }, menu: 1 } },
+			{ id: '/',          meta: { component: 'pwa-tasks',       title: 'Active'    } },
+			{ id: '/completed', meta: { component: 'pwa-completed',   title: 'Completed' } },
+			{ id: '/tasks/:id', meta: { component: 'pwa-task-detail', title: 'Task'      } },
+			{ id: '/settings',  meta: { component: 'pwa-settings',    title: 'Settings'  } },
 		],
+	},
+
+	ui: {
+		tabs: [
+			{ route: '/',          id: 'tasks',     label: 'Active',    icon: 'tasks'     },
+			{ route: '/completed', id: 'completed', label: 'Completed', icon: 'completed' },
+			{ route: '/settings',  id: 'settings',  label: 'Settings',  icon: 'settings'  },
+		]
 	},
 
 	sw: {

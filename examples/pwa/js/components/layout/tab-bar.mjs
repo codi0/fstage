@@ -9,22 +9,22 @@ export default {
 	},
 
 	computed: {
-		activeId: function(ctx) { return ctx.state.route.meta?.tab?.id || ''; },
-		tabs:     function(ctx) {
-			return (ctx.config.router?.routes || [])
-				.filter(function(r) { return r.meta && r.meta.tab; })
-				.map(function(r) { return { href: r.id, tab: r.meta.tab }; });
+		activeId: function(ctx) {
+			var path = ctx.state.route.path || '';
+			var tabs = ctx.config.ui?.tabs || [];
+			var match = tabs.find(function(t) { return t.route === path; });
+			return match ? match.id : '';
 		},
+		tabs: function(ctx) { return ctx.config.ui?.tabs || []; },
+		hasTab: function(ctx) { return !!ctx.computed.activeId; },
 	},
 
 	watch: {
 		route: {
 			afterRender: true,
-			trackBy: function(r) {
-				return (r?.meta?.tab ? '1' : '0') + '|' + (r?.meta?.tab?.id || '');
-			},
+			trackBy: function(r) { return r?.path || ''; },
 			handler: function(e, ctx) {
-				var visible = !!e.val?.meta?.tab;
+				var visible = ctx.computed.hasTab;
 				var host    = ctx.host;
 
 				if (visible !== !!ctx._tabVisible && !document.documentElement.hasAttribute('data-transitioning')) {
@@ -42,7 +42,11 @@ export default {
 
 	interactions: {
 		'transition.accompany': function(ctx, e) {
-			return e ? !!e.meta?.tab : !!ctx.state.route.meta?.tab;
+			if (e) {
+				var tabs = ctx.config.ui?.tabs || [];
+				return tabs.some(function(t) { return t.route === e.path; });
+			}
+			return ctx.computed.hasTab;
 		},
 	},
 
@@ -156,18 +160,18 @@ export default {
 		var tabs     = ctx.computed.tabs;
 
 		return ctx.html`${tabs.map(function(t) {
-			var isActive = activeId === t.tab.id;
+			var isActive = activeId === t.id;
 			return ctx.html`
-				<button class="tab" role="tab" aria-selected=${isActive} data-href=${t.href}>
-					<span class=${'tab-icon tab-icon--' + t.tab.icon} aria-hidden="true"></span>
-					<span class="tab-label">${t.tab.label}</span>
+				<button class="tab" role="tab" aria-selected=${isActive} data-href=${t.route}>
+					<span class=${'tab-icon tab-icon--' + t.icon} aria-hidden="true"></span>
+					<span class="tab-label">${t.label}</span>
 				</button>
 			`;
 		})}`;
 	},
 
 	connected: function(ctx) {
-		var visible = !!ctx.state.route.meta?.tab;
+		var visible = ctx.computed.hasTab;
 		ctx._tabVisible = visible;
 		if (!visible) ctx.host.setAttribute('data-accompany-hidden', '');
 	},

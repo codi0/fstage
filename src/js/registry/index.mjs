@@ -25,6 +25,10 @@ export function createRegistry() {
 		get: function(key, defVal = null) {
 			//set vars
 			var res = defVal;
+			//key not found (no default set)?
+			if(!_data[key] && arguments.length < 2) {
+				console.warn('[fstage/registry] get("' + key + '"): key not found');
+			}
 			//has value?
 			if(_data[key]) {
 				//is factory?

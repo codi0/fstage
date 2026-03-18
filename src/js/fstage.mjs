@@ -104,7 +104,27 @@ var _queryMap = function() {
 	return res;
 };
 
-//get path helper
+/**
+ * Retrieve a value from the fstage export registry by dot-path, optionally
+ * invoking it as a function.
+ *
+ * @param {string} path - Dot-separated path into the registry, e.g. `'store.createStore'`.
+ * @param {Array|null} [args=null] - When an Array, the resolved value is called
+ *   as a function with these arguments and its return value is returned instead.
+ *   The `this` context is set to the nearest constructor ancestor in the path
+ *   (detected via `prototype.constructor === value`), so class factory methods
+ *   receive the correct `this` automatically.
+ * @returns {*} The resolved value, or the result of invoking it when `args` is
+ *   an Array, or `null` if any segment of the path is not found.
+ *
+ * @example
+ * // Retrieve a value
+ * const store = fstage.get('store');
+ *
+ * @example
+ * // Invoke a factory with arguments
+ * const s = fstage.get('store.createStore', [{ state: {} }]);
+ */
 var get = function(path, args=null) {
   //set vars
   var t = null;
@@ -133,7 +153,53 @@ var get = function(path, args=null) {
 	return res;
 };
 
-//load path helper
+/**
+ * Load one or more assets and/or fstage modules, returning a Promise that
+ * resolves when all requested assets are ready.
+ *
+ * Accepted `path` shapes:
+ *   - **string** — a single asset.  Special values:
+ *       - `'@all'`  loads every built-in fstage module.
+ *       - A bare module name (`'store'`, `'router'`, …) resolves via the
+ *         import-map to `@fstage/<name>/index.mjs`.
+ *       - Any string ending in `.mjs`, `.js`, `+esm`, or matching a bare
+ *         package-scope pattern is treated as an ES module (`import()`).
+ *       - Strings ending in `.css` (or similar) are injected as `<link>` tags.
+ *       - `'manifest.<ext>'` / `'favicon.<ext>'` update existing `<link>` tags.
+ *   - **Array** — shorthand for an object with numeric keys; all items load
+ *     in parallel.
+ *   - **Object (flat)** — all values load in parallel.
+ *   - **Object (nested)** — each top-level key whose value is itself an object
+ *     forms a *group*: the group loads first, then `config.afterLoad<Group>`
+ *     is called, then the remaining keys load. Useful for ordered boot phases.
+ *
+ * Config hooks (set via `FSCONFIG` or the loaded config module):
+ *   - `beforeLoad(e)` — called before each asset; mutate `e.path` to redirect.
+ *   - `afterLoad(e)`  — called after each successful module load.
+ *   - `afterLoad<Group>(e)` — called after a named group finishes.
+ *
+ * @param {string|string[]|Object} path - Asset(s) to load (see above).
+ * @param {string} [type=''] - Override the auto-detected element type
+ *   (`'module'`, `'stylesheet'`, `'icon'`, `'manifest'`, `'base'`, …).
+ * @returns {Promise<*>} Resolves with the module exports (for ES modules),
+ *   an array of exports (for parallel loads), or `undefined` for non-module
+ *   assets.
+ *
+ * @example
+ * // Load a single built-in module
+ * await fstage.load('store');
+ *
+ * @example
+ * // Load several modules in parallel
+ * await fstage.load(['store', 'router', 'component']);
+ *
+ * @example
+ * // Two-phase boot: load core first, then features
+ * await fstage.load({
+ *   core: { store: 'store', router: 'router' },
+ *   features: ['form', 'http']
+ * });
+ */
 var load = function(path, type='') {
 	//set vars
 	var scope = '@' + _name;

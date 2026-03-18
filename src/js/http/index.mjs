@@ -1,4 +1,10 @@
-//Helper: format url
+/**
+ * Append query params to a URL, normalising duplicates and removing the hash.
+ *
+ * @param {string} url
+ * @param {string|Object|URLSearchParams} [params]
+ * @returns {string}
+ */
 export function formatUrl(url, params) {
 	//set vars
 	var params = params || '';
@@ -19,7 +25,12 @@ export function formatUrl(url, params) {
 	return url + (params ? (url.indexOf('?') >= 0 ? '&' : '?') + params : '');
 }
 
-//Helper: format headers
+/**
+ * Normalise header keys to lowercase.
+ *
+ * @param {Object} [headers]
+ * @returns {Object}
+ */
 export function formatHeaders(headers) {
 	//set vars
 	var res = {};
@@ -32,7 +43,17 @@ export function formatHeaders(headers) {
 	return res;
 }
 
-//Helper: format form body
+/**
+ * Recursively serialise a plain object (or array) into a `FormData` instance,
+ * using bracket notation for nested keys (`parent[child]`).
+ * File instances are appended as-is.
+ *
+ * @param {string|Object|Array} body - Data to serialise. Returned unchanged if
+ *   already a string or falsy.
+ * @param {FormData} [form] - Existing FormData to append into; created if omitted.
+ * @param {string} [path=''] - Key prefix for nested recursion (used internally).
+ * @returns {FormData|string}
+ */
 export function formatFormBody(body, form, path='') {
 	//can process?
 	if(!body || typeof body === 'string') {
@@ -63,7 +84,12 @@ export function formatFormBody(body, form, path='') {
 	return form;
 }
 
-//Helper: format json body
+/**
+ * Serialise a value to a JSON string. Strings pass through unchanged.
+ *
+ * @param {string|*} [body]
+ * @returns {string}
+ */
 export function formatJsonBody(body) {
 	//set vars
 	var body = body || '';
@@ -75,7 +101,13 @@ export function formatJsonBody(body) {
 	return JSON.stringify(body);
 }
 
-//Helper: process response
+/**
+ * Parse a Fetch `Response` based on its `content-type` header.
+ * Returns JSON, text, or a Blob accordingly.
+ *
+ * @param {Response} response
+ * @returns {Promise<*>}
+ */
 export function processResponse(response) {
 	//get content type
 	var contentType = response.headers.get('content-type') || '';
@@ -91,7 +123,23 @@ export function processResponse(response) {
 	return response.blob();
 }
 
-//make http request
+/**
+ * Wrapper around the Fetch API with timeout, auto body-formatting, and
+ * content-type-based response parsing.
+ *
+ * @param {string} url - Request URL. Query params may also be passed via `opts.params`.
+ * @param {Object} [opts]
+ * @param {number}  [opts.timeout=5000]  - Abort timeout in ms. Set to `0` to disable.
+ * @param {string}  [opts.format]        - Body serialisation format: `'form'` (default
+ *   when `body` is present) or `'json'`. Leave unset for raw body/GET requests.
+ * @param {string}  [opts.method]        - HTTP method. Inferred from `format` and `body`
+ *   presence when omitted (`'POST'` if body, `'GET'` otherwise).
+ * @param {Object}  [opts.headers={}]    - Request headers (keys are lowercased).
+ * @param {string|Object|URLSearchParams} [opts.params={}] - URL query parameters.
+ * @param {string|Object|FormData|null}   [opts.body=null]  - Request body.
+ * @returns {Promise<*>} Resolves with the parsed response body (JSON, text, or Blob).
+ *   Rejects on network errors, timeouts, or non-2xx HTTP status codes.
+ */
 export function fetchHttp(url, opts={}) {
 	//format opts
 	opts = Object.assign({

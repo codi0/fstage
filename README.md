@@ -57,6 +57,15 @@ export default {
 
 Each phase completes before the next starts. `afterLoad`, `afterLoadPreload`, `afterLoadLibs`, and `afterLoadApp` hooks fire at the end of each phase and are where services are instantiated and registered. The **registry** is the central service locator — modules register instances there and components inject what they need.
 
+Hooks receive an `e` object with a `get(path, args?)` helper that resolves dot-paths across loaded module exports and config. When `args` is provided, the resolved value is called as a function with those arguments — this is how services are instantiated without any direct imports in config:
+
+```js
+e.get('config')                        // full config object
+e.get('config.debug')                  // nested config value
+e.get('store.createStore', [])         // calls createStore(), returns instance
+e.get('registry.defaultRegistry', []) // calls defaultRegistry(), returns instance
+```
+
 See the [getting started guide](docs/getting-started.md) for a full walkthrough.
 
 ## Example

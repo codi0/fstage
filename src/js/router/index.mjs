@@ -86,7 +86,7 @@ function flatten(routes, parentPath, out) {
 	for (var i = 0; i < routes.length; i++) {
 		var r = routes[i];
 
-		var fullPattern = join(parentPath, r.path || '');
+		var fullPattern = join(parentPath, r.id || '');
 
 		out.push({
 			id: r.id || fullPattern,
@@ -112,6 +112,21 @@ function resolveEl(el) {
 
 // EXPORTS
 
+/**
+ * Build a route matcher from a (possibly nested) route config.
+ *
+ * Routes are flattened and sorted by specificity: static segments outscore
+ * params (10 vs 1 per segment), and longer patterns rank higher.
+ *
+ * @param {Object} options
+ * @param {Array<{id?: string, pattern?: string, meta?: *, children?: Array}>} options.routes
+ *   Route definitions. Child `id` values are treated as relative to their
+ *   parent's resolved pattern.
+ * @returns {{ resolve(path: string): Array, last(): Array }}
+ *   - `resolve(path)` — returns an array with the single best match
+ *     `{ id, pattern, path, params, meta }`, or `[]` if no match.
+ *   - `last()` — returns the result of the most recent `resolve()` call.
+ */
 export function createRouteMatcher(options) {
 	options = options || {};
 
@@ -154,6 +169,30 @@ export function createRouteMatcher(options) {
 	};
 }
 
+/**
+ * Create a delegated click/submit/scroll handler that translates DOM
+ * navigation attributes into router `navigate()` calls.
+ *
+ * Recognised element attributes (all configurable via options):
+ *   - `data-route` / `data-href` / `href`  — target route path
+ *   - `data-back`   — triggers a back navigation
+ *   - `data-replace` — replaces the current history entry instead of pushing
+ *   - `data-params`  — semicolon-separated `key:value` pairs merged into params
+ *
+ * Scroll position is persisted to history state on a 100 ms debounce.
+ *
+ * @param {Object} options
+ * @param {Object}   options.history           - History instance (from `@fstage/history`).
+ * @param {Function} options.navigate          - Called with `(path, opts)` to perform navigation.
+ * @param {Element|string} [options.rootEl]    - Scroll container to observe. Can also be
+ *   passed to `start()` later.
+ * @param {string[]} [options.linkAttrs]       - Attributes to treat as route links
+ *   (default: `['data-route', 'data-href', 'href']`).
+ * @param {string} [options.backAttr='data-back']       - Attribute that triggers back nav.
+ * @param {string} [options.replaceAttr='data-replace'] - Attribute that forces replace mode.
+ * @param {string} [options.paramsAttr='data-params']   - Attribute for inline route params.
+ * @returns {{ start(el?: Element|string): void, stop(): void }}
+ */
 export function createNavigationHandler(options) {
 
 	options = options || {};
@@ -351,6 +390,42 @@ export function createNavigationHandler(options) {
 	};
 }
 
+/**
+ * Create a router that synchronises URL history with a matched route and
+ * drives navigation transitions.
+ *
+ * @param {Object} options
+ * @param {Object}   options.history  - History instance (from `@fstage/history`).
+ * @param {Array}    [options.routes] - Route definitions, passed to `createRouteMatcher`.
+ * @param {Element|string} [options.rootEl] - Scroll/navigation root; can also be
+ *   passed to `start()` later.
+ * @param {string}   [options.def404] - Route path to navigate to on no-match.
+ *
+ * @returns {{
+ *   start(el?: Element|string): Object,
+ *   stop(): void,
+ *   match(route: string): Object|null,
+ *   navigate(path: string, opts?: { back?: boolean, replace?: boolean, params?: Object }): Promise<Object|null>,
+ *   peek(n: number): Object|null,
+ *   go(n: number, opts?: Object): void,
+ *   onBefore(fn: Function): void,
+ *   onAfter(fn: Function): void
+ * }}
+ *
+ * Returned methods:
+ *   - `start(el?)` — attach listeners, replay the current history entry, return
+ *     the current route object.
+ *   - `stop()` — detach all listeners.
+ *   - `match(route)` — resolve a path without navigating; returns the match or `null`.
+ *   - `navigate(path, opts)` — async; pushes/replaces history and returns the
+ *     new route. `opts.back` attempts to reuse an existing stack entry.
+ *   - `peek(n)` — inspect the nav stack relative to the current position
+ *     (`0` = current, `-1` = previous, `+1` = next).
+ *   - `go(n)` — delegates to `history.go(n)`.
+ *   - `onBefore(fn)` — register a guard; return `false` (or a Promise resolving
+ *     to `false`) to cancel navigation.
+ *   - `onAfter(fn)` — register a post-navigation hook.
+ */
 export function createRouter(options) {
 
 	options = options || {};

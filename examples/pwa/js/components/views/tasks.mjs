@@ -251,6 +251,13 @@ export default {
 		}
 	},
 
+	connected: function(ctx) {
+		ctx.state.$set('headerAction', { label: 'Add task', event: 'addTask', icon: 'add' });
+		ctx.cleanup(function() {
+			ctx.state.$del('headerAction');
+		});
+	},
+
 	render: function(ctx) {
 		var groups    = ctx.computed.groups;
 		var total     = ctx.computed.total;

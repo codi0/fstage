@@ -12,7 +12,7 @@ This document defines:
 - the minimum runtime requirements (what environments are supported), and
 - the syntax baseline (what language features modules should use).
 
-This policy is mandatory for all Fstage modules (e.g. @fstage/*). Apps build on top of Fstage SHOULD follow it, but may deviate.
+This policy is mandatory for all Fstage modules (e.g. @fstage/*). Apps built on top of Fstage SHOULD follow it, but may deviate â€” for example, app code may use `const`/`let`, arrow functions, and `for...of` where it improves readability, provided the runtime minimum in Section 2 is still met.
 
 ---
 
@@ -35,7 +35,7 @@ Note that in order to support bare specifiers (e.g. `@fstage/registry`) in a web
 
 ## 3. Syntax Baseline
 
-Fstage modules target ES2020 runtime compatibility, but follow the project’s preferred subset (see discouraged syntax).
+Fstage modules target ES2020 runtime compatibility, but follow the projectï¿½s preferred subset (see discouraged syntax).
 
 ES2020 is the baseline. This supports evergreen browsers and modern tooling while keeping the runtime surface predictable. Newer syntax is fine when it is widely supported and improves readability, but the project intentionally avoids a small set of features that tend to hide control flow or error cases.
 

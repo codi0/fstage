@@ -101,6 +101,21 @@ export function createTracker() {
 //   hooks   { name: fn }  — called at internal lifecycle points
 // =============================================================================
 
+/**
+ * Low-level store foundation. Most consumers should use createStore() instead.
+ *
+ * @param {Object} [config]
+ * @param {Object}  [config.state={}]      - Initial state object.
+ * @param {Object}  [config.tracker]       - Shared createTracker() instance.
+ *   Pass an external tracker to share reactivity across multiple stores.
+ * @param {string}  [config.prefix='']     - Prefix for all mounted method names,
+ *   e.g. '$' makes $get, $set, etc.
+ * @param {boolean} [config.deepCopy=true] - When true, state snapshots are
+ *   deep-cloned. Set to false for performance-sensitive use cases where
+ *   mutation safety is managed externally.
+ * @returns {Object} Internal context (ctx) - use ctx.setup() to seal it
+ *   into a public store instance.
+ */
 export function createBase(config) {
   config = config || {};
 
@@ -1165,6 +1180,28 @@ export function operationPlugin(ctx) {
 // createStore
 // =============================================================================
 
+/**
+ * Create a fully-wired reactive store (proxy or plain) with the standard
+ * plugin set: storePlugin ($get/$set/$watch/...), reactivePlugin
+ * ($effect/$computed/$track), and operationPlugin ($operation/$fetch/$send).
+ *
+ * @param {Object} [config]
+ * @param {Object}  [config.state={}]       - Initial state.
+ * @param {string}  [config.prefix='$']     - Prefix for all public store methods.
+ * @param {boolean} [config.deepCopy=true]  - Deep-clone values on snapshot/watch.
+ * @param {boolean} [config.useProxy=false] - Use deep reactive proxy driver
+ *   (createProxy) instead of the plain object driver (createPlain).
+ * @param {Function} [config.driver]        - Override the store driver entirely.
+ *   Pass createProxy, createPlain, or a custom factory with the same signature.
+ * @param {Function[]} [config.plugins]     - Override the plugin list. Defaults to
+ *   [storePlugin, reactivePlugin, operationPlugin].
+ * @returns {Object} Store instance with all plugin methods mounted.
+ *
+ * @example
+ * const store = createStore({ state: { count: 0 } });
+ * store.$set('count', 1);
+ * store.$watch('count', e => console.log(e.val));
+ */
 export function createStore(config) {
   config = config || {};
 

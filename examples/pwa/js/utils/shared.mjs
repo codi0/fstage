@@ -151,7 +151,7 @@ export function animateTaskListRestore(mutateFn, opts) {
 	if (typeof mutateFn !== 'function') return;
 	opts = opts || {};
 
-	var animator = opts.animator || null;
+	var animate = typeof opts.animate === 'function' ? opts.animate : null;
 	var before = snapshotTaskRows();
 	var res = mutateFn();
 
@@ -177,17 +177,19 @@ export function animateTaskListRestore(mutateFn, opts) {
 				}
 			});
 
-			moveEls.forEach(function(el, i) {
-				animator.animate(el, {
-					from: [{ transform: 'translateY(' + moveDys[i] + 'px)' }],
-					to:   [{ transform: 'translateY(0)' }],
-				}, { durationFactor: 1.1 });
-			});
-			enterEls.forEach(function(el) {
-				var running = el.getAnimations ? el.getAnimations() : [];
-				running.forEach(function(a) { try { a.cancel(); } catch (e) {} });
-				animator.animate(el, 'slideUp', { durationFactor: 1.0 });
-			});
+			if (animate) {
+				moveEls.forEach(function(el, i) {
+					animate(el, {
+						from: [{ transform: 'translateY(' + moveDys[i] + 'px)' }],
+						to:   [{ transform: 'translateY(0)' }],
+					}, { durationFactor: 1.1 });
+				});
+				enterEls.forEach(function(el) {
+					var running = el.getAnimations ? el.getAnimations() : [];
+					running.forEach(function(a) { try { a.cancel(); } catch (e) {} });
+					animate(el, 'slideUp', { durationFactor: 1.0 });
+				});
+			}
 		});
 	});
 

@@ -90,7 +90,7 @@ export function toggleTaskWithUndo(models, ref, opts) {
 		onAction: function() {
 			animateTaskListRestore(function() {
 				tasksModel.toggle(ref);
-			}, { animator: opts.animator });
+			}, { animate: opts.animate });
 			announce(toCompleted ? 'Task marked open.' : 'Task completed.');
 		}
 	});
@@ -120,7 +120,7 @@ export function deleteTaskWithUndo(models, ref, opts) {
 			onAction: function() {
 				animateTaskListRestore(function() {
 					tasksModel.restore(deletedTask);
-				}, { animator: opts.animator });
+				}, { animate: opts.animate });
 				announce('Task restored.');
 			}
 		});

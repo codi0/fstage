@@ -3,15 +3,20 @@ export default {
 	tag: 'pwa-header',
 
 	state: {
-		route: { $src: 'external', key: 'route', default: {} }
+		route:        { $src: 'external', key: 'route',        default: {} },
+		headerAction: { $src: 'external', key: 'headerAction', default: {} },
 	},
 
 	computed: {
-		hasTab:    function(ctx) { return !!ctx.state.route.meta?.tab; },
+		hasTab:    function(ctx) {
+			var path = ctx.state.route.path || '';
+			var tabs = ctx.config.ui?.tabs || [];
+			return tabs.some(function(t) { return t.route === path; });
+		},
 		title:     function(ctx) { return ctx.state.route.meta?.title || ''; },
-		action:    function(ctx) { return ctx.state.route.meta?.headerAction || {}; },
+		action:    function(ctx) { return ctx.state.headerAction || {}; },
 		backLabel: function(ctx) {
-			if (!!ctx.state.route.meta?.tab) return '';
+			if (ctx.computed.hasTab) return '';
 			return ctx.config.env.os === 'ios'
 				? (ctx.state.route.prev?.meta?.title || 'Back')
 				: '';
