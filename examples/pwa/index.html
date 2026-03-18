@@ -323,7 +323,7 @@
 			//load service worker?
 			if(FSCONFIG.swPath && tests.swCan()) {
 				//register worker
-				navigator.serviceWorker.register(FSCONFIG.swPath).then(function(reg) {
+				navigator.serviceWorker.register(FSCONFIG.swPath, { type: 'module' }).then(function(reg) {
 					//set vars
 					var isInstall = !navigator.serviceWorker.controller;
 					var sw = function() { return reg.installing || reg.waiting || reg.active };

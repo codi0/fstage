@@ -1,12 +1,12 @@
-//version
-var version = '4';
-
 //imports
-importScripts('./js/config.js');
+import _config from './js/config.mjs';
+
+//version
+var version = '1';
 
 //set vars
 var notification = null;
-var config = self.FSCONFIG || {};
+var config = _config || {};
 var sw = config.sw || {};
 var host = location.origin;
 var fetchParams = (typeof sw.fetchParams === 'boolean') ? sw.fetchParams : false;
