@@ -1,6 +1,6 @@
 # Fstage - Universal Component Definition Standard
 
-Version: 1.9
+Version: 1.3
 
 ---
 
@@ -36,9 +36,8 @@ A runtime MAY declare support for:
 - `animation`: `ctx.animate(...)` and declarative `animate` block
 - `interactionExtensions`: runtime-defined interaction namespaces (e.g. gesture.*)
 - `ssr`: server rendering and hydration
-- `state.deepSet`: dot-path deep writes in `ctx.state.$set`
 - `hostMethods`: imperative host method exposure
-- `asyncState`: `ctx.state.$query` and `ctx.state.$status` for async loading state
+- `asyncState`: `ctx.state.$query` for async loading state
 
 If a runtime claims a capability, it MUST implement all requirements in that capability's section.
 
@@ -167,7 +166,7 @@ The runtime MUST document how its provider implements path addressing, namespaci
 
 Runtime MUST throw at construction time if a service cannot be resolved or if an injected key conflicts with an existing `ctx` property.
 
-**Guidance:** Use `inject` for per-component dependencies; use `extendCtx` for app-wide dependencies.
+
 
 ---
 
@@ -247,7 +246,7 @@ Direct assignment to `ctx.state` MUST throw.
 | API | Behaviour |
 |---|---|
 | `ctx.state.<key>` | Read declared state value. Undeclared keys pass through unscoped to the provider. |
-| `ctx.state.$set(path, val, opts?)` | Write declared key. Supports dot-path deep writes if `state.deepSet` capability is claimed. |
+| `ctx.state.$set(path, val, opts?)` | Write declared key. Supports dot-path deep writes. |
 | `ctx.state.$watch(key, fn, opts?)` | Subscribe to top-level key changes. Returns `off()`. |
 | `ctx.state.$batch(fn)` | Group multiple `$set` calls into a single notification. Use when setting several keys together to avoid intermediate renders. |
 
@@ -353,11 +352,10 @@ Runtime MUST:
 
 `watch` is the unified reactive subscription mechanism. It handles both pre-render state coordination and post-render DOM operations, controlled by the `afterRender` flag.
 
-All watch handlers receive `(e, ctx)` where `e = { path, val, oldVal, diff }`:
+All watch handlers receive `(e, ctx)` where `e = { path, val, oldVal }`:
 - `path` — the state key that changed
 - `val` — the new value
 - `oldVal` — the previous value
-- `diff` — for pre-render watches: a lazy diff query function; for post-render watches: `undefined`
 
 ```js
 watch: {
@@ -382,12 +380,14 @@ watch: {
     afterRender: true,
   },
 
-  // Post-render with trackBy: fires when derived key changes,
-  // not on every object reference change
+  // Post-render: fires when value changes between renders
   task: {
-    handler:  function(e, ctx) { resetSwipeState(ctx); },
+    handler:     function(e, ctx) {
+      // Use e.val / e.oldVal in the handler to guard against unwanted fires,
+      // e.g. if (deriveKey(e.val) === deriveKey(e.oldVal)) return;
+      resetSwipeState(ctx);
+    },
     afterRender: true,
-    trackBy:  function(val) { return val ? String(val.$key || val.id) : ''; },
   },
 }
 ```
@@ -396,11 +396,11 @@ watch: {
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `handler` | `function` | — | The callback, called as `handler(e, ctx)` where `e = { path, val, oldVal, diff }`. Optional when only `reset` is needed. |
+| `handler` | `function` | — | The callback, called as `handler(e, ctx)` where `e = { path, val, oldVal }`. Optional when only `reset` is needed. |
 | `immediate` | `boolean` | `false` | Pre-render only. Call handler on connect with the current value before any changes. MUST NOT be combined with `afterRender`. |
 | `reset` | `string[]` | `[]` | Pre-render only. State keys to reset to their declared `default` before each handler invocation (including the immediate call). MUST NOT be combined with `afterRender`. |
 | `afterRender` | `boolean` | `false` | If `true`, handler fires after the DOM has been updated. Suitable for DOM measurements, scroll, focus, and animation. Skipped on first render. |
-| `trackBy` | `function(val) -> scalar` | — | `afterRender` only. Derives a scalar change key from the state value. The handler fires only when this derived key changes between renders, rather than on every object reference change. When omitted, the value itself is compared via strict equality. Use when watching an object-valued state key and you want to react to logical changes (e.g. a record's ID) rather than reference changes. |
+
 
 Runtime MUST throw at `define()` time if `afterRender: true` is combined with `immediate` or `reset`.
 
@@ -425,14 +425,13 @@ Runtime MUST:
 2. On first render commit: seed the stored change key for each post-render watch without calling the handler.
 3. After each subsequent render commit, for each post-render watch:
    a. Read the current value from `ctx.state[key]`.
-   b. Compute the change key: `trackBy ? trackBy(val) : val`.
-   c. Compare against the stored key from the previous render (strict inequality).
-   d. If changed: update the stored key and call `handler(e, ctx)` where `e = { path, val, oldVal, diff: undefined }`.
+   b. Compare the current value against the stored value from the previous render (strict equality).
+   d. If changed: update the stored value and call `handler(e, ctx)` where `e = { path, val, oldVal }`.
 4. Automatically tear down all subscriptions on disconnect.
 5. Wrap each handler call in try/catch; route errors to `onError` if defined.
 6. Post-render handlers fire in declaration order.
 
-**Guidance:** Use pre-render watches (default) for state coordination — reacting to route changes, resetting transient state, loading data. Use `afterRender: true` for DOM operations that must follow a render — scroll-into-view, focus management, animation, imperative style application. Use `trackBy` when watching an object-valued state key where you want to react to logical identity changes rather than reference changes.
+**Guidance:** Use pre-render watches (default) for state coordination — reacting to route changes, resetting transient state, loading data. Use `afterRender: true` for DOM operations that must follow a render — scroll-into-view, focus management, animation, imperative style application. When watching an object-valued state key and you only want to react to logical identity changes (e.g. a different record, not a field update), guard at the top of the handler by comparing a derived key from `e.val` and `e.oldVal`.
 
 ---
 
@@ -579,31 +578,25 @@ A conforming runtime MUST:
 7. Document SSR behavior if `ssr` capability is claimed.
 8. If `animation` capability is claimed: document the animation descriptor format accepted by `ctx.animate` and by `animate.enter` / `animate.exit` / `animate.toggle` entries.
 
-### 15.1 `extendCtx(key, factory)` (Normative)
-
-- Factory receives fully initialised `ctx`; returned value assigned to `ctx[key]`.
-- Key collisions MUST throw.
-
 ---
 
 ## 16. `asyncState` Capability
 
-When claimed, the runtime MUST expose the following additional methods on `ctx.state`:
+When claimed, the runtime MUST expose the following additional method on `ctx.state`:
 
 | API | Behaviour |
 |---|---|
 | `ctx.state.$query(key, opts?)` | Returns `{ data, loading, fetching, error }`. Use for externally-backed state where async loading state matters. |
-| `ctx.state.$status(key, query?)` | Returns `{ loading, fetching, error }` without reading the value. |
 
-`loading` MUST be `true` only on first fetch when no cached data exists. `fetching` MUST be `true` any time a request is in flight (initial or background refresh).
+`loading` MUST be `true` only on first fetch when no cached data exists. `fetching` MUST be `true` any time a request is in flight (initial or background refresh). `error` is the last fetch error, or `null`.
 
 ### 16.1 Async State Pattern (Guidance)
 
 ```js
 render: function(ctx) {
-  var result = ctx.state.$query('items');
+  var result = ctx.state.$query('tasks');
   if (result.loading) return ctx.html`<my-spinner></my-spinner>`;
-  if (result.error)   return ctx.html`<my-error></my-error>`;
+  if (result.error)   return ctx.html`<my-error .error=${result.error}></my-error>`;
   return ctx.html`...${result.data}...`;
 }
 ```
@@ -627,14 +620,14 @@ Components with `shadow: false` render into the host element directly and cannot
 ## 18. Author Checklist (Guidance)
 
 1. All reactive data is declared in `state`.
-2. All service dependencies declared in `inject` or `extendCtx`.
+2. All service dependencies declared in `inject`.
 3. Recurring state subscriptions use `watch` rather than `connected`.
 4. Use `watch.immediate: true` for reactive initialization on connect. `connected` is reserved for imperative setup that has no declarative equivalent (e.g. seeding non-reactive instance variables, registering external resources not covered by `interactions`, `bind`, or `watch`). Strive for a fully declarative component; `connected` is the escape hatch of last resort.
 5. Use `watch.reset` to declare transient state keys that should clear when a driving key changes.
 6. Simple input-to-state wiring uses `bind` rather than manual `interactions` handlers.
 7. Derived values use `computed` rather than local variables in `render`.
 8. Post-render DOM operations (scroll, focus, highlight, imperative style) use `watch` with `afterRender: true` rather than `rendered` + `setTimeout`.
-9. Use `watch.trackBy` when watching an object-valued state key to detect logical identity changes rather than reference changes.
+9. When watching an object-valued state key and you only want to react to logical identity changes (e.g. task ID), guard at the top of the handler: derive a key from `e.val` and `e.oldVal` and return early if equal.
 10. Entry/exit host animations use `animate.enter` / `animate.exit`.
 11. State-driven child animations use `animate.toggle`.
 12. Multi-key state changes are grouped with `ctx.state.$batch`.

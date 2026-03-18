@@ -22,8 +22,9 @@ export default {
 	watch: {
 		route: {
 			afterRender: true,
-			trackBy: function(r) { return r?.path || ''; },
 			handler: function(e, ctx) {
+				// Only act when the path changes, not on other route object updates.
+				if ((e.val?.path || '') === (e.oldVal?.path || '')) return;
 				var visible = ctx.computed.hasTab;
 				var host    = ctx.host;
 

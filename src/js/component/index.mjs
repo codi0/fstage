@@ -35,17 +35,16 @@
 //     }
 //
 //   watch — unified reactive subscriptions, wired on connect, torn down on disconnect.
-//     All handlers receive (e, ctx) where e = { path, val, oldVal, diff }.
+//     All handlers receive (e, ctx) where e = { path, val, oldVal }.
 //     Pre-render (default): state coordination, resets, optional immediate call.
 //       Handlers fire synchronously during the state mutation, before the async render.
 //     Post-render (afterRender: true): DOM operations after each render where value changed.
-//       diff is undefined for post-render handlers.
 //     watch: {
 //       theme:       (e, ctx) => { ... },                          // pre-render shorthand
 //       routeParams: { handler, immediate: true, reset: [...] },   // pre-render descriptor
 //       activeRoute: { reset: ['panel'] },                         // pre-render, reset only
 //       open:        { handler: fn, afterRender: true },           // post-render
-//       task:        { handler: fn, afterRender: true, trackBy: taskTrackBy }, // post-render + trackBy
+//       task:        { handler: fn, afterRender: true },           // post-render
 //     }
 //
 //   computed — declarative derived values, accessible as ctx.computed.<key>.
@@ -130,13 +129,13 @@ function formatDefMap(def) {
 	def.bind = bind;
 
 	// watch — normalise all entries to descriptor form.
-	// Pre-render (default): { handler, immediate, reset, afterRender: false, trackBy: null }
-	// Post-render:          { handler, afterRender: true, trackBy }
+	// Pre-render (default): { handler, immediate, reset, afterRender: false }
+	// Post-render:          { handler, afterRender: true }
 	// afterRender must not be combined with immediate or reset.
 	for (let key in def.watch) {
 		const w = def.watch[key];
 		if (typeof w === 'function') {
-			def.watch[key] = { handler: w, immediate: false, reset: [], afterRender: false, trackBy: null };
+			def.watch[key] = { handler: w, immediate: false, reset: [], afterRender: false };
 		} else {
 			const afterRender = !!w.afterRender;
 			if (afterRender && (w.immediate || (w.reset && w.reset.length))) {
@@ -147,7 +146,6 @@ function formatDefMap(def) {
 				immediate:   !afterRender && !!w.immediate,
 				reset:       !afterRender && Array.isArray(w.reset) ? w.reset : [],
 				afterRender: afterRender,
-				trackBy:     afterRender && typeof w.trackBy === 'function' ? w.trackBy : null,
 			};
 		}
 	}
@@ -357,7 +355,6 @@ export function createRuntime(config) {
 	config = config || {};
 	let idCounter = 0;
 
-	const extensions = {};
 	const styleCtx   = {};
 	const renderCtx  = config.ctx || {};
 	const store      = config.store || null;
@@ -428,7 +425,7 @@ export function createRuntime(config) {
 						tracker:           [],
 						toggleControllers: {},
 						activateState:     {},
-						watchState:        {},  // stores { key, val } for post-render watch change detection
+						watchState:        {},  // stores { val } for post-render watch change detection
 						state:             def.state,
 						id:                (++idCounter)
 					};
@@ -483,12 +480,6 @@ export function createRuntime(config) {
 						const service = config.registry.get(regKey);
 						if (!service) throw new Error('[fstage/component] inject key not found in registry: ' + regKey);
 						ctx[i] = service;
-					}
-
-					// extendCtx additions
-					for (var i in extensions) {
-						if (ctx[i] !== undefined) throw new Error('[fstage/component] ctx.' + i + ' already exists');
-						ctx[i] = extensions[i](ctx);
 					}
 
 					if (def.constructed) def.constructed(ctx);
@@ -550,12 +541,10 @@ export function createRuntime(config) {
 							}
 
 							if (descriptor.immediate) {
-								invoke({ path: key, val: ctx.state[key], oldVal: undefined, diff: undefined });
+								invoke({ path: key, val: ctx.state[key], oldVal: undefined });
 							}
 
-							ctx.state.$watch(key, function(e) {
-								invoke({ path: e.path, val: e.val, oldVal: e.oldVal, diff: e.diff });
-							});
+							ctx.state.$watch(key, invoke);
 						})(key);
 					}
 
@@ -708,29 +697,28 @@ export function createRuntime(config) {
 					}
 
 					// Post-render watches.
-					// On first render: seed { key, val } without calling handlers.
-					// On subsequent renders: compare change keys, call handler(e, ctx) if changed.
+					// On first render: seed previous value without calling handlers.
+					// On subsequent renders: call handler if the value has changed.
 					const watchState = internal.watchState;
 					for (var watchKey in def.watch) {
 						const descriptor = def.watch[watchKey];
 						if (!descriptor.afterRender) continue;
 
 						const currentVal = ctx.state[watchKey];
-						const currentKey = descriptor.trackBy ? descriptor.trackBy(currentVal) : currentVal;
 
 						if (isFirst) {
-							watchState[watchKey] = { key: currentKey, val: currentVal };
+							watchState[watchKey] = { val: currentVal };
 							continue;
 						}
 
-						if (currentKey === watchState[watchKey].key) continue;
+						if (currentVal === watchState[watchKey].val) continue;
 
 						const oldVal = watchState[watchKey].val;
-						watchState[watchKey] = { key: currentKey, val: currentVal };
+						watchState[watchKey] = { val: currentVal };
 
 						if (descriptor.handler) {
 							try {
-								descriptor.handler({ path: watchKey, val: currentVal, oldVal: oldVal, diff: undefined }, ctx);
+								descriptor.handler({ path: watchKey, val: currentVal, oldVal: oldVal }, ctx);
 							} catch (err) {
 								if (def.onError) def.onError(err, ctx);
 								else console.error('[fstage/component] watch.' + watchKey + ' (afterRender) error in ' + def.tag + ':', err);
@@ -779,13 +767,6 @@ export function createRuntime(config) {
 
 			customElements.define(def.tag, Component);
 		},
-
-		extendCtx: function(key, fn) {
-			if (typeof fn !== 'function') {
-				throw new Error('[fstage/component] extendCtx fn must be a function');
-			}
-			extensions[key] = fn;
-		}
 
 	};
 

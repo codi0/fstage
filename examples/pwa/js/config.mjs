@@ -69,10 +69,10 @@ export default {
 		defHome:   '/',
 		def404:    '/',
 		routes: [
-			{ id: '/',          meta: { component: 'pwa-tasks',       title: 'Active'    } },
-			{ id: '/completed', meta: { component: 'pwa-completed',   title: 'Completed' } },
-			{ id: '/tasks/:id', meta: { component: 'pwa-task-detail', title: 'Task'      } },
-			{ id: '/settings',  meta: { component: 'pwa-settings',    title: 'Settings'  } },
+			{ path: '/',          meta: { component: 'pwa-tasks',       title: 'Active'    } },
+			{ path: '/completed', meta: { component: 'pwa-completed',   title: 'Completed' } },
+			{ path: '/tasks/:id', meta: { component: 'pwa-task-detail', title: 'Task'      } },
+			{ path: '/settings',  meta: { component: 'pwa-settings',    title: 'Settings'  } },
 		],
 	},
 

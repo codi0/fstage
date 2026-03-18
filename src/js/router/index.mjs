@@ -86,7 +86,7 @@ function flatten(routes, parentPath, out) {
 	for (var i = 0; i < routes.length; i++) {
 		var r = routes[i];
 
-		var fullPattern = join(parentPath, r.id || '');
+		var fullPattern = join(parentPath, r.path || '');
 
 		out.push({
 			id: r.id || fullPattern,

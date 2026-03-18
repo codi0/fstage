@@ -146,7 +146,9 @@ export default {
 	watch: {
 		task: {
 			handler: function(e, ctx) {
-				// Task identity changed — reset all transient interaction state.
+				// Only reset interaction state when the task identity changes (different task),
+				// not on every property update (e.g. completed toggling).
+				if (taskIdentity(e.val) === taskIdentity(e.oldVal)) return;
 				ctx._transitioning = false;
 				ctx._deleteBusy    = false;
 				ctx._swiping       = false;
@@ -156,7 +158,6 @@ export default {
 				resetSwipeRevealState(ctx.root);
 			},
 			afterRender: true,
-			trackBy:     taskIdentity,
 		}
 	},
 

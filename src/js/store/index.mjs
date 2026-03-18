@@ -8,7 +8,7 @@
  *   createProxy     — deep reactive proxy store
  *   storePlugin     — $get, $set, $merge, $del, $reset, $batch, $watch, $raw, $has
  *   reactivePlugin  — $effect, $computed, $track
- *   operationPlugin — $operation, $fetch, $send, $opStatus
+ *   operationPlugin — $operation, $fetch, $send, $query, $opStatus
  *   createStore     — fully wired store (all three plugins)
  *
  * Data flow: register operations with $operation. Each operation owns the full
@@ -193,7 +193,7 @@ export function createBase(config) {
         if (res instanceof Promise) {
           res
             .then(d => { if (d !== undefined) write(entry.path, d); })
-            .catch(err => console.error('[store] diff write rejected', entry.path, err));
+            .catch(err => console.error('[fstage/store] diff write rejected', entry.path, err));
         }
       }
     };
@@ -364,7 +364,7 @@ export function createProxy(config) {
       get(target, key, receiver) {
         if (typeof key === 'symbol') return Reflect.get(target, key, receiver);
         if (api[key]) return api[key];
-        if (trapGuards.get) throw new Error('[store] Proxy read blocked — use $get.');
+        if (trapGuards.get) throw new Error('[fstage/store] Proxy read blocked — use $get.');
         const fullPath = makePath(path, key);
         const val = ctx.read(fullPath, { parents: false, val: Reflect.get(target, key, receiver) });
         if (!config.useShallow && val !== null && typeof val === 'object') {
@@ -374,12 +374,12 @@ export function createProxy(config) {
         return val;
       },
       set(target, key, value) {
-        if (trapGuards.set) throw new Error('[store] Direct mutation blocked — use $set.');
+        if (trapGuards.set) throw new Error('[fstage/store] Direct mutation blocked — use $set.');
         ctx.write(makePath(path, key), value);
         return true;
       },
       deleteProperty(target, key) {
-        if (trapGuards.deleteProperty) throw new Error('[store] Direct mutation blocked — use $del.');
+        if (trapGuards.deleteProperty) throw new Error('[fstage/store] Direct mutation blocked — use $del.');
         ctx.write(makePath(path, key), undefined);
         return true;
       }
@@ -497,15 +497,15 @@ export function storePlugin(ctx) {
   return {
     methods: {
       has(path) {
-        if (!path || typeof path !== 'string') throw new Error('[store] $has() requires a path string');
+        if (!path || typeof path !== 'string') throw new Error('[fstage/store] $has() requires a path string');
         return ctx.readRaw(ctx.resolvePath(path)) !== undefined;
       },
       get(path, opts) {
-        if (!path || typeof path !== 'string') throw new Error('[store] $get() requires a path string');
+        if (!path || typeof path !== 'string') throw new Error('[fstage/store] $get() requires a path string');
         return ctx.read(path, opts);
       },
       set(path, val, opts) {
-        if (!path || typeof path !== 'string') throw new Error('[store] $set() requires a path string');
+        if (!path || typeof path !== 'string') throw new Error('[fstage/store] $set() requires a path string');
         opts = opts || {};
         if (!opts.meta) opts.meta = {};
         opts.meta.src = 'set';
@@ -513,7 +513,7 @@ export function storePlugin(ctx) {
         return ctx.instance;
       },
       merge(path, val, opts) {
-        if (!path || typeof path !== 'string') throw new Error('[store] $merge() requires a path string');
+        if (!path || typeof path !== 'string') throw new Error('[fstage/store] $merge() requires a path string');
         opts = opts || {};
         if (!opts.meta) opts.meta = {};
         opts.meta.src = 'merge';
@@ -522,7 +522,7 @@ export function storePlugin(ctx) {
         return ctx.instance;
       },
       del(path, opts) {
-        if (!path || typeof path !== 'string') throw new Error('[store] $del() requires a path string');
+        if (!path || typeof path !== 'string') throw new Error('[fstage/store] $del() requires a path string');
         opts = opts || {};
         if (!opts.meta) opts.meta = {};
         opts.meta.src = 'del';
@@ -530,9 +530,9 @@ export function storePlugin(ctx) {
         return ctx.instance;
       },
       reset(newState, opts) {
-        if (ctx.batchDepth > 0) throw new Error('[store] $reset() cannot be called inside $batch()');
+        if (ctx.batchDepth > 0) throw new Error('[fstage/store] $reset() cannot be called inside $batch()');
         if (typeof newState === 'function') newState = newState(ctx.snapshot(ctx.state));
-        if (getType(newState) !== 'object') throw new Error('[store] $reset() requires a plain object');
+        if (getType(newState) !== 'object') throw new Error('[fstage/store] $reset() requires a plain object');
 
         if (opts && opts.silent) {
           for (const k of Object.keys(ctx.state)) delete ctx.state[k];
@@ -572,7 +572,7 @@ export function storePlugin(ctx) {
         return result;
       },
       watch(path, cb, opts) {
-        if (!path || typeof path !== 'string') throw new Error('[store] $watch() requires a path string');
+        if (!path || typeof path !== 'string') throw new Error('[fstage/store] $watch() requires a path string');
         const pathOrg = path;
         path = ctx.resolvePath(path);
         let s = subs.get(path);
@@ -688,7 +688,7 @@ export function reactivePlugin(ctx) {
         try {
           ctx.tracker.capture(item, () => {
             onInvalidate = fn(ctx.instance);
-            if (typeof onInvalidate !== 'function') throw new Error('[store] $track() fn must return a function');
+            if (typeof onInvalidate !== 'function') throw new Error('[fstage/store] $track() fn must return a function');
           });
         } catch (err) {
           ctx.tracker.dispose(item); activeEffects.delete(item);
@@ -723,7 +723,8 @@ export function reactivePlugin(ctx) {
 //   $operation(path, def)    — register read/write lifecycle for a store path
 //   $fetch(path, opts)       — imperatively trigger a fetch
 //   $send(path, val, opts)   — imperatively trigger a mutation
-//   $opStatus(path)          — unified status for reads and writes
+//   $query(path, opts)       — read data + fetch status: { data, loading, fetching, error }
+//   $opStatus(path)          — full status snapshot for reads, writes, and pagination
 //
 // Operation definition (all fields optional except at least one of fetch/mutate):
 //   fetch(ctx)       — load data. ctx: { path, val, refresh, signal, controller,
@@ -871,7 +872,7 @@ export function operationPlugin(ctx) {
       } else {
         // Real server error — surface it so the UI can react.
         setOpMeta(path, { loading: false, fetching: false, fetchError: err });
-        console.error('[store] fetch failed', path, err);
+        console.error('[fstage/store] fetch failed', path, err);
       }
     });
   }
@@ -920,7 +921,7 @@ export function operationPlugin(ctx) {
       if (!suppress && rollbackFn) {
         rollbackFn().then(prev => {
           ctx.write(path, prev, { meta: { src: 'rollback' } });
-        }).catch(rbErr => console.error('[store] rollback failed', path, rbErr));
+        }).catch(rbErr => console.error('[fstage/store] rollback failed', path, rbErr));
       }
       if (def.onSettled) def.onSettled(mutateCtx);
     });
@@ -1074,9 +1075,9 @@ export function operationPlugin(ctx) {
       // $operation(path, def) — register fetch/write lifecycle.
       // Returns an unregister function.
       operation(path, def) {
-        if (!path || typeof path !== 'string') throw new Error('[store] $operation() requires a path string');
-        if (!def  || typeof def  !== 'object') throw new Error('[store] $operation() requires a definition object');
-        if (!def.fetch && !def.mutate)         throw new Error('[store] $operation() requires at least fetch or mutate');
+        if (!path || typeof path !== 'string') throw new Error('[fstage/store] $operation() requires a path string');
+        if (!def  || typeof def  !== 'object') throw new Error('[fstage/store] $operation() requires a definition object');
+        if (!def.fetch && !def.mutate)         throw new Error('[fstage/store] $operation() requires at least fetch or mutate');
 
         // Clean up any previous registration for this path.
         unregister(path);
@@ -1114,7 +1115,7 @@ export function operationPlugin(ctx) {
       // opts.append = true  → next-page load (merges nextParams, appends results)
       // opts.query          → merged into fetch ctx.query
       fetch(path, opts) {
-        if (!path || typeof path !== 'string') throw new Error('[store] $fetch() requires a path string');
+        if (!path || typeof path !== 'string') throw new Error('[fstage/store] $fetch() requires a path string');
         opts = opts || {};
         const query = Object.assign({}, opts.query || {});
         if (opts.append) query.__append = true;
@@ -1124,9 +1125,9 @@ export function operationPlugin(ctx) {
       // $send(path, val, opts) — imperatively trigger a mutation.
       // Useful for mutations that aren't driven by a store write (e.g. form submit).
       send(path, val, opts) {
-        if (!path || typeof path !== 'string') throw new Error('[store] $send() requires a path string');
+        if (!path || typeof path !== 'string') throw new Error('[fstage/store] $send() requires a path string');
         const def = defs.get(path);
-        if (!def || typeof def.mutate !== 'function') throw new Error('[store] $send() — no mutate defined for: ' + path);
+        if (!def || typeof def.mutate !== 'function') throw new Error('[fstage/store] $send() — no mutate defined for: ' + path);
         opts = opts || {};
         const sendDef = Object.assign({}, def, {
           onSuccess: opts.onSuccess || def.onSuccess,
@@ -1139,9 +1140,24 @@ export function operationPlugin(ctx) {
         });
       },
 
+      // $query(path, opts) — read data and fetch status together. Convenience
+      // for render functions that need both value and loading/error state.
+      // Returns { data, loading, fetching, error }.
+      query(path, opts) {
+        if (!path || typeof path !== 'string') throw new Error('[fstage/store] $query() requires a path string');
+        const data   = ctx.read(path, opts);
+        const meta   = getOpMeta(ctx.resolvePath(path));
+        return {
+          data,
+          loading:  meta.loading,
+          fetching: meta.fetching,
+          error:    meta.fetchError,
+        };
+      },
+
       // $opStatus(path) — unified status snapshot for a registered path.
       opStatus(path) {
-        if (!path || typeof path !== 'string') throw new Error('[store] $opStatus() requires a path string');
+        if (!path || typeof path !== 'string') throw new Error('[fstage/store] $opStatus() requires a path string');
         path = ctx.resolvePath(path);
         const ms = getMutateStatus(path);
         return Object.assign({}, getOpMeta(path), {
