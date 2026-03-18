@@ -24,12 +24,12 @@ Fstage is a platform layer: it provides a loader, import map resolution, and a s
 
 ```html
 <script>
-  window.FSCONFIG = { configPath: 'js/config.js' };
+  window.FSCONFIG = { configPath: 'js/config.mjs' };
 </script>
 <script type="module" src="https://cdn.jsdelivr.net/gh/codi0/fstage@latest/src/js/fstage.min.mjs"></script>
 ```
 
-2. Create `js/config.js` — this is where you declare your import map, load phases, and wire up services. See the [PWA example config](examples/pwa/js/config.js) for a complete, annotated reference.
+2. Create `js/config.mjs` — this is where you declare your import map, load phases, and wire up services. See the [PWA example config](examples/pwa/js/config.mjs) for a complete, annotated reference.
 
 fstage dispatches `fstage.ready` on `window` when the app is loaded, and `fstage.failed` on error.
 
@@ -38,7 +38,7 @@ fstage dispatches `fstage.ready` on `window` when the app is loaded, and `fstage
 Apps load in sequential phases declared under `loadAssets` in your config:
 
 ```js
-window.FSCONFIG = {
+export default {
   importMap: {
     'lit': 'https://cdn.jsdelivr.net/npm/lit-element@4/+esm',
   },
@@ -63,10 +63,9 @@ See the [getting started guide](docs/getting-started.md) for a full walkthrough.
 
 [`examples/pwa`](examples/pwa) is a working To-Do PWA using the full stack:
 
-- **LitElement** for web components
-- **Ionic** for UI elements
-- **Capacitor** for native APIs
 - **fstage modules** for state, storage, sync, routing, and transitions
+- **LitElement** for web components
+- **Capacitor** for native APIs (TO-DO)
 
 ## Modules
 
