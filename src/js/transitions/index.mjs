@@ -94,9 +94,9 @@ export function createTransitionEngine(options) {
   }
 
   async function settle(transition, nextEntry, prevEntry) {
-    await safeCall(screenHost.activate, [ nextEntry ]);
+    await safeCall(screenHost.activate, [ nextEntry, prevEntry ]);
     if (transition.cancelled) {
-      await safeCall(screenHost.abort, [ nextEntry ]);
+      await safeCall(screenHost.abort, [ nextEntry, prevEntry ]);
       return;
     }
     if (prevEntry) await safeCall(screenHost.unmount, [ prevEntry ]);
@@ -123,7 +123,7 @@ export function createTransitionEngine(options) {
     var prevEntry = current;
 
     // mount next
-    await screenHost.mount(nextEntry);
+    await screenHost.mount(nextEntry, prevEntry);
     if (!nextEntry.target) throw new Error('screenHost.mount(entry) must set entry.target');
 
     // deactivate fires synchronously at transition start,
@@ -131,7 +131,7 @@ export function createTransitionEngine(options) {
     if (prevEntry) screenHost.deactivate(prevEntry);
 
     if (transition.cancelled) {
-      await safeCall(screenHost.abort, [ nextEntry ]);
+      await safeCall(screenHost.abort, [ nextEntry, prevEntry ]);
       return;
     }
     
@@ -147,9 +147,9 @@ export function createTransitionEngine(options) {
 		async function commit() {
 			if (done) return;
 			done = true;
-			if (transition.cancelled) { await safeCall(screenHost.abort, [ nextEntry ]); clearCtl(); return; }
+			if (transition.cancelled) { await safeCall(screenHost.abort, [ nextEntry, prevEntry ]); clearCtl(); return; }
 			await awaitHandle(handle);
-			if (transition.cancelled) { await safeCall(screenHost.abort, [ nextEntry ]); clearCtl(); return; }
+			if (transition.cancelled) { await safeCall(screenHost.abort, [ nextEntry, prevEntry ]); clearCtl(); return; }
 			await settle(transition, nextEntry, prevEntry);
 			clearCtl();
 		}
@@ -163,7 +163,7 @@ export function createTransitionEngine(options) {
 					else if (typeof handle.destroy === 'function') handle.destroy();
 				} catch (err) {}
 			}
-			await safeCall(screenHost.abort, [ nextEntry ]);
+			await safeCall(screenHost.abort, [ nextEntry, prevEntry ]);
 			clearCtl();
 		}
 
@@ -184,7 +184,7 @@ export function createTransitionEngine(options) {
 
     // non-interactive path
     await awaitHandle(handle);
-    if (transition.cancelled) { await safeCall(screenHost.abort, [ nextEntry ]); return; }
+    if (transition.cancelled) { await safeCall(screenHost.abort, [ nextEntry, prevEntry ]); return; }
     await settle(transition, nextEntry, prevEntry);
   }
 
@@ -216,19 +216,19 @@ export function createScreenHost(options) {
   const events  = {};
   const docHtml = document.documentElement;
 
-  const dispatch = function(name, e) {
-    (events[name] || []).forEach(function(fn) { fn(e); });
+  const dispatch = function(name, next, prev) {
+    (events[name] || []).forEach(function(fn) { fn(next, prev); });
   };
 
   const actions = Object.assign({
 
-    mount(e) {
-      if (!e.meta || !e.meta.component) {
-        throw new Error('screenHost.mount: e.meta.component missing');
+    mount(next, prev) {
+      if (!next.meta || !next.meta.component) {
+        throw new Error('screenHost.mount: next.meta.component missing');
       }
 
       const wrap = document.createElement('div');
-      wrap.setAttribute('data-screen', e.meta.component);
+      wrap.setAttribute('data-screen', next.meta.component);
       wrap.setAttribute('data-entering', '');
 
       const scroller = document.createElement('div');
@@ -239,56 +239,71 @@ export function createScreenHost(options) {
         scroller.style.cssText = 'position:absolute;inset:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior-y:contain;';
       }
 
-      const view = document.createElement(e.meta.component);
+      const view = document.createElement(next.meta.component);
       scroller.appendChild(view);
       wrap.appendChild(scroller);
       options.el.appendChild(wrap);
-      e.target = wrap;
+      next.target = wrap;
 
       // restore scroll top?
-      if (e.state && e.state.scroll) {
+      if (next.state && next.state.scroll) {
 				requestAnimationFrame(function() {
-					scroller.scrollTop = e.state.scroll;
+					scroller.scrollTop = next.state.scroll;
 				});
       }
       
-      docHtml.setAttribute('data-transitioning', '');
+      if (prev) docHtml.setAttribute('data-transitioning', '');
     },
 
-    activate(e) {
-			e.target.removeAttribute('data-entering');
+    activate(next, prev) {
+			next.target.removeAttribute('data-entering');
     
-      if (e.state && e.state.scroll) {
-				e.target.querySelector('[data-scroller]').scrollTop = e.state.scroll;
+      if (next.state && next.state.scroll) {
+				next.target.querySelector('[data-scroller]').scrollTop = next.state.scroll;
       }
 
-      if (e.meta && e.meta.title) {
-        document.title = e.meta.title + (options.name ? ' | ' + options.name : '');
+      if (next.meta && next.meta.title) {
+        document.title = next.meta.title + (options.name ? ' | ' + options.name : '');
       }
     },
 
-    deactivate(e) {
-      e.target.setAttribute('data-leaving', '');
+    deactivate(prev) {
+      prev.target.setAttribute('data-leaving', '');
     },
 
-    unmount(e) {
+    unmount(prev) {
       docHtml.removeAttribute('data-transitioning');
-      e.target.remove();
+      prev.target.remove();
     },
 
-    abort(e) {
+    abort(next, prev) {
       docHtml.removeAttribute('data-transitioning');
-			e.target.remove();
+			next.target.remove();
     }
 
   }, options.actions);
 
   return {
-    mount(e)      { actions.mount(e);      dispatch('mount', e);      },
-    unmount(e)    { actions.unmount(e);    dispatch('unmount', e);    },
-    activate(e)   { actions.activate(e);   dispatch('activate', e);   },
-    deactivate(e) { actions.deactivate(e); dispatch('deactivate', e); },
-    abort(e)      { actions.abort(e);      dispatch('abort', e);      },
+    mount(next, prev) {
+			actions.mount(next, prev);
+			dispatch('mount', next, prev);
+		},
+    unmount(prev) {
+			actions.unmount(prev);
+			dispatch('unmount', prev);
+		},
+    activate(next, prev) {
+			actions.activate(next, prev);
+			dispatch('activate', next, prev);
+		},
+    deactivate(prev) {
+			actions.deactivate(prev);
+			dispatch('deactivate', prev);
+		},
+    abort(next, prev) {
+			actions.abort(next, prev);
+			dispatch('abort', next, prev);
+		},
     on(name, fn) {
       events[name] = events[name] || new Set();
       events[name].add(fn);
@@ -424,6 +439,8 @@ export function accompanyInteraction(emitter, events) {
 
 export function screenHostInteraction(screenHost) {
   return function(action, selector, value, ctx) {
-    return screenHost.on(action, function(e) { value(e, ctx); });
+    return screenHost.on(action, function(next, prev) {
+			value(next, prev, ctx);
+		});
   };
 }

@@ -5,7 +5,7 @@
 //config vars
 var _name = 'fstage';
 var _confName = 'FSCONFIG';
-var _modules = [ 'animator', 'component', 'devtools', 'env', 'form', 'gestures', 'history', 'hls', 'http', 'interactions', 'ipfs', 'observe', 'pubsub', 'registry', 'router', 'storage', 'store', 'sync', 'transitions', 'utils', 'webpush', 'websocket' ];
+var _modules = [ 'animator', 'component', 'devtools', 'env', 'form', 'gestures', 'history', 'hls', 'http', 'interactions', 'ipfs', 'observe', 'registry', 'router', 'storage', 'store', 'sync', 'transitions', 'utils', 'webpush', 'websocket' ];
 
 //misc vars
 var _global = {};
@@ -22,12 +22,13 @@ var _nonce = (function() {
 
 //invoke callback helper
 var _cb = function(fn, args, ctx) {
-	try {
-		return fn ? fn.apply(ctx || null, args || []) : null;
-	} catch (err) {
-		console.error(err);
-		throw err;
-	}
+	return fn ? fn.apply(ctx || null, args || []) : null;
+};
+
+//invoke custom event
+var _event = function(action, detail = {}) {
+	if (detail.error) console.error(detail.error);
+	globalThis.dispatchEvent(new CustomEvent(_name + '.' + action, { detail }));
 };
 
 //format path helper
@@ -267,7 +268,6 @@ var load = function(path, type='') {
 				//resolve
 				resolve(e.exports);
 			}).catch(function(err) {
-				console.error(err);
 				reject(err);
 			});
 		}
@@ -324,9 +324,9 @@ for(var i=0; i < _modules.length; i++) {
 }
 
 //load config
-load(_config.configPath).then(function() {
+load(_config.configPath).then(function(m) {
 	//merge config
-	globalThis[_confName] = _config = _merge(_config, globalThis[_confName] || {});
+	_config = _merge(_config, (m && m.default) || {});
 	//import map
 	_buildMap(_config.importMap);
 	//find all import maps
@@ -335,15 +335,12 @@ load(_config.configPath).then(function() {
 	load(_config.baseDir, 'base');
 	//load assets
 	load(_config.loadAssets).then(function() {
-		//notify ready
-		globalThis.dispatchEvent(new CustomEvent(_name + '.ready'));
-	}).catch(function(err) {
-		//notify failed
-		globalThis.dispatchEvent(new Event(_name + '.failed'));
+		_event('ready');
+	}).catch(function(error) {
+		_event('failed', { error });
 	});
-}).catch(function(err) {
-	//notify failed
-	globalThis.dispatchEvent(new Event(_name + '.failed'));
+}).catch(function(error) {
+	_event('failed', { error });
 });
 
 
@@ -354,7 +351,6 @@ _global = { get: get, load: load };
 
 //set globals
 globalThis[_name] = _global;
-globalThis[_confName] = {};
 
 //module export
 export { get, load };

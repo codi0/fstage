@@ -64,16 +64,17 @@ export async function runTests() {
 			assertThrows(() => r.setFactory('x', 42));
 		});
 
-		await test('lock() prevents set', () => {
-			const r = createRegistry();
-			r.lock();
-			assertThrows(() => r.set('x', 1));
-		});
-
-		await test('lock() prevents del', () => {
+		await test('seal() prevents set of existing key', () => {
 			const r = createRegistry();
 			r.set('x', 1);
-			r.lock();
+			r.seal();
+			assertThrows(() => r.set('x', 2));
+		});
+
+		await test('seal() prevents del of existing key', () => {
+			const r = createRegistry();
+			r.set('x', 1);
+			r.seal();
 			assertThrows(() => r.del('x'));
 		});
 

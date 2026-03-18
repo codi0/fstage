@@ -13,7 +13,7 @@ export function defaultRegistry() {
 export function createRegistry() {
 	//set vars
 	const _data = {};
-	var locked = false;
+	var sealed = false;
 
 	//create function
 	const api = {
@@ -52,8 +52,8 @@ export function createRegistry() {
 		},
 	
 		set: function(key, val, isFactory = false) {
-			if (locked) {
-				throw new Error("[fstage/registry] this registry is locked");
+			if (sealed && _data[key]) {
+				throw new Error("[fstage/registry] this registry is sealed");
 			}
 			//is factory function?
 			if(isFactory && typeof val !== 'function') {
@@ -71,16 +71,16 @@ export function createRegistry() {
 		},
 
 		del: function(key) {
-			if (locked) {
-				throw new Error("[fstage/registry] this registry is locked");
+			if (sealed && _data[key]) {
+				throw new Error("[fstage/registry] this registry is sealed");
 			}
 			if(_data[key]) {
 				delete _data[key];
 			}
 		},
 
-		lock: function() {
-			locked = true;
+		seal: function() {
+			sealed = true;
 		}
 		
 	};

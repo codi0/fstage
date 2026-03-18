@@ -39,7 +39,6 @@
 		<button data-run="devtools">devtools</button>
 		<button data-run="utils">utils</button>
 		<button data-run="registry">registry</button>
-		<button data-run="pubsub">pubsub</button>
 		<button data-run="http">http</button>
 		<button data-run="observe">observe</button>
 		<button data-run="router">router</button>
@@ -57,12 +56,11 @@
 		import { runTests as devtools } from '../src/js/devtools/tests/tests.mjs';
 		import { runTests as utils    } from '../src/js/utils/tests/tests.mjs';
 		import { runTests as registry } from '../src/js/registry/tests/tests.mjs';
-		import { runTests as pubsub   } from '../src/js/pubsub/tests/tests.mjs';
 		import { runTests as http     } from '../src/js/http/tests/tests.mjs';
 		import { runTests as observe  } from '../src/js/observe/tests/tests.mjs';
 		import { runTests as router   } from '../src/js/router/tests/tests.mjs';
 
-		const MODULES = { store, storage, sync, devtools, utils, registry, pubsub, http, observe, router };
+		const MODULES = { store, storage, sync, devtools, utils, registry, http, observe, router };
 
 		let verbose = false;
 		window.FSTAGE_TESTS_VERBOSE = false;

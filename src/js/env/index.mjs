@@ -429,31 +429,33 @@ export function getEnv(opts) {
 			return val;
 		},
 
-			applyToDoc: function(el) {
-				if (applied) return;
-				applied = true;
+		applyToDoc: function(el) {
+			if (applied) return;
+			applied = true;
 
-				el = el || document.documentElement;
+			el = el || document.documentElement;
 
-				el.setAttribute('data-platform', facts.os || 'web');
-				if (facts.hybrid)     el.setAttribute('data-hybrid', '');
-				if (facts.standalone) el.setAttribute('data-standalone', '');
+			el.setAttribute('data-platform', facts.os || 'web');
+			if (facts.hybrid)     el.setAttribute('data-hybrid', '');
+			if (facts.standalone) el.setAttribute('data-standalone', '');
 
-				if (globalThis.visualViewport) {
-					function sync() {
-						var kh = Math.max(0, globalThis.innerHeight - globalThis.visualViewport.offsetTop - globalThis.visualViewport.height);
-						el.style.setProperty('--keyboard-height', Math.round(kh) + 'px');
-					}
-					sync();
-					globalThis.visualViewport.addEventListener('resize', sync);
-					globalThis.visualViewport.addEventListener('scroll', sync);
+			if (globalThis.visualViewport) {
+				function sync() {
+					var kh = Math.max(0, globalThis.innerHeight - globalThis.visualViewport.offsetTop - globalThis.visualViewport.height);
+					el.style.setProperty('--keyboard-height', Math.round(kh) + 'px');
 				}
-				
-				const vars = policyToCssArr(resolvePolicy(), [ 'from', 'to', 'keyframes' ]);
-				const style = document.createElement('style');
-				style.textContent = ":root {\n" + vars.join("\n") + "\n}";
-				el.querySelector('head, body').appendChild(style);
+				sync();
+				globalThis.visualViewport.addEventListener('resize', sync);
+				globalThis.visualViewport.addEventListener('scroll', sync);
 			}
+
+			// Serialise policy scalars as CSS custom properties.
+			// WAAPI keyframe properties are excluded to prevent them appearing as vars.
+			const vars = policyToCssArr(resolvePolicy(), [ 'from', 'to', 'easing', 'composite', 'offset', 'keyframes' ]);
+			const style = document.createElement('style');
+			style.textContent = ":root {\n" + vars.join("\n") + "\n}";
+			el.querySelector('head, body').appendChild(style);
+		}
 	};
 
 	//return
