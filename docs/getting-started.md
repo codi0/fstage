@@ -25,7 +25,7 @@ The simplest possible fstage app — two files, no build step, just the store:
 <head>
   <script>
     window.FSCONFIG = {
-      configPath: 'config.js',
+      configPath: 'config.mjs',
     };
   </script>
   <script type="module"
@@ -39,9 +39,9 @@ The simplest possible fstage app — two files, no build step, just the store:
 </html>
 ```
 
-**config.js**
+**config.mjs**
 ```js
-globalThis.FSCONFIG = {
+export default {
   loadAssets: {
     app: [ '@fstage/store' ],
   },
@@ -70,7 +70,7 @@ globalThis.FSCONFIG = {
 
 ```html
 <script>
-  window.FSCONFIG = { configPath: 'js/config.js' };
+  window.FSCONFIG = { configPath: 'js/config.mjs' };
 </script>
 <script type="module"
   src="https://cdn.jsdelivr.net/gh/codi0/fstage@latest/src/js/fstage.min.mjs">
@@ -84,12 +84,12 @@ window.addEventListener('fstage.ready',  () => { /* app is live  */ });
 window.addEventListener('fstage.failed', () => { /* handle error */ });
 ```
 
-## 2. config.js
+## 2. config.mjs
 
-All configuration lives in a single file assigned to `globalThis.FSCONFIG`:
+All configuration lives in a single file:
 
 ```js
-globalThis.FSCONFIG = {
+export default {
   name:    'My App',
   version: '1.0',
   debug:   ['', 'localhost'].includes(location.hostname),
@@ -108,7 +108,7 @@ globalThis.FSCONFIG = {
 };
 ```
 
-Everything in `FSCONFIG` is accessible to hooks via `e.get('config')`.
+All config data is accessible to hooks via `e.get('config')`.
 
 ## 3. Load phases
 
@@ -234,7 +234,7 @@ Every component file in the `app` phase is then registered automatically with no
 
 | Key | Description |
 |-----|-------------|
-| `configPath` | Path to config.js (default: `js/config.js`) |
+| `configPath` | Path to config.mjs, if supplied |
 | `swPath` | Path to a service worker to register before loading |
 | `rootEl` | CSS selector for the app's root element |
 | `loadScreen` | Splash style: `'spinner'` \| `'logo'` \| `'text'` |
@@ -267,7 +267,7 @@ Toggle the panel with **Ctrl+Shift+D**.
 ## Troubleshooting
 
 **`fstage.failed` fired / app won't load**
-Open the browser console — the loader logs module load errors there. Common causes: a missing or misconfigured import map entry for a third-party library; a syntax error in `config.js`; running from `file://` instead of a local server.
+Open the browser console — the loader logs module load errors there. Common causes: a missing or misconfigured import map entry for a third-party library; a syntax error in `config.mjs`; running from `file://` instead of a local server.
 
 **`@fstage/*` bare specifier not resolving**
 These are pre-mapped by the loader. If you're seeing resolution errors it usually means the loader script itself failed to load — check the CDN URL and your network connection.
@@ -279,7 +279,7 @@ Import maps require Safari 16.4+ and Chrome 96+. Earlier browsers will fail sile
 The IDB version is derived automatically from a hash of your schema definition. In rare cases (hash collision) the version may not change. Log `schemaVersion` before and after your change to verify. See the warning in the `storage` source for details.
 
 **`fstage.ready` never fires**
-Check that `config.js` is reachable and doesn't throw. Any uncaught error in a load hook will cause `fstage.failed` to fire instead. Wrap hook bodies in try/catch during development.
+Check that `config.mjs` is reachable and doesn't throw. Any uncaught error in a load hook will cause `fstage.failed` to fire instead. Wrap hook bodies in try/catch during development.
 
 ---
 
