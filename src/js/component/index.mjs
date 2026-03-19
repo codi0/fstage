@@ -1,7 +1,7 @@
 // @fstage/component
 //
 // Definition-based web component runtime, based on LitElement for maximum compatibility.
-// Implements the Fstage Universal Component Definition Standard v1.9.
+// Implements the Fstage Universal Component Definition Standard v1.3.
 //
 // === Reactive State Provider ===
 // The Fstage store is used as the reactive state provider (standard §4.4).
