@@ -15,7 +15,7 @@
 // is always active — no manual $withScope at call sites.
 //
 // === Capability Claims ===
-//   asyncState       — ctx.state.$query / $status (via store.$query / $status)
+//   asyncState       — ctx.state.$query
 //   animation        — ctx.animate, declarative animate block
 //   screenHost       — activated / deactivated hooks
 //   hostMethods      — def.host.methods mounted onto the host element

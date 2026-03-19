@@ -63,7 +63,7 @@ export default {
   watch: {
     // Pre-render: fires synchronously during the mutation, before next render
     filter: function(e, ctx) {
-      // e: { path, val, oldVal, diff }
+      // e: { path, val, oldVal }
     },
 
     // Pre-render with immediate call and state reset on change
@@ -75,9 +75,8 @@ export default {
 
     // Post-render: fires after DOM is committed, skipped on first render
     activeTask: {
-      handler:     function(e, ctx) { scrollToTask(e.val, ctx); },
-      afterRender: true,
-      trackBy:     (val) => val ? val.id : '',  // only re-fires when id changes
+      handler:     function(e, ctx) { if (e.val.id) scrollToTask(e.val, ctx); },
+      afterRender: true
     },
   },
 
@@ -189,13 +188,18 @@ All state access goes through `ctx.state`. Direct assignment throws.
 
 ```js
 ctx.state.filter               // read (reactive, tracked in render)
-ctx.state.$get('filter')       // explicit read
 ctx.state.$set('filter', '')   // write
+ctx.state.$watch('filter', (e, ctx) => { /* ... */ }) // returns off()
+```
+
+The Fstage runtime also inherits a number of other methods from @fstage/store, including:
+
+```js
+ctx.state.$has('filter')       // boolean existence check
+ctx.state.$get('filter')       // explicit read
 ctx.state.$del('filter')       // delete
 ctx.state.$merge('user', { email: 'x' }) // shallow merge
 ctx.state.$batch(() => { /* multiple sets */ })
-ctx.state.$watch('filter', (e) => { /* ... */ }) // returns off()
-ctx.state.$has('filter')       // boolean existence check
 ctx.state.$raw('filter')       // read without reactivity
 ```
 
@@ -214,17 +218,6 @@ inject: { models: 'models' },
 
 // Usage in any handler or lifecycle hook
 ctx.models.getTasks();
-```
-
-## extendCtx
-
-Add app-wide fields to every component's `ctx`:
-
-```js
-runtime.extendCtx('analytics', (ctx) => ({
-  track: (event) => analytics.track(event, { route: ctx.state.route }),
-}));
-// ctx.analytics.track('task_created')
 ```
 
 ## Capability claims

@@ -9,6 +9,24 @@ import {
 	deleteTaskWithUndo
 } from '../../data/flows/tasks.mjs';
 
+// Renders a collapsible editor row with label, summary value, chevron, and optional panel.
+// panel: a lit-html TemplateResult or '' — only rendered when the section is open.
+function editRow(ctx, section, label, value, valueClass, panel) {
+	var open = ctx.state.openSection === section;
+	return ctx.html`
+		<div class="group">
+			<button type="button" class="edit-row" data-section=${section} aria-expanded=${open}>
+				<span class="row-label">${label}</span>
+				<span class=${'row-value' + (valueClass ? ' ' + valueClass : '')}>${value}</span>
+				<span class=${'row-chevron' + (open ? ' open' : '')}>
+					<svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+				</span>
+			</button>
+			${open ? ctx.html`<div class="panel">${panel}</div>` : ''}
+		</div>
+	`;
+}
+
 export default {
 
 	tag: 'pwa-task-detail',
@@ -28,12 +46,12 @@ export default {
 
 	computed: {
 		taskId:          function(ctx) { var id = ctx.state.routeParams.id; return id ? String(id) : null; },
-		task:            function(ctx) { return ctx.computed.taskId ? (ctx.state.tasks[ctx.computed.taskId] || null) : null; },
-		draftTitle:      function(ctx) { return ctx.state.titleEdit != null ? ctx.state.titleEdit : (ctx.computed.task ? ctx.computed.task.title || '' : ''); },
+		task:            function(ctx) { var id = ctx.computed.taskId; return id ? (ctx.state.tasks[id] || null) : null; },
+		draftTitle:      function(ctx) { var t = ctx.computed.task; return ctx.state.titleEdit != null ? ctx.state.titleEdit : (t ? t.title || '' : ''); },
 		titleSummary:    function(ctx) { return String(ctx.computed.draftTitle || '').trim() || 'Untitled'; },
-		dueSummary:      function(ctx) { return formatDueDate(ctx.computed.task ? ctx.computed.task.dueDate || '' : '', 'label'); },
-		prioritySummary: function(ctx) { return formatPriority(ctx.computed.task ? ctx.computed.task.priority : undefined); },
-		notesSummary:    function(ctx) { return formatNotesSummary(ctx.computed.task ? ctx.computed.task.description || '' : ''); },
+		dueSummary:      function(ctx) { var t = ctx.computed.task; return formatDueDate(t ? t.dueDate || '' : '', 'label'); },
+		prioritySummary: function(ctx) { var t = ctx.computed.task; return formatPriority(t ? t.priority : undefined); },
+		notesSummary:    function(ctx) { var t = ctx.computed.task; return formatNotesSummary(t ? t.description || '' : ''); },
 	},
 
 	bind: {
@@ -274,12 +292,6 @@ export default {
 			color: var(--text-primary);
 			text-align: center;
 		}
-		.delete-confirm-sub {
-			font-size: 13px;
-			color: var(--text-tertiary);
-			text-align: center;
-			margin-top: -4px;
-		}
 		.delete-confirm-btns {
 			display: flex;
 			gap: 10px;
@@ -321,8 +333,7 @@ export default {
 		'click(.edit-row)': function(e, ctx) {
 			var section = e.matched.dataset.section || '';
 			if (!section) return;
-			var next = (ctx.state.openSection === section) ? '' : section;
-			ctx.state.$set('openSection', next);
+			ctx.state.$set('openSection', ctx.state.openSection === section ? '' : section);
 		},
 		'keydown(.title-input)': function(e, ctx) {
 			var id   = ctx.computed.taskId;
@@ -337,27 +348,24 @@ export default {
 			}
 			if (e.key === 'Escape') {
 				e.preventDefault();
-				ctx.state.$set('titleEdit', (task && task.title) ? task.title : '');
+				ctx.state.$set('titleEdit', task.title || '');
 				safeBlur(e.matched);
 			}
 		},
 		'blur(.title-input)': function(e, ctx) {
-			var id   = ctx.computed.taskId;
 			var task = ctx.computed.task;
 			if (!task) return;
-			ctx.state.$set('titleEdit', commitTaskTitle(ctx.models, id, task.title || '', e.matched.value));
+			ctx.state.$set('titleEdit', commitTaskTitle(ctx.models, ctx.computed.taskId, task.title || '', e.matched.value));
 		},
 		'dueDateChange(pwa-due-date-picker)': function(e, ctx) {
 			var id = ctx.computed.taskId;
 			if (!id) return;
-			var detail = e.detail || {};
-			updateTaskDueDate(ctx.models, id, detail.value || '');
+			updateTaskDueDate(ctx.models, id, (e.detail || {}).value || '');
 		},
 		'priorityChange(pwa-priority-picker)': function(e, ctx) {
 			var id = ctx.computed.taskId;
 			if (!id) return;
-			var detail = e.detail || {};
-			updateTaskPriority(ctx.models, id, detail.value || 'medium');
+			updateTaskPriority(ctx.models, id, (e.detail || {}).value || 'medium');
 		},
 		'change(.inline-textarea)': function(e, ctx) {
 			var id = ctx.computed.taskId;
@@ -383,9 +391,7 @@ export default {
 				politeness: 'assertive',
 				undoToastMs: 4000,
 				animate: ctx.animate,
-				afterDelete: function() {
-					ctx.router.go(-1);
-				},
+				afterDelete: function() { ctx.router.go(-1); },
 			});
 		},
 	},
@@ -394,90 +400,38 @@ export default {
 		var task = ctx.computed.task;
 		if (!task) return ctx.html`<div class="not-found">Task not found.</div>`;
 
-		var dueDate         = task.dueDate || '';
-		var openSection     = ctx.state.openSection || '';
-		var draftTitle      = ctx.computed.draftTitle;
-		var titleSummary    = ctx.computed.titleSummary;
-		var dueSummary      = ctx.computed.dueSummary;
-		var prioritySummary = ctx.computed.prioritySummary;
-		var notesSummary    = ctx.computed.notesSummary;
+		var titleClass = 'title' + (task.completed ? ' done' : '');
+		var notesClass = 'notes' + (!String(task.description || '').trim() ? ' placeholder' : '');
 
 		return ctx.html`
 			<div class="body">
 
 				<div class="editor">
-					<div class="group">
-						<button type="button" class="edit-row" data-section="title" aria-expanded=${openSection === 'title'}>
-							<span class="row-label">Title</span>
-							<span class=${'row-value title' + (task.completed ? ' done' : '')}>${titleSummary}</span>
-							<span class=${'row-chevron' + (openSection === 'title' ? ' open' : '')}>
-								<svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
-							</span>
-						</button>
-						${openSection === 'title' ? ctx.html`
-							<div class="panel">
-								<input
-									id="task-title-input"
-									class=${'title-input' + (task.completed ? ' done' : '')}
-									type="text"
-									.value=${draftTitle}
-									aria-label="Task title"
-									placeholder="Task title"
-									autocomplete="off"
-								/>
-							</div>
-						` : ''}
-					</div>
-
-					<div class="group">
-						<button type="button" class="edit-row" data-section="due" aria-expanded=${openSection === 'due'}>
-							<span class="row-label">Due date</span>
-							<span class="row-value">${dueSummary}</span>
-							<span class=${'row-chevron' + (openSection === 'due' ? ' open' : '')}>
-								<svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
-							</span>
-						</button>
-						${openSection === 'due' ? ctx.html`
-							<div class="panel">
-								<pwa-due-date-picker .value=${dueDate}></pwa-due-date-picker>
-							</div>
-						` : ''}
-					</div>
-
-					<div class="group">
-						<button type="button" class="edit-row" data-section="priority" aria-expanded=${openSection === 'priority'}>
-							<span class="row-label">Priority</span>
-							<span class="row-value">${prioritySummary}</span>
-							<span class=${'row-chevron' + (openSection === 'priority' ? ' open' : '')}>
-								<svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
-							</span>
-						</button>
-						${openSection === 'priority' ? ctx.html`
-							<div class="panel">
-								<pwa-priority-picker .value=${task.priority || 'medium'}></pwa-priority-picker>
-							</div>
-						` : ''}
-					</div>
-
-					<div class="group">
-						<button type="button" class="edit-row" data-section="notes" aria-expanded=${openSection === 'notes'}>
-							<span class="row-label">More details</span>
-							<span class=${'row-value notes' + (!String(task.description || '').trim() ? ' placeholder' : '')}>${notesSummary}</span>
-							<span class=${'row-chevron' + (openSection === 'notes' ? ' open' : '')}>
-								<svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
-							</span>
-						</button>
-						${openSection === 'notes' ? ctx.html`
-							<div class="panel">
-								<textarea
-									class="inline-textarea"
-									placeholder="Add more details..."
-									rows="4"
-									.value=${task.description || ''}
-								></textarea>
-							</div>
-						` : ''}
-					</div>
+					${editRow(ctx, 'title', 'Title', ctx.computed.titleSummary, titleClass, ctx.html`
+						<input
+							id="task-title-input"
+							class=${'title-input' + (task.completed ? ' done' : '')}
+							type="text"
+							.value=${ctx.computed.draftTitle}
+							aria-label="Task title"
+							placeholder="Task title"
+							autocomplete="off"
+						/>
+					`)}
+					${editRow(ctx, 'due', 'Due date', ctx.computed.dueSummary, '', ctx.html`
+						<pwa-due-date-picker .value=${task.dueDate || ''}></pwa-due-date-picker>
+					`)}
+					${editRow(ctx, 'priority', 'Priority', ctx.computed.prioritySummary, '', ctx.html`
+						<pwa-priority-picker .value=${task.priority || 'medium'}></pwa-priority-picker>
+					`)}
+					${editRow(ctx, 'notes', 'More details', ctx.computed.notesSummary, notesClass, ctx.html`
+						<textarea
+							class="inline-textarea"
+							placeholder="Add more details..."
+							rows="4"
+							.value=${task.description || ''}
+						></textarea>
+					`)}
 				</div>
 
 				<div class="actions">

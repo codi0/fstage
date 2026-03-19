@@ -31,6 +31,7 @@ export default {
 		},
 		value: {
 			handler: function(e, ctx) {
+				if ((e.val || '') === (e.oldVal || '')) return;
 				// Sync customOpen from prop value
 				var shouldOpen = isCustomDate(e.val, quickDueDates());
 				if (!!ctx.state.customOpen !== shouldOpen) ctx.state.$set('customOpen', shouldOpen);
@@ -39,7 +40,6 @@ export default {
 				if (active) ctx.animate(active, 'pop', { durationFactor: 0.9 });
 			},
 			afterRender: true,
-			trackBy:     function(val) { return val || ''; },
 		}
 	},
 

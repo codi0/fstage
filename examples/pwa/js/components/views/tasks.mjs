@@ -254,7 +254,7 @@ export default {
 	connected: function(ctx) {
 		ctx.state.$set('headerAction', { label: 'Add task', event: 'addTask', icon: 'add' });
 		ctx.cleanup(function() {
-			ctx.state.$del('headerAction');
+			ctx.state.$set('headerAction', null);
 		});
 	},
 
