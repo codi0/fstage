@@ -14,27 +14,24 @@ export default {
 	tag: 'pwa-priority-picker',
 
 	state: {
-		value: { $src: 'prop', default: 'medium' }
+		value: { $prop: 'medium' },
 	},
 
 	watch: {
 		value: {
-			handler: function(e, ctx) {
-				var active = ctx.root.querySelector('.priority-btn.active');
-				if (active) ctx.animate(active, 'pop', { durationFactor: 0.9 });
+			handler(e, { root, animate }) {
+				const active = root.querySelector('.priority-btn.active');
+				if (active) animate(active, 'pop', { durationFactor: 0.9 });
 			},
 			afterRender: true,
 		},
 	},
 
 	interactions: {
-		'click(.priority-btn)': function(e, ctx) {
-			var value = e.matched.dataset.priority || 'medium';
-			ctx.emit('priorityChange', { value: value });
-		}
+		'click(.priority-btn)': (e, { emit }) => emit('priorityChange', { value: e.matched.dataset.priority || 'medium' }),
 	},
 
-	style: (styleCtx) => styleCtx.css`
+	style: ({ css }) => css`
 		:host {
 			display: block;
 		}
@@ -94,12 +91,12 @@ export default {
 		}
 	`,
 
-	render: function(ctx) {
-		var value = normalizePriority(ctx.state.value);
+	render({ html, state }) {
+		const value = normalizePriority(state.value);
 
-		return ctx.html`
+		return html`
 			<div class="priority-btns">
-				${PRIORITIES.map(function(priority) { return ctx.html`
+				${PRIORITIES.map(priority => html`
 					<button
 						type="button"
 						class=${priority.id === value ? 'priority-btn ' + priority.id + ' active' : 'priority-btn ' + priority.id}
@@ -107,7 +104,7 @@ export default {
 						<span class="priority-dot"></span>
 						${priority.label}
 					</button>
-				`; })}
+				`)}
 			</div>
 		`;
 	}

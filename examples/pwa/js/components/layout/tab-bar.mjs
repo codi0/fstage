@@ -5,37 +5,37 @@ export default {
 	tag: 'pwa-tab-bar',
 
 	state: {
-		route: { $src: 'external', key: 'route', default: {} }
-	},
+		route: { $ext: 'route', default: {} },
 
-	computed: {
-		activeId: function(ctx) {
-			var path = ctx.state.route.path || '';
-			var tabs = ctx.config.ui?.tabs || [];
-			var match = tabs.find(function(t) { return t.route === path; });
+		get tabs()     { return this.config.ui?.tabs || []; },
+		get activeId() {
+			var path = this.state.route.path || '';
+			var match = this.state.tabs.find(function(t) { return t.route === path; });
 			return match ? match.id : '';
 		},
-		tabs: function(ctx) { return ctx.config.ui?.tabs || []; },
-		hasTab: function(ctx) { return !!ctx.computed.activeId; },
+		get hasTab()   { return !!this.state.activeId; },
+	},
+
+	constructed({ _ }) {
+		_.tabVisible = false;
 	},
 
 	watch: {
 		route: {
 			afterRender: true,
-			handler: function(e, ctx) {
+			handler(e, { _, state, host, root, animate }) {
 				// Only act when the path changes, not on other route object updates.
 				if ((e.val?.path || '') === (e.oldVal?.path || '')) return;
-				var visible = ctx.computed.hasTab;
-				var host    = ctx.host;
+				const visible = state.hasTab;
 
-				if (visible !== !!ctx._tabVisible && !document.documentElement.hasAttribute('data-transitioning')) {
-					ctx._tabVisible = visible;
+				if (visible !== !!_.tabVisible && !document.documentElement.hasAttribute('data-transitioning')) {
+					_.tabVisible = visible;
 					accompanySettle(host, visible);
 				}
 
 				if (visible) {
-					var icon = ctx.root.querySelector('.tab[aria-selected="true"] .tab-icon');
-					if (icon) ctx.animate(icon, 'tabBounce', { durationFactor: 2 });
+					const icon = root.querySelector('.tab[aria-selected="true"] .tab-icon');
+					if (icon) animate(icon, 'tabBounce', { durationFactor: 2 });
 				}
 			}
 		}
@@ -47,18 +47,18 @@ export default {
 				var tabs = ctx.config.ui?.tabs || [];
 				return tabs.some(function(t) { return t.route === e.path; });
 			}
-			return ctx.computed.hasTab;
+			return ctx.state.hasTab;
 		},
 	},
 
 	host: {
 		attrs: {
-			'role':       function(ctx) { return 'tablist'; },
-			'aria-label': function(ctx) { return 'Main navigation'; },
+			'role':       () => 'tablist',
+			'aria-label': () => 'Main navigation',
 		},
 	},
 
-	style: (styleCtx) => styleCtx.css`
+	style: ({ css }) => css`
 		:host {
 			display: flex; flex-direction: row; align-items: flex-start;
 			flex: 0 0 auto; position: relative;
@@ -156,25 +156,21 @@ export default {
 		.tab-label { font-size: 10px; line-height: 1; font-family: var(--font-body); }
 	`,
 
-	render: function(ctx) {
-		var activeId = ctx.computed.activeId;
-		var tabs     = ctx.computed.tabs;
+	render({ html, state }) {
+		const { activeId, tabs } = state;
 
-		return ctx.html`${tabs.map(function(t) {
-			var isActive = activeId === t.id;
-			return ctx.html`
-				<button class="tab" role="tab" aria-selected=${isActive} data-href=${t.route}>
-					<span class=${'tab-icon tab-icon--' + t.icon} aria-hidden="true"></span>
-					<span class="tab-label">${t.label}</span>
-				</button>
-			`;
-		})}`;
+		return html`${tabs.map(t => html`
+			<button class="tab" role="tab" aria-selected=${activeId === t.id} data-href=${t.route}>
+				<span class=${'tab-icon tab-icon--' + t.icon} aria-hidden="true"></span>
+				<span class="tab-label">${t.label}</span>
+			</button>
+		`)}`;
 	},
 
-	connected: function(ctx) {
-		var visible = ctx.computed.hasTab;
-		ctx._tabVisible = visible;
-		if (!visible) ctx.host.setAttribute('data-accompany-hidden', '');
+	connected({ _, state, host }) {
+		const visible = state.hasTab;
+		_.tabVisible = visible;
+		if (!visible) host.setAttribute('data-accompany-hidden', '');
 	},
 
 };

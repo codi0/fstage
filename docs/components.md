@@ -4,119 +4,100 @@
 
 ## Runtime setup
 
-The runtime is created once during the `afterLoadLibs` phase and registered for re-use:
-
 ```js
 import { createRuntime } from '@fstage/component';
 
 const runtime = createRuntime({
-  store:               store,              // createStore() instance (required)
-  config:              config,             // app config, available as ctx.config
-  registry:            registry,           // service registry for inject
-  baseClass:           LitElement,         // rendering base class (required)
-  ctx:                 { html, css, svg }, // LitElement render helpers
-  animator:            animator,           // optional, enables animate block
-  screenHost:          screenHost,         // optional, enables activated/deactivated
-  interactionsManager: interactionsManager, // optional, enables interactions
-  skipAttr:            'data-leaving',     // attribute that triggers exit animation
+  store:               store,
+  config:              config,
+  registry:            registry,
+  baseClass:           LitElement,
+  ctx:                 { html, css, svg },
+  animator:            animator,
+  screenHost:          screenHost,
+  interactionsManager: interactionsManager,
+  skipAttr:            'data-leaving',
 });
 ```
 
 ## Defining a component
 
-Each component is a plain object exported as `default`:
+Each component is a plain object exported as `default`. The recommended field order is: **identity → dependencies → data → input wiring → behaviour → presentation → lifecycle**.
 
 ```js
+import { repeat } from 'lit/directives/repeat.js';
+
 export default {
   tag: 'my-tasks',
 
   inject: {
-    models: 'models',     // ctx.models = registry.get('models')
+    models: 'models',
   },
 
+  // Plain values    = local state
+  // { $ext }        = external state (shorthand for $src: 'external')
+  // { $prop }       = prop from parent (shorthand for $src: 'prop')
+  // Getters         = reactive derived values; 'this' is ctx
   state: {
-    // Local state — shorthand for { $src: 'local', default: value }
     filter:    '',
     loading:   false,
+    lastAdded: '',
 
-    // Prop — passed from parent element
-    compact: { $src: 'prop', type: Boolean, default: false },
+    compact: { $prop: false },               // Boolean prop, type inferred
+    tasks:   { $ext: 'tasks', default: {} }, // external store path
 
-    // External — reads/writes a path in the global store
-    route:  { $src: 'external', key: 'route',  default: {} },
-    tasks:  { $src: 'external', key: 'tasks',  default: {} },
-  },
-
-  computed: {
-    filtered: (ctx) => Object.values(ctx.state.tasks)
-      .filter(t => !t.completed && t.title.includes(ctx.state.filter)),
-    isEmpty:  (ctx) => ctx.computed.filtered.length === 0,
+    get filtered() { return Object.values(this.state.tasks).filter(t => t.title.includes(this.state.filter)); },
+    get isEmpty()  { return this.state.filtered.length === 0; },
+    get groups()   { return this.models.get('tasks').grouped(); }, // services available via this
   },
 
   bind: {
-    // Shorthand: selector -> state key (listens to 'input', reads .value)
     '.filter-input': 'filter',
-    // Descriptor: override event or value extractor
     '.date-picker':  { key: 'dueDate', event: 'change', extract: (el) => el.value },
   },
 
   watch: {
-    // Pre-render: fires synchronously during the mutation, before next render
-    filter: function(e, ctx) {
-      // e: { path, val, oldVal }
-    },
+    // Pre-render: fires synchronously before next render
+    filter: function(e, ctx) { /* e: { path, val, oldVal } */ },
 
     // Pre-render with immediate call and state reset on change
     route: {
       handler:   function(e, ctx) { /* load data for route */ },
       immediate: true,
-      reset:     ['filter'],  // reset 'filter' to its default whenever route changes
+      reset:     ['filter'],
     },
 
     // Post-render: fires after DOM is committed, skipped on first render
     activeTask: {
-      handler:     function(e, ctx) { if (e.val.id) scrollToTask(e.val, ctx); },
-      afterRender: true
+      handler:     function(e, ctx) { if (e.val?.id) scrollToTask(e.val, ctx); },
+      afterRender: true,
     },
   },
 
   interactions: {
-    // Delegated DOM events: 'eventType(selector)'
-    'click(.add-btn)': function(e, ctx) { ctx.state.$set('addingTask', true); },
-
-    // Descriptor with options
-    'input(.filter-input)': {
-      handler:  function(e, ctx) { ctx.state.$set('filter', e.target.value); },
-      debounce: 300,
-    },
-
-    // Document/window events
-    'keydown(document)': { handler: function(e, ctx) { /* ... */ }, keys: ['Escape'] },
-
-    // Gesture extension (requires gestureInteraction wired in afterLoadLibs)
-    'gesture.swipeLeft(.task-row)': function(e, ctx) { archiveTask(e, ctx); },
+    'click(.add-btn)':        function(e, ctx) { ctx.state.$set('addingTask', true); },
+    'input(.filter-input)':   { handler: function(e, ctx) { ctx.state.$set('filter', e.target.value); }, debounce: 300 },
+    'keydown(document)':      { handler: function(e, ctx) { /* ... */ }, keys: ['Escape'] },
+    'gesture.swipeLeft(.row)': function(e, ctx) { archiveTask(e, ctx); },
   },
 
   animate: {
-    enter: 'slideUp',                    // host entry on first render
-    exit:  'slideDown',                  // host exit when data-leaving is set
+    enter: 'slideUp',
+    exit:  'slideDown',
     'toggle(.empty-state)': { state: 'isEmpty', show: 'fadeIn', hide: 'fadeOut' },
     'toggle(.spinner)':     { state: 'loading', show: 'fadeIn', hide: 'fadeOut' },
   },
 
   host: {
-    // Imperative methods exposed on the host element
     methods: {
       focusFilter: function() { this.shadowRoot.querySelector('.filter-input').focus(); },
     },
-    // Attribute projections — applied after every render
     attrs: {
-      'data-empty': (ctx) => ctx.computed.isEmpty ? '' : null,
+      'data-empty': (ctx) => ctx.state.isEmpty ? '' : null,
       'aria-busy':  (ctx) => String(ctx.state.loading),
     },
-    // CSS custom property projections — applied after every render
     vars: {
-      '--task-count': (ctx) => ctx.computed.filtered.length,
+      '--task-count': (ctx) => ctx.state.filtered.length,
     },
   },
 
@@ -125,46 +106,65 @@ export default {
     .filter-input { width: 100%; }
   `,
 
-  render: function(ctx) {
-    return ctx.html`
-      <input class="filter-input" .value=${ctx.state.filter}>
+  render({ html, state }) {
+    const { filter, filtered, isEmpty, loading } = state;
+    return html`
+      <input class="filter-input" .value=${filter}>
       <div class="empty-state">No tasks found.</div>
       <div class="spinner"></div>
-      ${ctx.computed.filtered.map(t => ctx.html`
-        <task-row .task=${t}></task-row>
-      `)}
+      ${repeat(filtered, t => t.id, t => html`<task-row .task=${t}></task-row>`)}
     `;
   },
 
-  // Lifecycle hooks — all optional
-  constructed:  function(ctx) { /* ctx ready, no DOM yet             */ },
-  connected:    function(ctx) { /* connected, DOM exists             */ },
-  rendered:     function(ctx, isFirst) { /* after each render commit */ },
-  disconnected: function(ctx) { /* after cleanup                     */ },
+  constructed:  function(ctx) { /* ctx ready, no DOM yet    */ },
+  connected:    function(ctx) { /* connected, DOM exists    */ },
+  rendered:     function(ctx, isFirst) { /* after render    */ },
+  disconnected: function(ctx) { /* after cleanup            */ },
   onError:      function(err, ctx) { console.error(err); },
 };
 ```
 
-## shadow vs no-shadow
+## State shorthands
 
-By default components render into a shadow root (`shadow: true`), providing style encapsulation and slot composition. Set `shadow: false` to render directly into the host element:
+| Form | Expands to |
+|---|---|
+| `filter: ''` | `{ $src: 'local', default: '' }` |
+| `tasks: { $ext: 'tasks', default: [] }` | `{ $src: 'external', key: 'tasks', default: [] }` |
+| `open: { $prop: false }` | `{ $src: 'prop', type: Boolean, default: false }` |
+| `open: { $prop: Boolean, default: false }` | `{ $src: 'prop', type: Boolean, default: false }` |
+| `get total() { ... }` | Reactive derived value; `this` is `ctx` |
+
+The full descriptor form (`{ $src: 'external', key: '...', default: ... }`) remains supported for all types.
+
+## State getters
+
+Getters declared in `state` are reactive derived values. `this` inside a getter is `ctx`, giving access to `this.state.*`, `this.models`, `this.config`, and any other injected services:
 
 ```js
-export default {
-  tag: 'my-item',
-  shadow: false,
-  // ...
-};
+state: {
+  tasks:  { $ext: 'tasks', default: {} },
+  filter: '',
+
+  get allTasks()  { return Object.values(this.state.tasks || {}); },
+  get total()     { return this.state.allTasks.length; },
+  get completed() { return this.state.allTasks.filter(t => t.completed).length; },
+  get remaining() { return this.state.total - this.state.completed; },
+  get groups()    { return this.models.get('tasks').grouped(); },
+}
 ```
 
-**Tradeoffs with `shadow: false`:**
+Getters are lazy (evaluated on access), reactive (tracked during render), and exposed on `ctx.state` like any other state key. They can be destructured in `render` alongside plain state values:
 
-- Global stylesheets apply directly — useful when you want page-level theming to flow in without CSS custom properties.
-- `<slot>` does not work — light DOM components cannot compose slotted content. Use `shadow: true` for any component that needs to accept children via slots.
-- Styles declared in `style` are adopted via `adoptedStyleSheets` on the document (once per tag) rather than scoped to a shadow root, so selectors are not encapsulated.
-- `ctx.root` is the host element itself, so `ctx.root.querySelector()` searches the host's light DOM children.
+```js
+render({ html, state }) {
+  const { filter, groups, total, remaining } = state;
+  // ...
+}
+```
 
-Use `shadow: false` for leaf elements and layout primitives that intentionally participate in the page's global style cascade. Prefer `shadow: true` for anything that composes child content or needs style isolation.
+## shadow vs no-shadow
+
+Set `shadow: false` to render into the host element directly. Tradeoffs: global styles apply, `<slot>` is unavailable, styles are adopted on the document rather than scoped.
 
 ## ctx — component context
 
@@ -174,55 +174,51 @@ Every lifecycle function and handler receives `ctx`:
 |----------|-------------|
 | `ctx.host` | The host element |
 | `ctx.root` | Shadow root (or host if `shadow: false`) |
-| `ctx.state` | Reactive state proxy — see below |
+| `ctx.state` | Reactive state proxy |
 | `ctx.config` | App config (immutable) |
-| `ctx.computed` | Declared computed values as getters |
 | `ctx.html/css/svg` | LitElement template helpers |
 | `ctx.emit(type, detail?, opts?)` | Dispatch a CustomEvent from host |
 | `ctx.cleanup(fn)` | Register a teardown function (run on disconnect, in reverse order) |
 | `ctx.animate(el, preset, opts?)` | Animate an element (requires animator) |
 
+All handlers and lifecycle functions can be destructured: `function(e, { state, models, emit, root }) { ... }`.
+
 ## ctx.state API
 
-All state access goes through `ctx.state`. Direct assignment throws.
+Direct assignment to `ctx.state` throws. All writes go through `$set`:
 
 ```js
-ctx.state.filter               // read (reactive, tracked in render)
-ctx.state.$set('filter', '')   // write
-ctx.state.$watch('filter', (e, ctx) => { /* ... */ }) // returns off()
+ctx.state.filter           // read (reactive, tracked in render)
+ctx.state.$set('filter', '') // write
+ctx.state.$watch('filter', (e) => { /* e: { path, val, oldVal } */ }) // async by default
+ctx.state.$watch('filter', fn, { sync: true }) // synchronous delivery
 ```
 
-The Fstage runtime also inherits a number of other methods from @fstage/store, including:
+The Fstage runtime inherits additional methods from `@fstage/store`:
 
 ```js
-ctx.state.$has('filter')       // boolean existence check
-ctx.state.$get('filter')       // explicit read
-ctx.state.$del('filter')       // delete
+ctx.state.$has('filter')        // boolean existence check
+ctx.state.$get('filter')        // explicit read
+ctx.state.$del('filter')        // delete
 ctx.state.$merge('user', { email: 'x' }) // shallow merge
-ctx.state.$batch(() => { /* multiple sets */ })
-ctx.state.$raw('filter')       // read without reactivity
+ctx.state.$raw('filter')        // read without reactivity
 ```
 
-State keys declared with `$src: 'external'` map to paths in the global store — reading and writing them is transparent from the component's perspective.
+Multiple `$set` calls within the same synchronous block coalesce automatically into a single render via microtask delivery — no explicit batching needed.
+
+State keys declared with `$src: 'external'` (or `$ext`) map to paths in the global store — reading and writing is transparent.
 
 ## inject and registry
 
-Services registered in the registry are injected onto `ctx`:
-
 ```js
-// Registration (in afterLoadLibs)
-registry.set('models', modelsInstance);
+registry.set('models', modelsInstance); // registration
 
-// Component definition
-inject: { models: 'models' },
+inject: { models: 'models' },           // component declaration
 
-// Usage in any handler or lifecycle hook
-ctx.models.getTasks();
+ctx.models.getTasks();                   // usage in any handler
 ```
 
 ## Capability claims
-
-The runtime claims these optional capabilities from the standard:
 
 | Capability | Requirement |
 |------------|-------------|
@@ -233,4 +229,4 @@ The runtime claims these optional capabilities from the standard:
 
 ## Full standard
 
-The complete normative specification — lifecycle semantics, state contract, interaction model, animation protocol, SSR guidance, and author checklist — is in [policies/component-standard.md](../policies/component-standard.md).
+The complete normative specification is in [policies/component-standard.md](../policies/component-standard.md).

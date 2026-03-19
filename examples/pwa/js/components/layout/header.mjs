@@ -3,34 +3,31 @@ export default {
 	tag: 'pwa-header',
 
 	state: {
-		route:        { $src: 'external', key: 'route',        default: {} },
-		headerAction: { $src: 'external', key: 'headerAction', default: {} },
-	},
+		route:        { $ext: 'route',        default: {} },
+		headerAction: { $ext: 'headerAction', default: {} },
 
-	computed: {
-		hasTab:    function(ctx) {
-			var path = ctx.state.route.path || '';
-			var tabs = ctx.config.ui?.tabs || [];
+		get hasTab()    {
+			var path = this.state.route.path || '';
+			var tabs = this.config.ui?.tabs || [];
 			return tabs.some(function(t) { return t.route === path; });
 		},
-		title:     function(ctx) { return ctx.state.route.meta?.title || ''; },
-		action:    function(ctx) { return ctx.state.headerAction || {}; },
-		backLabel: function(ctx) {
-			if (ctx.computed.hasTab) return '';
-			return ctx.config.env.os === 'ios'
-				? (ctx.state.route.prev?.meta?.title || 'Back')
+		get title()     { return this.state.route.meta?.title || ''; },
+		get backLabel() {
+			if (this.state.hasTab) return '';
+			return this.config.env.os === 'ios'
+				? (this.state.route.prev?.meta?.title || 'Back')
 				: '';
 		},
 	},
 
 	interactions: {
-		'click(.header-btn)': function(e, ctx) {
-			var action = ctx.computed.action;
-			if (action && action.event) ctx.emit(action.event);
+		'click(.header-btn)': function(e, { state, emit }) {
+			const action = state.headerAction;
+			if (action && action.event) emit(action.event);
 		},
 	},
 
-	style: (styleCtx) => styleCtx.css`
+	style: ({ css }) => css`
 		:host {
 			display: flex; flex-direction: row; align-items: center; flex-shrink: 0;
 			height: calc(44px + var(--safe-top));
@@ -103,23 +100,21 @@ export default {
 		}
 	`,
 
-	render: function(ctx) {
-		var hasTab    = ctx.computed.hasTab;
-		var title     = ctx.computed.title;
-		var action    = ctx.computed.action;
-		var backLabel = ctx.computed.backLabel;
+	render({ html, state }) {
+		const { hasTab, title, backLabel } = state;
+		const action = state.headerAction || {};
 
-		return ctx.html`
-			${!hasTab ? ctx.html`
+		return html`
+			${!hasTab ? html`
 				<button data-back class="back-btn" aria-label=${backLabel ? 'Back to ' + backLabel : 'Back'}>
 					<svg viewBox="0 0 24 24"><polyline points="15 18 9 12 15 6"/></svg>
-					${backLabel ? ctx.html`<span class="back-label">${backLabel}</span>` : ''}
+					${backLabel ? html`<span class="back-label">${backLabel}</span>` : ''}
 				</button>` : ''
 			}
 
 			<span class="header-title">${title}</span>
 
-			${action.event ? ctx.html`
+			${action.event ? html`
 				<button class="header-btn" aria-label=${action.label}>
 					<svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
 				</button>` : ''

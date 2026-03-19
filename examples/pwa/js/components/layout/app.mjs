@@ -5,7 +5,7 @@ export default {
 	shadow: false,
 
 	state: {
-		theme: { $src: 'external', key: 'settings.theme', default: 'auto' }
+		theme: { $ext: 'settings.theme', default: 'auto' },
 	},
 
 	watch: {
@@ -21,7 +21,7 @@ export default {
 		},
 	},
 
-	style: (styleCtx) => styleCtx.css`
+	style: ({ css }) => css`
 		pwa-app {
 			display: flex; flex-direction: column;
 			width: 100%; height: 100%; min-height: 100dvh;
@@ -36,8 +36,8 @@ export default {
 		}
 	`,
 
-	render: function(ctx) {
-		return ctx.html`
+	render({ html }) {
+		return html`
 			<pwa-header></pwa-header>
 			<pwa-main></pwa-main>
 			<pwa-tab-bar></pwa-tab-bar>

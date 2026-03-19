@@ -31,7 +31,7 @@ const store = createStore({
 
 The store instance exposes all methods from `storePlugin`, `reactivePlugin`, and `operationPlugin`, prefixed with `$`:
 
-`$has` `$get` `$set` `$merge` `$del` `$reset` `$batch` `$watch` `$raw` `$effect` `$computed` `$track` `$operation` `$fetch` `$send` `$opStatus`
+`$has` `$get` `$set` `$merge` `$del` `$reset` `$watch` `$raw` `$effect` `$computed` `$track` `$operation` `$fetch` `$send` `$opStatus`
 
 ---
 
@@ -71,18 +71,6 @@ Delete a key:
 store.$del('session.token');
 ```
 
-### $batch(fn)
-
-Group multiple writes — subscribers notified once after the batch:
-
-```js
-store.$batch(() => {
-  store.$set('a', 1);
-  store.$set('b', 2);
-  store.$set('c', 3);
-});
-```
-
 ### $watch(path, fn, opts?)
 
 Subscribe to changes at a path. Returns an `off()` unsubscribe function.
@@ -96,7 +84,9 @@ off(); // unsubscribe
 ```
 
 `opts.immediate: true` — call handler immediately with the current value.
-`opts.oldVal: true` — capture `e.oldVal` (small perf cost; opt-in).
+`opts.sync: true` — deliver notifications synchronously during the state mutation rather than via microtask. Use when ordering relative to the write matters (e.g. internal library code). Default delivery is async (queueMicrotask), which coalesces multiple synchronous writes into a single notification.
+
+Multiple synchronous `$set` calls will only fire each watcher once, after the synchronous block completes — no explicit batching needed.
 
 The `e.diff` argument is a lazy query function for diffing nested changes:
 

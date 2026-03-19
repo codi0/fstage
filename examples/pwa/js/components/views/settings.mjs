@@ -1,5 +1,7 @@
 import { sectionHeader, rowIcon, cardSection } from '../../css/shared.mjs';
 
+const THEME_LABELS = { auto: 'Auto', light: 'Light', dark: 'Dark' };
+
 export default {
 
 	tag: 'pwa-settings',
@@ -9,33 +11,26 @@ export default {
 	},
 
 	state: {
-		theme: { $src: 'external', key: 'settings.theme', default: 'auto' },
+		theme: { $ext: 'settings.theme', default: 'auto' },
 		themeSheetOpen: false,
-	},
-
-	computed: {
-		themeLabel: function(ctx) { return ({ auto: 'Auto', light: 'Light', dark: 'Dark' })[ctx.state.theme] || 'Auto'; },
+		get themeLabel() { return THEME_LABELS[this.state.theme] || 'Auto'; },
 	},
 
 	interactions: {
-		'click(.theme-row)': function(e, ctx) {
-			ctx.state.$set('themeSheetOpen', true);
-		},
-		'bottomSheetClosed': function(e, ctx) {
-			ctx.state.$set('themeSheetOpen', false);
-		},
-		'click(.theme-option)': function(e, ctx) {
-			var val = e.matched.dataset.value;
-			if (val) ctx.models.get('settings').setTheme(val);
-			ctx.state.$set('themeSheetOpen', false);
+		'click(.theme-row)':    (e, { state }) => state.$set('themeSheetOpen', true),
+		'bottomSheetClosed':   (e, { state }) => state.$set('themeSheetOpen', false),
+		'click(.theme-option)': function(e, { state, models }) {
+			const val = e.matched.dataset.value;
+			if (val) models.get('settings').setTheme(val);
+			state.$set('themeSheetOpen', false);
 		},
 	},
 
-	style: (styleCtx) => [
+	style: ({ css }) => [
 		sectionHeader,
 		rowIcon,
 		cardSection,
-		styleCtx.css`
+		css`
 			:host { display: block; }
 
 			.body { padding: 4px 16px 48px; display: flex; flex-direction: column; gap: 28px; }
@@ -72,12 +67,11 @@ export default {
 		`
 	],
 
-	render: function(ctx) {
-		var theme          = ctx.state.theme || 'auto';
-		var themeSheetOpen = ctx.state.themeSheetOpen;
-		var themeLabels    = { auto: 'Auto', light: 'Light', dark: 'Dark' }; // kept for sheet option labels
+	render({ html, state, config }) {
+		const { themeSheetOpen, themeLabel } = state;
+		const theme = state.theme || 'auto';
 
-		return ctx.html`
+		return html`
 			<div class="body">
 
 				<div>
@@ -91,7 +85,7 @@ export default {
 								<div class="row-label">Appearance</div>
 								<div class="row-hint">Controls app colour scheme</div>
 							</div>
-							<span class="row-value">${ctx.computed.themeLabel}</span>
+							<span class="row-value">${themeLabel}</span>
 							<span class="row-chevron">
 								<svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
 							</span>
@@ -107,8 +101,8 @@ export default {
 								<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
 							</div>
 							<div class="row-text">
-								<div class="row-label">${ctx.config.name}</div>
-								<div class="row-hint">Version ${ctx.config.version}</div>
+								<div class="row-label">${config.name}</div>
+								<div class="row-hint">Version ${config.version}</div>
 							</div>
 						</div>
 					</div>
@@ -120,10 +114,10 @@ export default {
 
 			<pwa-bottom-sheet .title=${'Appearance'} .open=${themeSheetOpen}>
 				<div class="theme-options">
-					${['auto', 'light', 'dark'].map(function(v) { return ctx.html`
+					${['auto', 'light', 'dark'].map(function(v) { return html`
 						<button class="theme-option" data-value=${v}>
-							<span>${themeLabels[v]}</span>
-							${theme === v ? ctx.html`
+							<span>${THEME_LABELS[v]}</span>
+							${theme === v ? html`
 								<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
 							` : ''}
 						</button>

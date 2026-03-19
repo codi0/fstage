@@ -10,15 +10,15 @@ export default {
 	tag: 'pwa-due-date-picker',
 
 	state: {
-		value:      { $src: 'prop', default: '' },
+		value:      { $prop: '' },
 		customOpen: false,
 	},
 
 	watch: {
-		customOpen: {  
-			handler: function(e, ctx) {
+		customOpen: {
+			handler(e, { root }) {
 				if (!e.val) return;
-				var input = ctx.root.querySelector('.due-custom-input');
+				const input = root.querySelector('.due-custom-input');
 				if (!input) return;
 				try {
 					if (input.showPicker) input.showPicker();
@@ -30,34 +30,31 @@ export default {
 			afterRender: true,
 		},
 		value: {
-			handler: function(e, ctx) {
+			handler(e, { state, root, animate }) {
 				if ((e.val || '') === (e.oldVal || '')) return;
 				// Sync customOpen from prop value
-				var shouldOpen = isCustomDate(e.val, quickDueDates());
-				if (!!ctx.state.customOpen !== shouldOpen) ctx.state.$set('customOpen', shouldOpen);
+				const shouldOpen = isCustomDate(e.val, quickDueDates());
+				if (!!state.customOpen !== shouldOpen) state.$set('customOpen', shouldOpen);
 				// Animate the newly active chip
-				var active = ctx.root.querySelector('.date-chip.active');
-				if (active) ctx.animate(active, 'pop', { durationFactor: 0.9 });
+				const active = root.querySelector('.date-chip.active');
+				if (active) animate(active, 'pop', { durationFactor: 0.9 });
 			},
 			afterRender: true,
-		}
+		},
 	},
 
 	interactions: {
-		'click(.date-chip)': function(e, ctx) {
-			var date = e.matched.dataset.date || '';
-			if (date === '__custom') {
-				ctx.state.$set('customOpen', true);
-				return;
-			}
-			ctx.state.$set('customOpen', false);
-			ctx.emit('dueDateChange', { value: date || '' });
+		'click(.date-chip)': function(e, { state, emit }) {
+			const date = e.matched.dataset.date || '';
+			if (date === '__custom') { state.$set('customOpen', true); return; }
+			state.$set('customOpen', false);
+			emit('dueDateChange', { value: date || '' });
 		},
-		'change(.due-custom-input)': function(e, ctx) {
-			var date = e.matched.value || '';
-			ctx.state.$set('customOpen', !!date);
-			ctx.emit('dueDateChange', { value: date || '' });
-		}
+		'change(.due-custom-input)': function(e, { state, emit }) {
+			const date = e.matched.value || '';
+			state.$set('customOpen', !!date);
+			emit('dueDateChange', { value: date || '' });
+		},
 	},
 
 	host: {
@@ -68,7 +65,7 @@ export default {
 		}
 	},
 
-	style: (styleCtx) => styleCtx.css`
+	style: ({ css }) => css`
 		:host {
 			display: block;
 		}
@@ -119,21 +116,20 @@ export default {
 		}
 	`,
 
-	render: function(ctx) {
-		var dates = quickDueDates();
-		var value = ctx.state.value || dates.today;
-		var customOpen = !!ctx.state.customOpen;
-		var isCustom = isCustomDate(value, dates);
-		var showCustom = customOpen || isCustom;
+	render({ html, state }) {
+		const dates      = quickDueDates();
+		const value      = state.value || dates.today;
+		const isCustom   = isCustomDate(value, dates);
+		const showCustom = !!state.customOpen || isCustom;
 
-		return ctx.html`
+		return html`
 			<div class="date-shortcuts">
-				<button type="button" class=${value === dates.today ? 'date-chip active' : 'date-chip'} data-date=${dates.today}>Today</button>
-				<button type="button" class=${value === dates.tomorrow ? 'date-chip active' : 'date-chip'} data-date=${dates.tomorrow}>Tomorrow</button>
-				<button type="button" class=${value === dates.nextWeek ? 'date-chip active' : 'date-chip'} data-date=${dates.nextWeek}>Next week</button>
+				<button type="button" class=${value === dates.today    ? 'date-chip active' : 'date-chip'} data-date=${dates.today}>Today</button>
+				<button type="button" class=${value === dates.tomorrow  ? 'date-chip active' : 'date-chip'} data-date=${dates.tomorrow}>Tomorrow</button>
+				<button type="button" class=${value === dates.nextWeek  ? 'date-chip active' : 'date-chip'} data-date=${dates.nextWeek}>Next week</button>
 				<button type="button" class=${showCustom ? 'date-chip active' : 'date-chip'} data-date="__custom">Custom</button>
 			</div>
-			${showCustom ? ctx.html`
+			${showCustom ? html`
 				<input class="due-custom-input" type="date" .value=${isCustom ? value : ''} aria-label="Custom due date" />
 			` : ''}
 		`;

@@ -1,7 +1,7 @@
 // @fstage/component
 //
 // Definition-based web component runtime, based on LitElement for maximum compatibility.
-// Implements the Fstage Universal Component Definition Standard v1.3.
+// Implements the Fstage Universal Component Definition Standard v1.4.
 //
 // === Reactive State Provider ===
 // The Fstage store is used as the reactive state provider (standard §4.4).
@@ -21,11 +21,21 @@
 //   hostMethods      — def.host.methods mounted onto the host element
 //   interactionExtensions — via config.interactionsManager
 //
+// === ctx Contract ===
+// ctx is frozen after createRenderRoot() — no new properties may be added.
+// ctx._ is the designated private instance bag and remains mutable.
+// Declare all imperative instance state in constructed({ _ }) for clarity:
+//   constructed({ _ }) { _.transitioning = false; _.swipeKey = ''; }
+//
 // === Declaration Extensions ===
 //
-//   state — bare values are shorthand for local state only:
-//     sheetOpen: false          ->  { $src: 'local', default: false }
-//     Descriptor form is required for $src: 'prop' or 'external'.
+//   state — three shorthand forms and one getter form:
+//     sheetOpen: false              ->  { $src: 'local', default: false }
+//     tasks:     { $ext: 'tasks', default: [] }  ->  { $src: 'external', key: 'tasks', default: [] }
+//     open:      { $prop: false }   ->  { $src: 'prop', type: Boolean, default: false }
+//     open:      { $prop: Boolean, default: false }  ->  explicit type form
+//     get total() { return this.state.items.length; }  ->  reactive derived value,
+//       'this' is ctx — this.state.* / this.models / this.config
 //
 //   bind — declarative two-way bindings between selectors and state keys.
 //     bind: {
@@ -47,7 +57,7 @@
 //       task:        { handler: fn, afterRender: true },           // post-render
 //     }
 //
-//   computed — declarative derived values, accessible as ctx.computed.<key>.
+//   computed — DEPRECATED: use state getters instead. Kept for backwards compatibility.
 //     computed: { isEmpty: (ctx) => ctx.state.items.length === 0 }
 //
 //   interactions — handler may be a plain function or a descriptor:
@@ -87,10 +97,49 @@ import { getType, adoptStyleSheet } from '../utils/index.mjs';
 
 function formatDefMap(def) {
 
-	// state — bare values -> { $src: 'local', default: val }
+	// state — extract getter properties into def.stateGetters before processing.
+	// Getters are reactive derived values; 'this' in the getter is ctx.
+	// They are exposed on ctx.state but are not stored in the reactive store.
+	const stateGetters = {};
+	const stateDescriptors = Object.getOwnPropertyDescriptors(def.state);
+	for (const key in stateDescriptors) {
+		if (typeof stateDescriptors[key].get === 'function') {
+			stateGetters[key] = stateDescriptors[key].get;
+			delete def.state[key];
+		}
+	}
+	def.stateGetters = stateGetters;
+
+	// state — normalise shorthand forms:
+	//   bare value         -> { $src: 'local', default: val }
+	//   { $ext: 'key' }    -> { $src: 'external', key: 'key', default }
+	//   { $prop: Type }    -> { $src: 'prop', type: Type, default }
+	//   { $prop: default } -> { $src: 'prop', default } (type inferred)
 	const allowedSrc = [ 'prop', 'local', 'external' ];
 	for (let key in def.state) {
 		const s = def.state[key];
+
+		// $ext shorthand
+		if (s && typeof s === 'object' && '$ext' in s) {
+			def.state[key] = { $src: 'external', key: s.$ext || key, default: s.default };
+			def.state[key].key = def.state[key].key || key;
+			continue;
+		}
+
+		// $prop shorthand
+		if (s && typeof s === 'object' && '$prop' in s) {
+			const isTypeConstructor = typeof s.$prop === 'function';
+			const propDefault = isTypeConstructor ? s.default : s.$prop;
+			const propType    = isTypeConstructor ? s.$prop : null;
+			def.state[key] = { $src: 'prop', default: propDefault };
+			if (propType) def.state[key].type = propType;
+			if (!def.state[key].type) {
+				const t = getType(propDefault);
+				def.state[key].type = t === 'boolean' ? Boolean : t === 'number' ? Number : String;
+			}
+			continue;
+		}
+
 		if (!s || !s.$src) {
 			def.state[key] = { $src: 'local', default: s };
 			continue;
@@ -318,13 +367,27 @@ function scopePlugin() {
 //
 // Per-component proxy over the global store. Every access is auto-wrapped in
 // store.$withScope(component) so path translation is always active.
+// State getters are dispatched directly to the getter fn with ctx as 'this'.
 // =============================================================================
 
-function createStateProxy(component, store) {
+function createStateProxy(component, store, stateGetters) {
 	return new Proxy({}, {
 		get: function(target, key) {
+			if (typeof key === 'symbol') return store[key];
+			// State getters — call with ctx as 'this', inside $withScope for reactivity.
+			if (stateGetters && stateGetters[key]) {
+				try {
+					return store.$withScope(component, function() {
+						return stateGetters[key].call(component.__ctx);
+					});
+				} catch (err) {
+					const def = component.__internal && component.__internal.def;
+					if (def && def.onError) def.onError(err, component.__ctx);
+					else console.error('[fstage/component] state getter .' + key + ' error:', err);
+					return undefined;
+				}
+			}
 			const val = store[key];
-			if (typeof key === 'symbol') return val;
 			if (key[0] === '$' && typeof val === 'function') {
 				return function() {
 					const args = arguments;
@@ -427,16 +490,17 @@ export function createRuntime(config) {
 						activateState:     {},
 						watchState:        {},  // stores { val } for post-render watch change detection
 						state:             def.state,
+						def:               def,
 						id:                (++idCounter)
 					};
 
-					[ 'html', 'css', 'svg' ].forEach(function(key) {
+					[ 'html', 'css', 'svg', 'repeat', 'classMap' ].forEach(function(key) {
 						if (renderCtx[key]) ctx[key] = renderCtx[key];
 					});
 
 					ctx.host   = this;
 					ctx.root   = null;
-					ctx.state  = createStateProxy(this, store);
+					ctx.state  = createStateProxy(this, store, def.stateGetters);
 					ctx.config = config.config || {};
 
 					ctx.cleanup = (fn) => {
@@ -453,7 +517,8 @@ export function createRuntime(config) {
 						ctx.animate = (el, preset, opts) => config.animator.animate(el, preset, opts);
 					}
 
-					// Declarative computed — lazy getters, reactive via $track in render.
+					// Declarative computed — DEPRECATED, kept for backwards compatibility.
+					// Prefer state getters: get isEmpty() { return this.state.items.length === 0; }
 					if (Object.keys(def.computed).length) {
 						ctx.computed = {};
 						for (var key in def.computed) {
@@ -482,6 +547,10 @@ export function createRuntime(config) {
 						ctx[i] = service;
 					}
 
+					// Private instance bag — mutable by design; ctx itself is frozen after createRenderRoot.
+					// Declare all imperative instance state here in constructed() so it is visible at a glance.
+					ctx._ = {};
+
 					if (def.constructed) def.constructed(ctx);
 				}
 
@@ -498,6 +567,9 @@ export function createRuntime(config) {
 							if (styles) adoptStyleSheet(document, styles, def.tag);
 						}
 					}
+					// Freeze ctx so no new properties can be added after setup.
+					// ctx._ remains mutable — it is the designated private instance bag.
+					Object.freeze(ctx);
 					return ctx.root;
 				}
 
@@ -508,29 +580,28 @@ export function createRuntime(config) {
 					const internal = this.__internal;
 
 					// Wire all watches — pre-render and post-render.
-					// Post-render watches also subscribe here so state changes trigger re-renders;
-					// the actual handler call happens in updated() after DOM commit.
+					// Post-render watches subscribe with default async delivery so state changes
+					// trigger re-renders; the actual handler call happens in updated() after DOM commit.
+					// Pre-render watches use { sync: true } to fire synchronously during mutation,
+					// before the async render — required for state coordination and resets.
 					for (var key in def.watch) {
 						(function(key) {
 							const descriptor = def.watch[key];
 
 							if (descriptor.afterRender) {
-								// Post-render: subscribe only to ensure re-renders fire.
-								// Handler is called in updated() after change detection.
+								// Post-render: async delivery — triggers re-render when value changes.
+								// Handler is called in updated() after DOM commit.
 								ctx.state.$watch(key, function() { /* triggers re-render via reactive tracker */ });
 								return;
 							}
 
-							// Pre-render: invoke helper applies resets then calls handler.
-							// Fires synchronously during state mutation, before the async render.
+							// Pre-render: sync delivery — fires during state mutation before next render.
 							function invoke(e) {
 								try {
 									if (descriptor.reset.length) {
-										ctx.state.$batch(function() {
-											descriptor.reset.forEach(function(rKey) {
-												const decl = def.state[rKey];
-												ctx.state.$set(rKey, decl ? decl.default : undefined);
-											});
+										descriptor.reset.forEach(function(rKey) {
+											const decl = def.state[rKey];
+											ctx.state.$set(rKey, decl ? decl.default : undefined);
 										});
 									}
 									if (descriptor.handler) descriptor.handler(e, ctx);
@@ -544,7 +615,7 @@ export function createRuntime(config) {
 								invoke({ path: key, val: ctx.state[key], oldVal: undefined });
 							}
 
-							ctx.state.$watch(key, invoke);
+							ctx.state.$watch(key, invoke, { sync: true });
 						})(key);
 					}
 

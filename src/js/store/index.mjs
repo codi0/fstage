@@ -6,7 +6,7 @@
  *   createBase      — foundation: state, pipelines, write engine, plugin system
  *   createPlain     — simple store using plain object
  *   createProxy     — deep reactive proxy store
- *   storePlugin     — $get, $set, $merge, $del, $reset, $batch, $watch, $raw, $has
+ *   storePlugin     — $get, $set, $merge, $del, $reset, $watch, $raw, $has
  *   reactivePlugin  — $effect, $computed, $track
  *   operationPlugin — $operation, $fetch, $send, $query, $opStatus
  *   createStore     — fully wired store (all three plugins)
@@ -254,7 +254,7 @@ export function createBase(config) {
       else if (vt === 'object' && pt === 'object') val = { ...oldVal, ...val };
     }
 
-    if (hooks.has('beforeWrite') && !(meta && meta.skipBeforeWrite)) {
+    if (hooks.has('beforeWrite')) {
       meta = meta || {};
       const e = hooks.run('beforeWrite', { path, pathOrg, val, meta });
       val = e.val;
@@ -267,11 +267,6 @@ export function createBase(config) {
     const action = oldVal === undefined ? 'add' : val === undefined ? 'remove' : 'update';
     const entry  = { action, path, pathOrg, val, oldVal };
 
-    if (ctx.batchDepth > 0) {
-      ctx._batchEntries.push(entry);
-      return [entry];
-    }
-
     if (hooks.has('afterWrite')) {
       meta = meta || {};
       hooks.run('afterWrite', { path, pathOrg, val, oldVal, action, diff: createDiffQuery([entry]), meta });
@@ -280,21 +275,7 @@ export function createBase(config) {
 
   const ctx = {
     config, state, read, readRaw, write, tracker, hooks,
-    snapshot, getParents, resolvePath,
-
-    batchDepth:    0,
-    _batchEntries: [],
-    _batchSnaps:   new Map(),
-
-    flushBatch(meta) {
-      const entries = ctx._batchEntries.splice(0);
-      const snaps   = ctx._batchSnaps;
-      ctx._batchSnaps = new Map();
-      if (!entries.length || !hooks.has('afterWrite')) return;
-      meta = meta || {};
-      if (!meta._snaps) meta._snaps = snaps;
-      hooks.run('afterWrite', { entries, diff: createDiffQuery(entries), meta });
-    },
+    snapshot, getParents, resolvePath, createDiffQuery,
 
     setup(i, a) {
       i   = i || {};
@@ -393,17 +374,26 @@ export function createProxy(config) {
 // =============================================================================
 // storePlugin
 //
-// $has, $get, $set, $merge, $del, $reset, $batch, $watch, $raw
+// $has, $get, $set, $merge, $del, $reset, $watch, $raw
 //
 // $watch event: { path, val, oldVal, diff, src }
-//   src: 'set'|'merge'|'del'|'reset'|'batch'|'access'|'optimistic'|'rollback'|'immediate'
+//   src: 'set'|'merge'|'del'|'reset'|'access'|'optimistic'|'rollback'|'immediate'
 //   diff: fn(regex, cb) — lazily expanded, only called if invoked
+//
+// Watch delivery is async by default (queueMicrotask), coalescing multiple
+// synchronous writes into a single notification. Use { sync: true } for
+// immediate synchronous delivery.
 // =============================================================================
 
 export function storePlugin(ctx) {
-  const subs           = new Map();
-  const subsWantOldVal = new Set();
-  const subPrefixes    = new Map();
+  const subs        = new Map();
+  const syncSubs    = new Set(); // callbacks registered with { sync: true }
+  const subPrefixes = new Map();
+
+  // Pending async notification state — coalesces synchronous writes
+  let pendingFlush   = false;
+  let pendingEntries = [];
+  let pendingSnaps   = new Map();
 
   if (ctx.trapGuard) {
     ctx.trapGuard('set', true);
@@ -425,36 +415,54 @@ export function storePlugin(ctx) {
     }
   }
 
-  function captureSnaps(path) {
-    if (!subsWantOldVal.size) return null;
+  function captureParentSnaps(path) {
+    if (!subs.size) return null;
     let snaps = null;
-    for (const p of [path, ...ctx.getParents(path)]) {
-      if (!subsWantOldVal.has(p)) continue;
+    for (const parent of ctx.getParents(path)) {
+      if (!subs.has(parent)) continue;
       if (!snaps) snaps = new Map();
-      if (!snaps.has(p)) snaps.set(p, ctx.snapshot(ctx.readRaw(p)));
+      if (!snaps.has(parent)) snaps.set(parent, ctx.snapshot(ctx.readRaw(parent)));
     }
     return snaps;
   }
 
-  function dispatchPath(path, oldVal, newVal, diffQuery, src, notifiedTrackers) {
-    const trackers = ctx.tracker.map.get(path);
-    if (trackers) {
-      for (const item of trackers) {
-        if (notifiedTrackers.has(item)) continue;
-        notifiedTrackers.add(item);
-        item.invalidate();
+  function flushPending() {
+    pendingFlush = false;
+    const entries = pendingEntries.splice(0);
+    const snaps   = pendingSnaps;
+    pendingSnaps  = new Map();
+    if (!entries.length) return;
+    notify(entries, snaps, 'async', ctx.createDiffQuery(entries), false);
+  }
+
+  function dispatchPath(path, oldVal, newVal, diffQuery, src, notifiedTrackers, syncOnly) {
+    // Trackers are only invalidated in the sync pass — they drive rendering
+    // systems (e.g. Lit) that already coalesce their own updates. Invalidating
+    // again in the async pass would cause double renders / double effect runs.
+    if (syncOnly) {
+      const trackers = ctx.tracker.map.get(path);
+      if (trackers) {
+        for (const item of trackers) {
+          if (notifiedTrackers.has(item)) continue;
+          notifiedTrackers.add(item);
+          item.invalidate();
+        }
       }
     }
     for (const p of [path, '*']) {
       const handlers = subs.get(p);
       if (!handlers) continue;
       const event = { path, val: ctx.snapshot(newVal), oldVal, diff: diffQuery, src: src || 'set' };
-      for (const cb of handlers) cb(event);
+      for (const cb of handlers) {
+        const isSync = syncSubs.has(cb);
+        if (syncOnly ? isSync : !isSync) cb(event);
+      }
     }
   }
 
-  function notify(entries, snaps, src, diffFn) {
+  function notify(entries, snaps, src, diffFn, syncOnly) {
     if (!subs.size && !ctx.tracker.map.size) return;
+    if (syncOnly && !syncSubs.size && !ctx.tracker.map.size) return;
     const toNotify = new Map();
 
     for (const entry of entries) {
@@ -490,7 +498,7 @@ export function storePlugin(ctx) {
 
     const notifiedTrackers = new Set();
     for (const [path, { oldVal, newVal }] of toNotify) {
-      dispatchPath(path, oldVal, newVal, diffFn, src, notifiedTrackers);
+      dispatchPath(path, oldVal, newVal, diffFn, src, notifiedTrackers, syncOnly);
     }
   }
 
@@ -530,7 +538,6 @@ export function storePlugin(ctx) {
         return ctx.instance;
       },
       reset(newState, opts) {
-        if (ctx.batchDepth > 0) throw new Error('[fstage/store] $reset() cannot be called inside $batch()');
         if (typeof newState === 'function') newState = newState(ctx.snapshot(ctx.state));
         if (getType(newState) !== 'object') throw new Error('[fstage/store] $reset() requires a plain object');
 
@@ -541,35 +548,11 @@ export function storePlugin(ctx) {
         }
 
         const oldState = ctx.snapshot(ctx.state);
-        const snaps    = new Map();
-
-        if (subsWantOldVal.size) {
-          for (const p of [...subs.keys(), ...ctx.tracker.map.keys()]) {
-            if (p && p !== '*' && !snaps.has(p)) snaps.set(p, ctx.snapshot(ctx.readRaw(p)));
-          }
-        }
-
-        ctx.batchDepth++;
-        try {
-          for (const key of new Set([...Object.keys(oldState), ...Object.keys(newState)])) {
-            if (isEqual(oldState[key], newState[key])) continue;
-            ctx.write(key, newState[key], { meta: { src: 'reset', skipBeforeWrite: true } });
-          }
-        } finally {
-          ctx.batchDepth--;
-          ctx.flushBatch({ src: 'reset', _snaps: snaps });
+        for (const key of new Set([...Object.keys(oldState), ...Object.keys(newState)])) {
+          if (isEqual(oldState[key], newState[key])) continue;
+          ctx.write(key, newState[key], { meta: { src: 'reset' } });
         }
         return ctx.instance;
-      },
-      batch(fn) {
-        ctx.batchDepth++;
-        let result;
-        try   { result = fn(); }
-        finally {
-          ctx.batchDepth--;
-          if (ctx.batchDepth === 0) ctx.flushBatch({ src: 'batch' });
-        }
-        return result;
       },
       watch(path, cb, opts) {
         if (!path || typeof path !== 'string') throw new Error('[fstage/store] $watch() requires a path string');
@@ -578,11 +561,12 @@ export function storePlugin(ctx) {
         let s = subs.get(path);
         if (!s) { s = new Set(); subs.set(path, s); addSubPrefix(path); }
         s.add(cb);
-        if (opts && opts.oldVal)    subsWantOldVal.add(path);
+        if (opts && opts.sync)      syncSubs.add(cb);
         if (opts && opts.immediate) cb({ path, pathOrg, val: ctx.read(pathOrg), oldVal: undefined, diff: null, src: 'immediate' });
         const off = () => {
           s.delete(cb);
-          if (!s.size) { subs.delete(path); subsWantOldVal.delete(path); removeSubPrefix(path); }
+          syncSubs.delete(cb);
+          if (!s.size) { subs.delete(path); removeSubPrefix(path); }
         };
         ctx.hooks.run('watch', { path, off });
         return off;
@@ -595,22 +579,51 @@ export function storePlugin(ctx) {
 
     hooks: {
       beforeWrite(e) {
-        if (!subsWantOldVal.size) return;
-        if (ctx.batchDepth > 0) {
-          const snaps = captureSnaps(e.path);
-          if (snaps) for (const [p, v] of snaps) if (!ctx._batchSnaps.has(p)) ctx._batchSnaps.set(p, v);
-          return;
-        }
-        if (!e.meta._snaps) e.meta._snaps = captureSnaps(e.path);
+        // Capture pre-write snapshots of parent paths that have watchers,
+        // so parent watch events carry the correct oldVal.
+        if (!subs.size) return;
+        const parentSnaps = captureParentSnaps(e.path);
+        if (!parentSnaps) return;
+        e.meta = e.meta || {};
+        if (!e.meta._snaps) { e.meta._snaps = parentSnaps; }
+        else { for (const [p, v] of parentSnaps) if (!e.meta._snaps.has(p)) e.meta._snaps.set(p, v); }
       },
       afterWrite(e) {
         if (!subs.size && !ctx.tracker.map.size) return;
         const entries = e.entries || [{ action: e.action, path: e.path, val: e.val, oldVal: e.oldVal }];
         const snaps   = (e.meta && e.meta._snaps) || new Map();
         for (const entry of entries) if (!snaps.has(entry.path)) snaps.set(entry.path, entry.oldVal);
-        notify(entries, snaps, e.meta && e.meta.src, e.diff);
+        const src     = e.meta && e.meta.src;
+
+        // Notify trackers and sync subscribers immediately
+        notify(entries, snaps, src, e.diff, true);
+
+        // Queue async subscribers via microtask, coalescing multiple writes
+        if (subs.size) {
+          for (const entry of entries) {
+            if (!pendingSnaps.has(entry.path)) pendingSnaps.set(entry.path, entry.oldVal);
+            pendingEntries.push(entry);
+          }
+          // Propagate parent snaps to async queue so parent watches get correct oldVal
+          if (e.meta && e.meta._snaps) {
+            for (const [p, v] of e.meta._snaps) {
+              if (!pendingSnaps.has(p)) pendingSnaps.set(p, v);
+            }
+          }
+          if (!pendingFlush) {
+            pendingFlush = true;
+            queueMicrotask(flushPending);
+          }
+        }
       },
-      destroy() { subs.clear(); subPrefixes.clear(); }
+      destroy() {
+        subs.clear();
+        syncSubs.clear();
+        subPrefixes.clear();
+        pendingEntries = [];
+        pendingSnaps   = new Map();
+        pendingFlush   = false;
+      }
     }
   };
 }
@@ -1092,6 +1105,8 @@ export function operationPlugin(ctx) {
         }
 
         // Mutate side — watch the path and sync writes.
+        // Must use { sync: true } so mutations are triggered synchronously
+        // during the write cycle, preserving e.diff and src integrity.
         if (typeof def.mutate === 'function') {
           const unsubWatch = ctx.instance[ctx.config.prefix + 'watch'](path, function(e) {
             if (WRITE_SKIP.has(e.src)) return;
@@ -1104,7 +1119,7 @@ export function operationPlugin(ctx) {
             } else {
               runMutate(path, e.val, def, { path, val: e.val, action: e.action || 'update', signal: null, controller: null });
             }
-          });
+          }, { sync: true });
           watchUnsubFns.set(path, unsubWatch);
         }
 

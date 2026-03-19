@@ -1,6 +1,6 @@
 # Fstage - Universal Component Definition Standard
 
-Version: 1.3
+Version: 1.4
 
 ---
 
@@ -47,17 +47,16 @@ If a runtime claims a capability, it MUST implement all requirements in that cap
 
 Each component module MUST export one plain definition object. All fields are optional except `tag`.
 
-The recommended field order is: **identity → dependencies → data → behaviour → presentation → lifecycle**. Runtimes MUST accept any order; the ordering below is guidance for authors.
+The recommended field order is: **identity → dependencies → data → input wiring → behaviour → presentation → lifecycle**. Runtimes MUST accept any order; the ordering below is guidance for authors.
 
 | Key | Type | Description |
 |---|---|---|
 | `tag` | `string` | Custom element tag name. MUST contain a hyphen. |
 | `shadow` | `boolean` | Render into shadow root. Default: `true`. |
-| `onError(err, ctx)` | `function` | Called when `render` or `computed` throws. |
+| `onError(err, ctx)` | `function` | Called when `render` or a state getter throws. |
 | `inject` | `InjectSpec` | Per-component registry services injected onto `ctx`. |
-| `state` | `StateSpec` | Reactive state declaration: local, prop, and external keys. |
-| `computed` | `ComputedSpec` | Declarative derived values, accessible as `ctx.computed.<key>`. |
-| `bind` | `BindSpec` | Declarative two-way binding between selectors and state keys. See Section 9. |
+| `state` | `StateSpec` | Reactive state declaration: local, prop, external keys, and derived getters. |
+| `bind` | `BindSpec` | Declarative two-way binding between selectors and state keys. See Section 8. |
 | `watch` | `WatchSpec` | Declarative state subscriptions — covers both pre-render coordination and post-render DOM operations. See Section 10. |
 | `interactions` | `InteractionMap` | Declarative interaction handlers. |
 | `animate` | `AnimateSpec` | Declarative animation block. Requires `animation` capability. |
@@ -92,46 +91,55 @@ Avoid undocumented framework coupling. Prefer explicit, documented imports.
 
 ## 4. State (Normative)
 
-`state` is the unified reactive declaration. Any key read from `ctx.state` during render MUST schedule a re-render when it changes.
+`state` is the unified reactive declaration. It covers local state, props, external state, and derived values (getters). Any key read from `ctx.state` during render MUST schedule a re-render when it changes.
 
 Runtime MUST validate all `$src` values at `define()` time and throw a descriptive error on invalid values.
 
-### 4.1 Descriptor Fields
+### 4.1 Value Forms
+
+The `state` block supports four forms:
+
+**Bare value** — shorthand for local state:
+```js
+filter: '',         // -> { $src: 'local', default: '' }
+loading: false,     // -> { $src: 'local', default: false }
+```
+
+**`$ext` shorthand** — external state:
+```js
+tasks: { $ext: 'tasks', default: [] },
+// -> { $src: 'external', key: 'tasks', default: [] }
+```
+
+**`$prop` shorthand** — prop from parent element (type inferred from default):
+```js
+open:    { $prop: false },          // -> { $src: 'prop', type: Boolean, default: false }
+compact: { $prop: Boolean, default: false }, // explicit type form
+```
+
+**Getter** — reactive derived value; `this` is `ctx`:
+```js
+get total()     { return this.state.items.length; },
+get groups()    { return this.models.get('tasks').grouped(); },
+get remaining() { return this.state.total - this.state.completed; },
+```
+
+Getters have access to the full `ctx` via `this` — `this.state.*`, `this.models`, `this.config`, etc. They are exposed on `ctx.state` like any other state key, are lazy (evaluated on access), reactive (tracked during render), and wrapped in error handling.
+
+### 4.2 Full Descriptor Form
+
+The full descriptor form remains supported for all `$src` types:
 
 | Field | Applies to | Description |
 |---|---|---|
-| `$src` | all | `'local'` \| `'prop'` \| `'external'`. Omitted -> `'local'` with that value as default. |
+| `$src` | all | `'local'` \| `'prop'` \| `'external'`. |
 | `default` | all | Initial/fallback value. |
 | `key` | external | Path into the external state provider. Defaults to state key name. |
 | `type` | prop | `String` \| `Number` \| `Boolean` coercion. |
 | `attribute` | prop | Attribute name, or `false` for property-only. |
 | `reflect` | prop | Reflect prop back to attribute when `true`. |
 
-Bare (non-object) values are shorthand for **local** state only:
-
-```js
-state: {
-  open:   false,  // -> { $src: 'local', default: false }
-  filter: '',     // -> { $src: 'local', default: '' }
-}
-```
-
-The descriptor form is **required** when `$src` is `'prop'` or `'external'` — the shorthand always resolves to `'local'`. For example:
-
-```js
-state: {
-  // Local — shorthand is fine
-  filter: '',
-
-  // Prop — descriptor required
-  disabled: { $src: 'prop', type: Boolean, default: false },
-
-  // External — descriptor required
-  route: { $src: 'external', key: 'route', default: {} },
-}
-```
-
-### 4.2 `$src` Semantics
+### 4.3 `$src` Semantics
 
 All `$src` types MUST be readable and writable via `ctx.state.$set`.
 
@@ -139,11 +147,11 @@ All `$src` types MUST be readable and writable via `ctx.state.$set`.
 - `$set` on `'external'` propagates the write to the reactive state provider.
 - Keys beginning with `$` are reserved and MUST NOT be used as state keys.
 
-### 4.3 Prop Precedence
+### 4.4 Prop Precedence
 
 On initialisation: existing property -> existing attribute (coerced) -> `default`.
 
-### 4.4 Reactive State Provider (Normative)
+### 4.5 Reactive State Provider (Normative)
 
 A runtime MUST supply a reactive state provider - the backing mechanism for `'external'` state and all `ctx.state.$*` methods. The provider may be any reactive system (a store, signals, observables, etc.) as long as it satisfies this minimum contract:
 
@@ -151,10 +159,9 @@ A runtime MUST supply a reactive state provider - the backing mechanism for `'ex
 |---|---|---|
 | `get` | `(path) -> value` | Read a value by path. Reading during render MUST track the dependency. |
 | `set` | `(path, value)` | Write a value by path. MUST notify dependents reactively. |
-| `watch` | `(path, fn) -> off` | Subscribe to changes at path. Returns an unsubscribe function. |
-| `batch` | `(fn)` | Group multiple writes into a single notification cycle. |
+| `watch` | `(path, fn, opts?) -> off` | Subscribe to changes at path. Returns an unsubscribe function. Default delivery is async (microtask). Pass `{ sync: true }` for synchronous delivery. |
 
-All provider methods exposed on `ctx.state` MUST be prefixed with `$` (e.g. `$set`, `$watch`, `$batch`). This prefix is reserved exclusively for provider methods - it prevents collisions with declared state keys and is mandatory for all conforming implementations.
+All provider methods exposed on `ctx.state` MUST be prefixed with `$` (e.g. `$set`, `$watch`). This prefix is reserved exclusively for provider methods - it prevents collisions with declared state keys and is mandatory for all conforming implementations.
 
 The runtime MUST document how its provider implements path addressing, namespacing for component-local state, and any additional methods it exposes beyond the minimum above.
 
@@ -165,8 +172,6 @@ The runtime MUST document how its provider implements path addressing, namespaci
 `inject` maps `ctx` keys to registry service names.
 
 Runtime MUST throw at construction time if a service cannot be resolved or if an injected key conflicts with an existing `ctx` property.
-
-
 
 ---
 
@@ -236,8 +241,25 @@ Interaction handlers should orchestrate state/service calls only. Domain mutatio
 
 ### 7.2 Optional Fields
 
-- `ctx.animate(el, animationDescriptor, opts?)` — required when runtime claims `animation` capability. This is the runtime coordination point used internally by `animate.enter`, `animate.exit`, and `animate.toggle`; it MUST be present whenever those declarative blocks are used. Authors needing advanced animation methods (`createToggle`, `flip`, `stagger`, `collapse`) should inject the animator service directly via `inject`.
-- `ctx.computed` - present when `computed` block is declared (see Section 10).
+- `ctx.animate(el, animationDescriptor, opts?)` — required when runtime claims `animation` capability.
+
+### 7.3 `ctx._` — Private Instance Bag
+
+`ctx._` is a plain mutable object reserved for non-reactive imperative instance state. It is the only property on ctx that remains mutable after ctx is frozen (see §7.6). All other ctx properties are set during construction and must not be reassigned.
+
+Runtime MUST create `ctx._` as an empty object `{}` during construction, before calling `constructed()`.
+
+Authors SHOULD declare all private fields in `constructed()` for clarity — it is the single declaration point that makes the full inventory visible at a glance:
+
+```js
+constructed({ _ }) {
+  _.transitioning      = false;
+  _.swipeTaskKey       = '';
+  _.dismissActionSheet = null;
+},
+```
+
+Only use `ctx._` for truly imperative state that cannot be expressed as reactive state. Keep it minimal.
 
 ### 7.4 `ctx.state` API (Normative)
 
@@ -245,14 +267,41 @@ Direct assignment to `ctx.state` MUST throw.
 
 | API | Behaviour |
 |---|---|
-| `ctx.state.<key>` | Read declared state value. Undeclared keys pass through unscoped to the provider. |
+| `ctx.state.<key>` | Read declared state value (including derived getters). Undeclared keys pass through unscoped to the provider. |
 | `ctx.state.$set(path, val, opts?)` | Write declared key. Supports dot-path deep writes. |
-| `ctx.state.$watch(key, fn, opts?)` | Subscribe to top-level key changes. Returns `off()`. |
-| `ctx.state.$batch(fn)` | Group multiple `$set` calls into a single notification. Use when setting several keys together to avoid intermediate renders. |
+| `ctx.state.$watch(key, fn, opts?)` | Subscribe to top-level key changes. Returns `off()`. Async delivery by default; `{ sync: true }` for synchronous delivery. |
 
-### 7.5 Non-reactive per-instance internals (Guidance)
+### 7.5 Destructuring `ctx` (Guidance)
 
-Components MAY use `ctx._foo` for non-reactive internals. Keep them minimal and local.
+All lifecycle functions, watch handlers, interaction handlers, and render accept `ctx` as their argument. Authors SHOULD destructure only the fields they need:
+
+```js
+// Lifecycle
+constructed({ _ }) { ... }
+connected({ state, cleanup }) { ... }
+rendered({ _, host, root }) { ... }
+
+// Watch handlers
+handler(e, { state, root, animate }) { ... }
+
+// Interaction handlers
+'click(.btn)': (e, { state, emit }) => ...
+'click(.btn)': function(e, { state, models, animate }) { ... }
+
+// Render
+render({ html, state, config }) {
+  const { filter, isEmpty } = state;
+  return html`...`;
+}
+```
+
+Destructuring is a style preference — handlers always receive the full ctx as the second argument. Pass the full ctx to utility functions that need multiple ctx fields.
+
+### 7.6 `ctx` Freeze (Normative)
+
+Runtime MUST call `Object.freeze(ctx)` after `ctx.root` is assigned (i.e. at the end of `createRenderRoot()`). After this point, adding new properties to ctx directly throws in strict mode. `ctx._` is exempt — it is a plain object reference whose *contents* remain freely mutable.
+
+This ensures that accidental property assignment (`ctx.myThing = x` in a handler) is caught immediately rather than silently polluting the instance.
 
 ---
 
@@ -262,64 +311,39 @@ Declares configuration applied directly to the host element.
 
 ```js
 host: {
-  // Imperative methods exposed on the host element
   methods: {
     highlight: function() { ... },
-    reset:     function() { ... },
   },
-
-  // Host attribute projections — applied after every render commit
   attrs: {
-    'data-theme':    (ctx) => ctx.state.theme || 'auto',
-    'aria-disabled': (ctx) => String(ctx.state.disabled),
-    'role':          (ctx) => 'tablist',
+    'data-empty': (ctx) => ctx.state.isEmpty ? '' : null,
   },
-
-  // CSS custom property projections — applied after every render commit
   vars: {
     '--row-index': (ctx) => ctx.state.index,
-    '--progress':  (ctx) => ctx.computed.pct + '%',
   },
 }
 ```
 
 ### 8.1 `host.methods` (Normative)
 
-Functions declared under `host.methods` are mounted directly onto the host element, making them callable as imperative APIs by parent components or external code.
-
-Runtime MUST mount each method onto the host element's prototype (or instance) at `define()` time. Methods receive `this` as the host element.
+Mounted onto the host element's prototype at `define()` time. Methods receive `this` as the host element.
 
 ### 8.2 `host.attrs` (Normative)
 
-Each entry is a function `(ctx) -> string | null`. Runtime MUST:
-
-1. Call each function after every render commit.
-2. If the return value is `null` or `undefined`, remove the attribute; otherwise call `ctx.host.setAttribute(name, value)`.
-3. Apply on both first and subsequent renders.
+Each entry is `(ctx) -> string | null`. Applied after every render commit. `null`/`undefined` removes the attribute.
 
 ### 8.3 `host.vars` (Normative)
 
-Each entry is a function `(ctx) -> string | number`. Runtime MUST:
-
-1. Call each function after every render commit.
-2. Call `ctx.host.style.setProperty(name, String(value))` with the result.
-3. Apply on both first and subsequent renders.
-
-**Guidance:** `host.attrs` and `host.vars` are evaluated every render — keep them cheap (state reads and simple expressions only). No diffing is applied; the browser handles no-op setAttribute/setProperty efficiently.
+Each entry is `(ctx) -> string | number`. Calls `ctx.host.style.setProperty(name, String(value))` after every render commit.
 
 ---
 
 ## 9. Declarative `bind` (Normative)
 
-`bind` declares two-way bindings between element selectors and state keys. The runtime wires the appropriate DOM event to read the element's value and call `ctx.state.$set(key, value)` automatically.
+`bind` declares two-way bindings between element selectors and state keys.
 
 ```js
 bind: {
-  // Shorthand: selector -> state key (uses 'input' event, reads .value)
   '#task-title':      'newTitle',
-  '.filter-input':    'filter',
-
-  // Descriptor: override event or value extractor
   '.inline-textarea': { key: 'description', event: 'change' },
   '.rating-picker':   { key: 'rating', extract: (el) => Number(el.dataset.value) },
 }
@@ -335,58 +359,34 @@ bind: {
 
 ### 9.2 Runtime Contract
 
-Runtime MUST:
-
-1. Wire all `bind` entries after the first render commit (same point as interactions).
-2. For each entry, attach a delegated listener on `ctx.root` for the given event and selector.
-3. On event: call `extract(e.target)` (or `e.target.value` by default) and call `ctx.state.$set(key, value)`.
-4. Tear down all bind listeners on disconnect.
-
-`bind` entries MUST NOT conflict with `interactions` entries for the same event+selector. Runtime MUST throw at `define()` time if a conflict is detected.
-
-**Guidance:** `bind` handles the common case of syncing an input element's value to a state key. For anything requiring branching, validation, or side effects on input, use a handler in `interactions` instead.
+Runtime MUST wire `bind` after the first render commit, attach delegated listeners on `ctx.root`, call `ctx.state.$set(key, value)` on event, and tear down on disconnect. Conflicts with `interactions` for the same event+selector MUST throw at `define()` time.
 
 ---
 
 ## 10. Declarative `watch` (Normative)
 
-`watch` is the unified reactive subscription mechanism. It handles both pre-render state coordination and post-render DOM operations, controlled by the `afterRender` flag.
-
-All watch handlers receive `(e, ctx)` where `e = { path, val, oldVal }`:
-- `path` — the state key that changed
-- `val` — the new value
-- `oldVal` — the previous value
+`watch` is the unified reactive subscription mechanism. All watch handlers receive `(e, ctx)` where `e = { path, val, oldVal }`.
 
 ```js
 watch: {
-  // Shorthand: plain function — pre-render, fires when value changes
+  // Shorthand: plain function — pre-render
   theme: function(e, ctx) { applyTheme(e.val); },
 
-  // Pre-render: state coordination, optional immediate call and reset
+  // Pre-render: state coordination with immediate call and reset
   routeParams: {
-    handler:   function(e, ctx) { /* load data, e.val is the new value */ },
-    immediate: true,                          // call on connect with current value
-    reset:     ['confirmingDelete', 'draft'], // reset these keys to defaults before each call
+    handler:   function(e, ctx) { /* load data */ },
+    immediate: true,
+    reset:     ['confirmingDelete', 'draft'],
   },
 
-  // Pre-render, reset only — no handler needed
+  // Pre-render, reset only
   activeSection: {
     reset: ['draft', 'openPanel'],
   },
 
-  // Post-render: fires after DOM update when value changes (skipped on first render)
+  // Post-render: fires after DOM update when value changes
   open: {
     handler:     function(e, ctx) { applySheetState(e.val, ctx); },
-    afterRender: true,
-  },
-
-  // Post-render: fires when value changes between renders
-  task: {
-    handler:     function(e, ctx) {
-      // Use e.val / e.oldVal in the handler to guard against unwanted fires,
-      // e.g. if (deriveKey(e.val) === deriveKey(e.oldVal)) return;
-      resetSwipeState(ctx);
-    },
     afterRender: true,
   },
 }
@@ -396,73 +396,64 @@ watch: {
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `handler` | `function` | — | The callback, called as `handler(e, ctx)` where `e = { path, val, oldVal }`. Optional when only `reset` is needed. |
-| `immediate` | `boolean` | `false` | Pre-render only. Call handler on connect with the current value before any changes. MUST NOT be combined with `afterRender`. |
-| `reset` | `string[]` | `[]` | Pre-render only. State keys to reset to their declared `default` before each handler invocation (including the immediate call). MUST NOT be combined with `afterRender`. |
-| `afterRender` | `boolean` | `false` | If `true`, handler fires after the DOM has been updated. Suitable for DOM measurements, scroll, focus, and animation. Skipped on first render. |
-
+| `handler` | `function` | — | Called as `handler(e, ctx)`. Optional when only `reset` is needed. |
+| `immediate` | `boolean` | `false` | Pre-render only. Call handler on connect with current value. MUST NOT be combined with `afterRender`. |
+| `reset` | `string[]` | `[]` | Pre-render only. State keys to reset to declared `default` before each call. MUST NOT be combined with `afterRender`. |
+| `afterRender` | `boolean` | `false` | If `true`, handler fires after DOM commit. For DOM measurements, scroll, focus, animation. Skipped on first render. |
 
 Runtime MUST throw at `define()` time if `afterRender: true` is combined with `immediate` or `reset`.
 
 ### 10.2 Pre-render Watch Contract
 
-Pre-render watch handlers fire **synchronously** during the state mutation that triggered them (before the asynchronous render cycle begins). This means handlers run before the next render, which they may themselves cause.
+Pre-render watch handlers fire **synchronously** during the state mutation that triggered them. This is achieved by subscribing with `{ sync: true }` on the reactive state provider.
 
 Runtime MUST:
 
-1. Wire all pre-render watches in `connectedCallback`, after state is initialised.
+1. Wire all pre-render watches in `connectedCallback` using synchronous delivery (`{ sync: true }`).
 2. If `immediate: true`: call handler once on connect with the current value.
-3. If `reset` is non-empty: before each handler call (including immediate), apply `ctx.state.$set(key, declaredDefault)` for each key in the list.
+3. If `reset` is non-empty: apply `ctx.state.$set(key, declaredDefault)` for each key before each handler call. Multiple resets are individual `$set` calls — they coalesce naturally into a single render.
 4. Subscribe to future changes; call handler as `handler(e, ctx)`.
-5. Automatically tear down all subscriptions on disconnect.
+5. Automatically tear down subscriptions on disconnect.
 6. Wrap each handler call in try/catch; route errors to `onError` if defined.
 
 ### 10.3 Post-render Watch Contract
 
 Runtime MUST:
 
-1. Wire post-render watches in `connectedCallback` — subscribe so that value changes trigger re-renders.
-2. On first render commit: seed the stored change key for each post-render watch without calling the handler.
-3. After each subsequent render commit, for each post-render watch:
-   a. Read the current value from `ctx.state[key]`.
-   b. Compare the current value against the stored value from the previous render (strict equality).
-   d. If changed: update the stored value and call `handler(e, ctx)` where `e = { path, val, oldVal }`.
-4. Automatically tear down all subscriptions on disconnect.
-5. Wrap each handler call in try/catch; route errors to `onError` if defined.
+1. Wire post-render watches in `connectedCallback` with default (async) delivery to trigger re-renders.
+2. On first render commit: seed the stored value without calling the handler.
+3. After each subsequent render commit: compare current value to stored; if changed, update stored value and call `handler(e, ctx)`.
+4. Tear down subscriptions on disconnect.
+5. Wrap in try/catch; route errors to `onError`.
 6. Post-render handlers fire in declaration order.
 
-**Guidance:** Use pre-render watches (default) for state coordination — reacting to route changes, resetting transient state, loading data. Use `afterRender: true` for DOM operations that must follow a render — scroll-into-view, focus management, animation, imperative style application. When watching an object-valued state key and you only want to react to logical identity changes (e.g. a different record, not a field update), guard at the top of the handler by comparing a derived key from `e.val` and `e.oldVal`.
+**Guidance:** Use pre-render watches for state coordination — route changes, resets, data loading. Use `afterRender: true` for DOM operations — scroll, focus, animation, measurement. Multiple synchronous `$set` calls coalesce automatically into a single render via microtask delivery.
 
 ---
 
-## 11. Declarative `computed` (Normative)
+## 11. Declarative `computed` (Deprecated)
 
-Declares derived values as functions, accessible as `ctx.computed.<key>`.
+The `computed` block is retained for backwards compatibility but is superseded by state getters (Section 4.1). Prefer getters for all new components.
 
 ```js
+// Prefer this:
+state: {
+  get isEmpty() { return this.state.items.length === 0; },
+}
+
+// Over this (deprecated):
 computed: {
-  isEmpty:     (ctx) => ctx.state.items.length === 0,
-  displayName: (ctx) => ctx.state.first + ' ' + ctx.state.last,
+  isEmpty: (ctx) => ctx.state.items.length === 0,
 }
 ```
-
-Runtime MUST:
-
-1. Expose each computed key as a getter on `ctx.computed`.
-2. Evaluate lazily on access - not eagerly on render.
-3. Wrap evaluations in try/catch; route errors to `def.onError` if defined.
-
-Reactivity is automatic: because `render` runs inside the provider's tracker, any paths read by a computed function during render are tracked and will trigger re-render when they change.
 
 ---
 
 ## 12. Declarative `animate` (Capability: `animation`)
 
-The `animate` block declares the *intent* of animations declaratively. The runtime is responsible for interpreting animation descriptors using whatever animation system it provides; the descriptor shape is runtime-defined and MUST be documented by the runtime.
+The `animate` block declares animation intent. The runtime interprets descriptors using its animation system.
 
 ### 12.1 `enter` and `exit`
-
-Apply to the **host element only**.
 
 ```js
 animate: {
@@ -471,12 +462,11 @@ animate: {
 }
 ```
 
-- `enter` fires once on first render commit.
-- `exit` fires when the runtime signals the host is leaving. Fires once; element is expected to be removed shortly after.
+`enter` fires once on first render commit. `exit` fires when the runtime signals the host is leaving.
 
 ### 12.2 `toggle(selector)` entries
 
-State-driven show/hide and activation animations on **child elements** (queried from `ctx.root`). Each entry uses a `toggle(selector)` key at the top level of the `animate` block, alongside `enter` and `exit`.
+State-driven animations on child elements.
 
 ```js
 animate: {
@@ -486,29 +476,15 @@ animate: {
 }
 ```
 
-#### Toggle descriptor fields
-
 | Field | Description |
 |---|---|
-| `state` | Required. State key whose boolean value drives the animation. |
-| `show` | Animation descriptor. Fires on falsy→truthy transition. |
-| `hide` | Animation descriptor. Fires on truthy→falsy transition. |
-| `activate` | Animation descriptor. Fires on falsy→truthy transition, after `show`. For elements that remain visible, `show` may be omitted and only `activate` used. |
-| `durationFactor` | Optional duration scale applied to all animations in this entry. |
+| `state` | Required. State key whose boolean value drives animation. |
+| `show` | Fires on falsy→truthy. |
+| `hide` | Fires on truthy→falsy. |
+| `activate` | Fires on falsy→truthy after `show`. |
+| `durationFactor` | Optional duration scale. |
 
-Runtime MUST:
-
-1. Skip toggle animations on first render.
-2. Fire `show` on falsy→truthy transition, `hide` on truthy→falsy.
-3. Fire `activate` on falsy→truthy transition (after `show` if both present).
-4. Track previous boolean per selector to avoid re-firing.
-5. Query selector from `ctx.root` at animation time; skip silently if not found.
-6. `state` is required; `show`, `hide`, and `activate` are all optional.
-7. Cancel any in-flight animation for a selector before starting its next one.
-
-### 12.3 Validation
-
-Runtime MUST throw at `define()` time if a `toggle(selector)` entry is missing a `state` key.
+Runtime MUST skip toggle animations on first render, track previous boolean per selector, and throw at `define()` if `state` is missing.
 
 ---
 
@@ -517,51 +493,36 @@ Runtime MUST throw at `define()` time if a `toggle(selector)` entry is missing a
 ### 13.1 Construction (once)
 
 1. Create `ctx` with all required fields.
-2. Build `ctx.computed` getters if `computed` is declared.
-3. Resolve `inject`.
-4. Resolve `extendCtx` additions.
+2. Extract and wire state getters onto the state proxy.
+3. Wire `computed` getters if declared (deprecated path).
+4. Resolve `inject`.
 5. Mount `host.methods` onto the host element.
-6. Call `constructed(ctx)`.
+6. Create `ctx._ = {}` (empty mutable private bag).
+7. Call `constructed(ctx)`.
+8. On first render, assign `ctx.root` then call `Object.freeze(ctx)` — ctx structure is now immutable; `ctx._` contents remain mutable.
 
 ### 13.2 Connect
 
 1. Initialise state defaults (props resolved from attributes).
-2. Wire declarative `watch` subscriptions (including immediate calls where `immediate: true`).
-3. If `animation` capability is claimed: wire declarative `animate.exit` observer.
+2. Wire `watch` subscriptions: pre-render with `{ sync: true }`, post-render with async (default).
+3. If `animation` capability: wire `animate.exit` observer.
 4. Call `connected(ctx)`.
-5. If `screenHost` capability is claimed: register `activated` / `deactivated` hooks and their cleanup.
+5. If `screenHost` capability: register `activated`/`deactivated` hooks and their cleanup.
 6. Start render loop.
-7. After first render commit:
-   - Activate `interactions` and `bind` listeners.
-   - If `animation` capability is claimed, run `animate.enter`.
-8. After each render commit:
-   - Apply `host.attrs` projections.
-   - Apply `host.vars` projections.
-   - Call `rendered(ctx, isFirst)`.
-   - If `animation` capability is claimed, run `animate.toggle` checks.
-   - Run post-render watch checks (Section 10.3). Skipped on first render.
+7. After first render commit: activate `interactions` and `bind`; run `animate.enter`.
+8. After each render commit: apply `host.attrs` and `host.vars`; call `rendered(ctx, isFirst)`; run `animate.toggle` checks; run post-render watch checks (skipped on first render).
 
 ### 13.3 Disconnect
 
 1. Stop render loop; dispose trackers.
-2. Run cleanups in reverse order (watches, bind listeners, exit observer, manual registrations).
+2. Run cleanups in reverse order.
 3. Call `disconnected(ctx)`.
 
 ---
 
 ## 14. Error Handling (Normative)
 
-Runtime MUST catch errors thrown by:
-
-- `render(ctx)` — recover with empty render; call `onError` if defined.
-- `computed` getters — call `onError` if defined; return `undefined`.
-- `watch` handlers (pre-render) — call `onError` if defined; continue wiring remaining watches.
-- `watch` handlers (post-render) — call `onError` if defined; continue remaining post-render watches.
-- `host.attrs` / `host.vars` functions — call `onError` if defined; skip that entry.
-
-If `onError` is not defined, runtime MUST log to `console.error` with component tag and context.
-
-Async errors (e.g. rejected promises from model/service calls) are outside the render pipeline and MUST be handled by the caller or the service layer.
+Runtime MUST catch errors thrown by `render`, state getters, `computed` getters, `watch` handlers, `host.attrs`, and `host.vars`. Route to `onError` if defined; otherwise log to `console.error`.
 
 ---
 
@@ -571,95 +532,78 @@ A conforming runtime MUST:
 
 1. Implement Section 13 lifecycle semantics.
 2. Validate `$src`, `inject`, `animate`, and `bind` conflicts at `define()` time with descriptive errors.
-3. Validate that `afterRender: true` is not combined with `immediate` or `reset` — throw at `define()` time.
-4. Document its reactive state provider and how it satisfies Section 4.4.
+3. Validate that `afterRender: true` is not combined with `immediate` or `reset`.
+4. Document its reactive state provider and how it satisfies Section 4.5.
 5. Document all supported interaction extensions.
-6. Document additional `ctx` fields beyond Section 7, including the shape of `ctx.config`.
+6. Document additional `ctx` fields beyond Section 7.
 7. Document SSR behavior if `ssr` capability is claimed.
-8. If `animation` capability is claimed: document the animation descriptor format accepted by `ctx.animate` and by `animate.enter` / `animate.exit` / `animate.toggle` entries.
+8. If `animation` capability is claimed: document the animation descriptor format.
 
 ---
 
 ## 16. `asyncState` Capability
 
-When claimed, the runtime MUST expose the following additional method on `ctx.state`:
+When claimed, the runtime MUST expose on `ctx.state`:
 
 | API | Behaviour |
 |---|---|
-| `ctx.state.$query(key, opts?)` | Returns `{ data, loading, fetching, error }`. Use for externally-backed state where async loading state matters. |
+| `ctx.state.$query(key, opts?)` | Returns `{ data, loading, fetching, error }`. |
 
-`loading` MUST be `true` only on first fetch when no cached data exists. `fetching` MUST be `true` any time a request is in flight (initial or background refresh). `error` is the last fetch error, or `null`.
-
-### 16.1 Async State Pattern (Guidance)
-
-```js
-render: function(ctx) {
-  var result = ctx.state.$query('tasks');
-  if (result.loading) return ctx.html`<my-spinner></my-spinner>`;
-  if (result.error)   return ctx.html`<my-error .error=${result.error}></my-error>`;
-  return ctx.html`...${result.data}...`;
-}
-```
+`loading` is `true` only on first fetch with no cached data. `fetching` is `true` any time a request is in flight.
 
 ---
 
 ## 17. SSR Capability (`ssr`)
 
-If claimed, runtime MUST document server/client behavior.
-
-- `render(ctx)` MAY be evaluated server-side.
-- DOM-dependent lifecycle and interaction logic MUST NOT run server-side.
-- `render(ctx)` SHOULD remain side-effect free for SSR compatibility.
-
-### 17.1 `shadow: false` and Slots (Guidance)
-
-Components with `shadow: false` render into the host element directly and cannot use `<slot>`. Slotted content composition requires `shadow: true`. When building composable container components, prefer shadow DOM.
+If claimed, runtime MUST document server/client behavior. `render(ctx)` SHOULD remain side-effect free for SSR compatibility. Components with `shadow: false` cannot use `<slot>`.
 
 ---
 
 ## 18. Author Checklist (Guidance)
 
-1. All reactive data is declared in `state`.
+1. All reactive data declared in `state`.
 2. All service dependencies declared in `inject`.
 3. Recurring state subscriptions use `watch` rather than `connected`.
-4. Use `watch.immediate: true` for reactive initialization on connect. `connected` is reserved for imperative setup that has no declarative equivalent (e.g. seeding non-reactive instance variables, registering external resources not covered by `interactions`, `bind`, or `watch`). Strive for a fully declarative component; `connected` is the escape hatch of last resort.
-5. Use `watch.reset` to declare transient state keys that should clear when a driving key changes.
-6. Simple input-to-state wiring uses `bind` rather than manual `interactions` handlers.
-7. Derived values use `computed` rather than local variables in `render`.
-8. Post-render DOM operations (scroll, focus, highlight, imperative style) use `watch` with `afterRender: true` rather than `rendered` + `setTimeout`.
-9. When watching an object-valued state key and you only want to react to logical identity changes (e.g. task ID), guard at the top of the handler: derive a key from `e.val` and `e.oldVal` and return early if equal.
-10. Entry/exit host animations use `animate.enter` / `animate.exit`.
+4. Use `watch.immediate: true` for reactive initialisation on connect.
+5. Use `watch.reset` to declare transient state keys that clear when a driving key changes.
+6. Simple input-to-state wiring uses `bind`.
+7. Derived values use state getters rather than the deprecated `computed` block.
+8. Post-render DOM operations use `watch` with `afterRender: true`.
+9. When watching an object-valued key and reacting only to identity changes, guard at the top of the handler using `e.val`/`e.oldVal`.
+10. Entry/exit host animations use `animate.enter`/`animate.exit`.
 11. State-driven child animations use `animate.toggle`.
-12. Multi-key state changes are grouped with `ctx.state.$batch`.
-13. Async external keys use `ctx.state.$query` for loading/error state (requires `asyncState` capability).
-14. Screen-reader announcements use an imported `announce` utility rather than a `ctx` method.
+12. Multiple `$set` calls coalesce automatically into a single render — no batching needed.
+13. Async external keys use `ctx.state.$query` (requires `asyncState` capability).
+14. Screen-reader announcements use an imported `announce` utility.
 15. `render` has no side effects.
 16. Interaction handlers delegate domain logic to flow/service modules.
 17. Cleanup registered for all imperative resources.
 18. Host imperative APIs declared under `host.methods`.
-19. State-driven host attribute projections use `host.attrs` rather than `watch` + `setAttribute`.
-20. State-driven CSS custom property projections use `host.vars` rather than `rendered` + `setProperty`.
+19. State-driven host attribute projections use `host.attrs`.
+20. State-driven CSS custom property projections use `host.vars`.
+21. All imperative instance state declared in `constructed({ _ })` via `ctx._`. Do not assign new properties directly to ctx outside of construction — ctx is frozen after `createRenderRoot()`.
+22. Destructure ctx fields at handler/lifecycle boundaries to keep handlers focused and readable.
 
 ---
 
 ## 19. Minimal Example
 
 ```js
+import { repeat } from 'lit/directives/repeat.js';
+
 export default {
   tag: 'my-list',
 
   inject: { models: 'models' },
 
   state: {
-    items:     { $src: 'external', key: 'items', default: [] },
+    items:     { $ext: 'items', default: [] },
     filter:    '',
     loading:   false,
     lastAdded: '',
-  },
 
-  computed: {
-    filtered: (ctx) => ctx.state.items.filter(i => i.name.includes(ctx.state.filter)),
-    isEmpty:  (ctx) => ctx.state.items.length === 0,
+    get filtered() { return this.state.items.filter(i => i.name.includes(this.state.filter)); },
+    get isEmpty()  { return this.state.filtered.length === 0; },
   },
 
   bind: {
@@ -667,34 +611,31 @@ export default {
   },
 
   watch: {
-    // Pre-render: announce when filter is active
-    filter: function(e, ctx) {
+    filter(e, { state }) {
       if (e.val.length > 0) announce('Filtering results');
     },
 
-    // Pre-render: fire immediately on connect, reset transient state on change
     activeRoute: {
-      handler:   function(e, ctx) { /* load data for route */ },
+      handler(e, { state }) { /* load data for route */ },
       immediate: true,
       reset:     ['lastAdded'],
     },
 
-    // Post-render: scroll and highlight after DOM update when a new item is added
     lastAdded: {
-      handler: function(e, ctx) {
+      handler(e, { state, root }) {
         if (!e.val) return;
-        var el = ctx.root.querySelector('my-item[data-key="' + e.val + '"]');
+        const el = root.querySelector('my-item[data-key="' + e.val + '"]');
         if (!el) return;
-        ctx.state.$set('lastAdded', '');
-        scrollTo(el).then(function() { if (el.highlight) el.highlight(); });
+        state.$set('lastAdded', '');
+        scrollTo(el).then(() => { if (el.highlight) el.highlight(); });
       },
       afterRender: true,
     },
   },
 
   interactions: {
-    'click(.clear-btn)': { handler: (e, ctx) => ctx.state.$set('filter', ''), prevent: true },
-    'keydown(.filter-input)': { handler: (e, ctx) => ctx.state.$set('filter', ''), keys: ['Escape'] },
+    'click(.clear-btn)':      { handler: (e, { state }) => state.$set('filter', ''), prevent: true },
+    'keydown(.filter-input)': { handler: (e, { state }) => state.$set('filter', ''), keys: ['Escape'] },
   },
 
   animate: {
@@ -705,24 +646,20 @@ export default {
 
   host: {
     attrs: {
-      'data-empty': (ctx) => ctx.computed.isEmpty ? '' : null,
+      'data-empty': ({ state }) => state.isEmpty ? '' : null,
     },
   },
 
   style: ({ css }) => css`:host { display: block; }`,
 
-  render: function(ctx) {
-    return ctx.html`
-      <input class="filter-input" .value=${ctx.state.filter}>
+  render({ html, state }) {
+    const { filter, filtered, isEmpty, loading } = state;
+    return html`
+      <input class="filter-input" .value=${filter}>
       <div class="empty-state">No items found.</div>
       <div class="loading-spinner"></div>
-      ${ctx.computed.filtered.map(i => ctx.html`<my-item data-key=${i.id} .item=${i}></my-item>`)}
+      ${repeat(filtered, i => i.id, i => html`<my-item data-key=${i.id} .item=${i}></my-item>`)}
     `;
   }
 };
 ```
-
----
-
-
----

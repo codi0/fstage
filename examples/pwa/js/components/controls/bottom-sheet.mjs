@@ -20,15 +20,15 @@ function applySheetState(isOpen, ctx) {
 	var backdrop = ctx.root && ctx.root.querySelector('.sheet-backdrop');
 	if (!panel || !backdrop) return;
 
-	if (!ctx._panelToggle.update(panel, isOpen)) return;
+	if (!ctx._.panelToggle.update(panel, isOpen)) return;
 
 	panel.classList.remove('is-dragging');
 	setGlobalGrabCursor(false);
 
 	if (isOpen) {
-		ctx._closeRequested = false;
+		ctx._.closeRequested = false;
 		panel.classList.remove('is-open');
-		ctx._sheet.open(panel, {
+		ctx._.sheet.open(panel, {
 			onEscape: function() { requestClose(ctx); },
 			initialFocus: function() {
 				var slot  = ctx.root.querySelector('slot');
@@ -41,13 +41,13 @@ function applySheetState(isOpen, ctx) {
 			}
 		});
 	} else {
-		ctx._sheet.close();
+		ctx._.sheet.close();
 	}
 }
 
 function requestClose(ctx) {
-	if (!ctx || ctx._closeRequested || !ctx.state || !ctx.state.open) return;
-	ctx._closeRequested = true;
+	if (!ctx || ctx._.closeRequested || !ctx.state || !ctx.state.open) return;
+	ctx._.closeRequested = true;
 	ctx.emit('bottomSheetClosed');
 }
 
@@ -60,8 +60,14 @@ export default {
 	},
 
 	state: {
-		open:  { $src: 'prop', default: false },
-		title: { $src: 'prop', default: '' },
+		open:  { $prop: false },
+		title: { $prop: '' },
+	},
+
+	constructed({ _ }) {
+		_.sheet        = null;
+		_.panelToggle  = null;
+		_.closeRequested = false;
 	},
 
 	watch: {
@@ -204,9 +210,9 @@ export default {
 		`;
 	},
 
-	connected: function(ctx) {
-		ctx._sheet = createSheetBehavior();
-		ctx._panelToggle = ctx.animator.createToggle({
+	connected({ _, animator, cleanup }) {
+		_.sheet       = createSheetBehavior();
+		_.panelToggle = animator.createToggle({
 			show: {
 				preset:         'slideUpSheet',
 				durationFactor: 1.6,
@@ -218,11 +224,11 @@ export default {
 				onSettle: function(el) { el.classList.remove('is-open'); },
 			},
 		});
-		ctx.cleanup(function() {
-			ctx._closeRequested = false;
+		cleanup(function() {
+			_.closeRequested = false;
 			setGlobalGrabCursor(false);
-			ctx._panelToggle.cancel();
-			ctx._sheet.destroy();
+			_.panelToggle.cancel();
+			_.sheet.destroy();
 		});
 	},
 

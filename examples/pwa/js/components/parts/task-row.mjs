@@ -41,8 +41,8 @@ function taskIdentity(task) {
 function toggleTaskFromList(taskData, ctx, toCompleted, opts) {
 	var host = ctx && ctx.host;
 	if (!host || !taskData) return;
-	if (ctx._transitioning) return;
-	ctx._transitioning = true;
+	if (ctx._.transitioning) return;
+	ctx._.transitioning = true;
 	host.style.pointerEvents = 'none';
 
 	opts = opts || {};
@@ -59,7 +59,7 @@ function toggleTaskFromList(taskData, ctx, toCompleted, opts) {
 	ctx.animator.collapse(host, { durationFactor: 1.1 }).finished.then(function() {
 		resetSwipeRevealState(ctx.root);
 		var didToggle = toggleTaskWithUndo(ctx.models, taskData, { toCompleted: toCompleted, undoToastMs: undoToastMs, animate: ctx.animate });
-		ctx._transitioning = false;
+		ctx._.transitioning = false;
 		if (!didToggle) return;
 	});
 }
@@ -67,8 +67,8 @@ function toggleTaskFromList(taskData, ctx, toCompleted, opts) {
 function deleteTask(taskData, ctx, opts) {
 	var host = ctx && ctx.host;
 	if (!host || !taskData) return;
-	if (ctx._transitioning) return;
-	ctx._transitioning = true;
+	if (ctx._.transitioning) return;
+	ctx._.transitioning = true;
 	host.style.pointerEvents = 'none';
 
 	opts = opts || {};
@@ -77,7 +77,7 @@ function deleteTask(taskData, ctx, opts) {
 	ctx.animator.collapse(host, { durationFactor: 1.1 }).finished.then(function() {
 		resetSwipeRevealState(ctx.root);
 		var deletedTask = deleteTaskWithUndo(ctx.models, taskData, { undoToastMs: undoToastMs, animate: ctx.animate });
-		ctx._transitioning = false;
+		ctx._.transitioning = false;
 		if (!deletedTask) return;
 	});
 }
@@ -105,7 +105,7 @@ function showTaskActions(task, ctx) {
 		],
 		onAction: function(action) {
 			if (!action || !action.id) return;
-			if (ctx._transitioning || ctx._deleteBusy || ctx._swiping) return;
+			if (ctx._.transitioning || ctx._.deleteBusy || ctx._.swiping) return;
 
 			if (action.id === 'toggle') {
 			hapticLight();
@@ -118,7 +118,7 @@ function showTaskActions(task, ctx) {
 			}
 		},
 		onClose: function() {
-			ctx._dismissActionSheet = null;
+			ctx._.dismissActionSheet = null;
 		}
 	});
 
@@ -135,27 +135,35 @@ export default {
 	},
 
 	state: {
-		task:  { $src: 'prop', default: null },
-		index: { $src: 'prop', default: 0 }
+		task:  { $prop: null },
+		index: { $prop: 0 },
 	},
 
 	animate: {
 		enter: { preset: 'slideUp', durationFactor: 0.8 }
 	},
 
+	constructed({ _ }) {
+		_.transitioning      = false;
+		_.deleteBusy         = false;
+		_.swiping            = false;
+		_.swipeTaskKey       = '';
+		_.dismissActionSheet = null;
+	},
+
 	watch: {
 		task: {
-			handler: function(e, ctx) {
+			handler(e, { _, host, root }) {
 				// Only reset interaction state when the task identity changes (different task),
 				// not on every property update (e.g. completed toggling).
 				if (taskIdentity(e.val) === taskIdentity(e.oldVal)) return;
-				ctx._transitioning = false;
-				ctx._deleteBusy    = false;
-				ctx._swiping       = false;
-				ctx._swipeTaskKey  = '';
-				resetHostStyles(ctx.host);
-				resetSwipeRowState(ctx.root);
-				resetSwipeRevealState(ctx.root);
+				_.transitioning = false;
+				_.deleteBusy    = false;
+				_.swiping       = false;
+				_.swipeTaskKey  = '';
+				resetHostStyles(host);
+				resetSwipeRowState(root);
+				resetSwipeRevealState(root);
 			},
 			afterRender: true,
 		}
@@ -164,63 +172,66 @@ export default {
 	interactions: {
 		'click(.check-btn)': function(e, ctx) {
 			e.stopPropagation();
-			var task = ctx.state.task;
-			if (!task || ctx._transitioning || ctx._deleteBusy || ctx._swiping) return;
+			const { _, state, animate } = ctx;
+			const task = state.task;
+			if (!task || _.transitioning || _.deleteBusy || _.swiping) return;
 			hapticLight();
-			ctx.animate(e.matched, 'pop', { durationFactor: 1.2 });
-			toggleTaskFromList(Object.assign({}, task), ctx, !task.completed, { undoToastMs: 4000, animate: ctx.animate });
+			animate(e.matched, 'pop', { durationFactor: 1.2 });
+			toggleTaskFromList(Object.assign({}, task), ctx, !task.completed, { undoToastMs: 4000, animate });
 		},
 
 		'gesture.swipe(.row-content)': {
 			directions: ['left', 'right'],
 			onStart: function(e, ctx) {
-				if (ctx._transitioning || ctx._deleteBusy || ctx._dismissActionSheet) return false;
-				var task = ctx.state.task;
+				const { _, state, root } = ctx;
+				if (_.transitioning || _.deleteBusy || _.dismissActionSheet) return false;
+				const task = state.task;
 				if (!task) return false;
-				ctx._swipeTaskKey = taskIdentity(task);
-				resetSwipeRevealState(ctx.root);
+				_.swipeTaskKey = taskIdentity(task);
+				resetSwipeRevealState(root);
 			},
 			onProgress: function(e, ctx) {
-				var activeKey = ctx._swipeTaskKey;
-				if (!activeKey || activeKey !== taskIdentity(ctx.state.task)) {
-					ctx._swiping = false;
-					resetSwipeRevealState(ctx.root);
+				const { _, state, root } = ctx;
+				if (!_.swipeTaskKey || _.swipeTaskKey !== taskIdentity(state.task)) {
+					_.swiping = false;
+					resetSwipeRevealState(root);
 					return;
 				}
-				ctx._swiping = true;
-				var right = ctx.root.querySelector('.reveal-right');
-				var left  = ctx.root.querySelector('.reveal-left');
+				_.swiping = true;
+				const right = root.querySelector('.reveal-right');
+				const left  = root.querySelector('.reveal-left');
 				if (!right || !left) return;
-				var show = e.direction === 'right' ? right : left;
-				var hide = e.direction === 'right' ? left  : right;
+				const show = e.direction === 'right' ? right : left;
+				const hide = e.direction === 'right' ? left  : right;
 				show.style.opacity = e.progress;
 				hide.style.opacity = '0';
 			},
 			onCommit: function(e, ctx) {
-				ctx._swiping = false;
-				var activeKey = ctx._swipeTaskKey;
-				ctx._swipeTaskKey = '';
-				if (!activeKey || activeKey !== taskIdentity(ctx.state.task)) {
+				const { _, state, animate } = ctx;
+				_.swiping = false;
+				const activeKey = _.swipeTaskKey;
+				_.swipeTaskKey = '';
+				if (!activeKey || activeKey !== taskIdentity(state.task)) {
 					resetSwipeRevealState(ctx.root);
 					return;
 				}
-				var task = ctx.state.task;
-				if (!task || ctx._transitioning || ctx._deleteBusy) return;
+				const task = state.task;
+				if (!task || _.transitioning || _.deleteBusy) return;
 
 				if (e.direction === 'right') {
 					hapticLight();
 					toggleTaskFromList(Object.assign({}, task), ctx, !task.completed, {
-						skipExit: true, undoToastMs: 4000, animate: ctx.animate
+						skipExit: true, undoToastMs: 4000, animate
 					});
 				} else {
-					ctx._deleteBusy = true;
+					_.deleteBusy = true;
 					hapticHeavy();
-					deleteTask(Object.assign({}, task), ctx, { undoToastMs: 4000, animate: ctx.animate });
+					deleteTask(Object.assign({}, task), ctx, { undoToastMs: 4000, animate });
 				}
 			},
 			onCancel: function(e, ctx) {
-				ctx._swiping = false;
-				ctx._swipeTaskKey = '';
+				ctx._.swiping      = false;
+				ctx._.swipeTaskKey = '';
 				resetSwipeRevealState(ctx.root);
 			},
 		},
@@ -228,12 +239,12 @@ export default {
 		'gesture.longPress(.row-content)': {
 			exclude: '.check-btn',
 			onStart: function(e, ctx) {
-				if (ctx._swiping || ctx._deleteBusy || ctx._transitioning) return false;
-				if (ctx._dismissActionSheet) return false;
-				var task = ctx.state.task;
+				const { _, state } = ctx;
+				if (_.swiping || _.deleteBusy || _.transitioning || _.dismissActionSheet) return false;
+				const task = state.task;
 				if (!task) return;
 				clearSelection();
-				ctx._dismissActionSheet = showTaskActions(task, ctx);
+				_.dismissActionSheet = showTaskActions(task, ctx);
 			},
 			onCancel: function(e, ctx) {},
 		},
@@ -250,11 +261,11 @@ export default {
 		},
 
 		vars: {
-			'--row-index': function(ctx) { return ctx.state.index; },
+			'--row-index': ({ state }) => state.index,
 		},
 	},
 
-	style: (styleCtx) => styleCtx.css`
+	style: ({ css }) => css`
 		:host {
 			display: block;
 			position: relative;
@@ -378,12 +389,12 @@ export default {
 		.chevron svg { width: 14px; height: 14px; stroke: currentColor; stroke-width: 2; fill: none; }
 	`,
 
-	render: function(ctx) {
-		var task = ctx.state.task;
-		if (!task) return ctx.html``;
-		var chip = task.dueDate ? formatDueDate(task.dueDate) : null;
+	render({ html, state }) {
+		const { task } = state;
+		if (!task) return html``;
+		const chip = task.dueDate ? formatDueDate(task.dueDate) : null;
 
-		return ctx.html`
+		return html`
 			<div class="reveal reveal-right" aria-hidden="true">
 				<svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
 			</div>
@@ -403,10 +414,10 @@ export default {
 					<div class="task-info">
 						<p class=${'task-title' + (task.completed ? ' done' : '')}>${task.title}</p>
 						<div class="chips">
-							${task.completed
-								? ctx.html`<span class="chip done">Done</span>`
-								: chip ? ctx.html`<span class=${'chip ' + chip.cls}>${chip.label}</span>` : ''
-							}
+						${task.completed
+						? html`<span class="chip done">Done</span>`
+						: chip ? html`<span class=${'chip ' + chip.cls}>${chip.label}</span>` : ''
+						}
 						</div>
 					</div>
 					<div class="chevron" aria-hidden="true">
@@ -417,19 +428,19 @@ export default {
 		`;
 	},
 
-	rendered: function(ctx) {
+	rendered({ _, host, root }) {
 		// Clean up imperative animation styles after each non-transitioning render.
-		if (!ctx._transitioning) {
-			resetHostStyles(ctx.host);
-			resetSwipeRowState(ctx.root);
-			resetSwipeRevealState(ctx.root);
+		if (!_.transitioning) {
+			resetHostStyles(host);
+			resetSwipeRowState(root);
+			resetSwipeRevealState(root);
 		}
 	},
 
-	connected: function(ctx) {
-		ctx.cleanup(function() {
-			ctx._swipeTaskKey = '';
-			if (ctx._dismissActionSheet) ctx._dismissActionSheet();
+	connected({ _, cleanup }) {
+		cleanup(() => {
+			_.swipeTaskKey = '';
+			if (_.dismissActionSheet) _.dismissActionSheet();
 		});
 	},
 

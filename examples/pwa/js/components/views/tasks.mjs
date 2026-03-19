@@ -1,36 +1,27 @@
 import { sectionHeader, emptyState } from '../../css/shared.mjs';
+import { repeat } from 'lit/directives/repeat.js';
 import { hapticLight, hapticMedium } from '../../utils/haptics.mjs';
 import { addTask } from '../../data/flows/tasks.mjs';
 import { quickDueDates, scrollTo, safeBlur } from '../../utils/shared.mjs';
-import { repeat } from 'lit/directives/repeat.js';
 
-function ring(completed, total) {
-	var r = 22;
-	var c = 2 * Math.PI * r;
-	var pct = total > 0 ? completed / total : 0;
-	var off = c * (1 - pct);
-	return { c: c.toFixed(1), off: off.toFixed(1) };
-}
 
-function submitForm(e, ctx) {
-	var title = ctx.state.newTitle.trim();
+function submitForm(e, { state, models }) {
+	var title = state.newTitle.trim();
 	if (!title) return;
 
 	safeBlur(e && e.matched);
 	safeBlur(document.activeElement);
 
 	hapticMedium();
-	var created = addTask(ctx.models, {
+	var created = addTask(models, {
 		title: title,
-		dueDate: ctx.state.newDate || null,
-		priority: ctx.state.newPriority,
+		dueDate: state.newDate || null,
+		priority: state.newPriority,
 	});
 	if (!created) return;
 
-	ctx.state.$batch(function() {
-		ctx.state.$set('lastAdded', String(created.$key || created.id || ''));
-		ctx.state.$set('sheetOpen', false);
-	});
+	state.$set('lastAdded', String(created.$key || created.id || ''));
+	state.$set('sheetOpen', false);
 }
 
 export default {
@@ -47,22 +38,24 @@ export default {
 		newDate:     '',
 		newPriority: 'medium',
 		lastAdded:   '',
-		tasks:       { $src: 'external', key: 'tasks', default: [] }
+		tasks:       { $ext: 'tasks', default: [] },
+
+		get allTasks()  { return Object.values(this.state.tasks || {}); },
+		get total()     { return this.state.allTasks.length; },
+		get completed() { return this.state.allTasks.filter(function(t) { return t.completed; }).length; },
+		get remaining() { return this.state.total - this.state.completed; },
+		get ringData()  {
+			var r = 22, c = 2 * Math.PI * r;
+			var off = c * (1 - (this.state.total > 0 ? this.state.completed / this.state.total : 0));
+			return { c: c.toFixed(1), off: off.toFixed(1) };
+		},
+		get groups()    { return this.models.get('tasks').grouped(); },
 	},
 
-	computed: {
-		allTasks:  function(ctx) { return Object.values(ctx.state.tasks || {}); },
-		total:     function(ctx) { return ctx.computed.allTasks.length; },
-		completed: function(ctx) { return ctx.computed.allTasks.filter(function(t) { return t.completed; }).length; },
-		remaining: function(ctx) { return ctx.computed.total - ctx.computed.completed; },
-		ringData:  function(ctx) { return ring(ctx.computed.completed, ctx.computed.total); },
-		groups:    function(ctx) { return ctx.models.get('tasks').grouped(); },
-	},
-
-	style: (styleCtx) => [
+	style: ({ css }) => [
 		sectionHeader,
 		emptyState,
-		styleCtx.css`
+		css`
 			:host {
 				display: block;
 			}
@@ -206,11 +199,11 @@ export default {
 
 	watch: {
 		lastAdded: {
-			handler: function(e, ctx) {
+			handler(e, { state, root }) {
 				if (!e.val) return;
-				var rowEl = ctx.root.querySelector('pwa-task-row[data-key="' + e.val + '"]');
+				var rowEl = root.querySelector('pwa-task-row[data-key="' + e.val + '"]');
 				if (!rowEl) return;
-				ctx.state.$set('lastAdded', '');
+				state.$set('lastAdded', '');
 				// Defer to let pwa-task-row complete its own first render before
 				// measuring position and scrolling.
 				setTimeout(function() {
@@ -225,53 +218,32 @@ export default {
 	},
 
 	interactions: {
-		'keydown(#task-title)': { handler: submitForm, keys: ['Enter'] },
-		'dueDateChange(pwa-due-date-picker)': function(e, ctx) {
-			var detail = e.detail || {};
-			ctx.state.$set('newDate', detail.value || '');
-		},
-		'priorityChange(pwa-priority-picker)': function(e, ctx) {
-			var detail = e.detail || {};
-			ctx.state.$set('newPriority', detail.value || 'medium');
-		},
-		'click(.submit-btn)': function(e, ctx) {
-			submitForm(e, ctx);
-		},
-		'bottomSheetClosed': function(e, ctx) {
-			ctx.state.$set('sheetOpen', false);
-		},
-		'addTask(document)': function(e, ctx) {
+		'keydown(#task-title)':              { handler: submitForm, keys: ['Enter'] },
+		'click(.submit-btn)':                (e, ctx) => submitForm(e, ctx),
+		'bottomSheetClosed':                 (e, { state }) => state.$set('sheetOpen', false),
+		'dueDateChange(pwa-due-date-picker)': (e, { state }) => state.$set('newDate',     (e.detail || {}).value || ''),
+		'priorityChange(pwa-priority-picker)': (e, { state }) => state.$set('newPriority', (e.detail || {}).value || 'medium'),
+		'addTask(document)': function(e, { state }) {
 			hapticLight();
-			ctx.state.$batch(function() {
-				ctx.state.$set('newTitle', '');
-				ctx.state.$set('newDate', quickDueDates().today);
-				ctx.state.$set('newPriority', 'medium');
-				ctx.state.$set('sheetOpen', true);
-			});
-		}
+			state.$set('newTitle',    '');
+			state.$set('newDate',     quickDueDates().today);
+			state.$set('newPriority', 'medium');
+			state.$set('sheetOpen',   true);
+		},
 	},
 
-	connected: function(ctx) {
-		ctx.state.$set('headerAction', { label: 'Add task', event: 'addTask', icon: 'add' });
-		ctx.cleanup(function() {
-			ctx.state.$set('headerAction', null);
-		});
+	connected({ state, cleanup }) {
+		state.$set('headerAction', { label: 'Add task', event: 'addTask', icon: 'add' });
+		cleanup(() => state.$set('headerAction', null));
 	},
 
-	render: function(ctx) {
-		var groups    = ctx.computed.groups;
-		var total     = ctx.computed.total;
-		var completed = ctx.computed.completed;
-		var remaining = ctx.computed.remaining;
-		var ringData  = ctx.computed.ringData;
-		var sheetOpen   = ctx.state.sheetOpen;
-		var newTitle    = ctx.state.newTitle;
-		var newDate     = ctx.state.newDate;
-		var newPriority = ctx.state.newPriority;
-		var rowIndex    = 0;
+	render({ html, state }) {
+		const { groups, total, completed, remaining, ringData,
+		        sheetOpen, newTitle, newDate, newPriority } = state;
+		var rowIndex = 0;
 
-		return ctx.html`
-			${total > 0 ? ctx.html`
+		return html`
+			${total > 0 ? html`
 				<div class="summary" aria-label="${remaining} tasks remaining, ${completed} completed">
 					<div>
 						<div class="sum-count"><span>${remaining}</span> remaining</div>
@@ -292,7 +264,7 @@ export default {
 			` : ''}
 
 			<div class="list-body">
-				${groups.length === 0 ? ctx.html`
+				${groups.length === 0 ? html`
 					<div class="empty-state">
 						<svg class="empty-icon" viewBox="0 0 72 72" fill="none" aria-hidden="true">
 							<circle cx="36" cy="36" r="28" stroke="currentColor" stroke-width="2.5"/>
@@ -303,19 +275,17 @@ export default {
 					</div>
 				` : repeat(
 					groups,
-					function(group) { return group.key; },
-					function(group) { return ctx.html`
+					group => group.key,
+					group => html`
 						<div class="section-header">${group.label}</div>
 						<div class="task-group">
 							${repeat(
 								group.tasks,
-								function(task) { return String(task.$key || task.id); },
-								function(task) { return ctx.html`
-								<pwa-task-row .task=${task} .index=${rowIndex++} data-key=${task.$key || task.id}></pwa-task-row>
-								`; }
+								task => String(task.$key || task.id),
+								task => html`<pwa-task-row .task=${task} .index=${rowIndex++} data-key=${task.$key || task.id}></pwa-task-row>`
 							)}
 						</div>
-					`; }
+					`
 				)}
 			</div>
 
@@ -349,6 +319,5 @@ export default {
 			</pwa-bottom-sheet>
 		`;
 	},
-
 
 };

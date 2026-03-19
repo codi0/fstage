@@ -11,9 +11,9 @@ import {
 
 // Renders a collapsible editor row with label, summary value, chevron, and optional panel.
 // panel: a lit-html TemplateResult or '' — only rendered when the section is open.
-function editRow(ctx, section, label, value, valueClass, panel) {
-	var open = ctx.state.openSection === section;
-	return ctx.html`
+function editRow({ state, html }, section, label, value, valueClass, panel) {
+	const open = state.openSection === section;
+	return html`
 		<div class="group">
 			<button type="button" class="edit-row" data-section=${section} aria-expanded=${open}>
 				<span class="row-label">${label}</span>
@@ -22,7 +22,7 @@ function editRow(ctx, section, label, value, valueClass, panel) {
 					<svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
 				</span>
 			</button>
-			${open ? ctx.html`<div class="panel">${panel}</div>` : ''}
+			${open ? html`<div class="panel">${panel}</div>` : ''}
 		</div>
 	`;
 }
@@ -37,21 +37,19 @@ export default {
 	},
 
 	state: {
-		tasks:            { $src: 'external', default: {} },
-		routeParams:      { $src: 'external', key: 'route.params', default: {} },
+		tasks:            { $ext: 'tasks', default: {} },
+		routeParams:      { $ext: 'route.params', default: {} },
 		confirmingDelete: false,
 		titleEdit:        null,  // raw editing value; null means not editing (use task.title)
 		openSection:      '',
-	},
 
-	computed: {
-		taskId:          function(ctx) { var id = ctx.state.routeParams.id; return id ? String(id) : null; },
-		task:            function(ctx) { var id = ctx.computed.taskId; return id ? (ctx.state.tasks[id] || null) : null; },
-		draftTitle:      function(ctx) { var t = ctx.computed.task; return ctx.state.titleEdit != null ? ctx.state.titleEdit : (t ? t.title || '' : ''); },
-		titleSummary:    function(ctx) { return String(ctx.computed.draftTitle || '').trim() || 'Untitled'; },
-		dueSummary:      function(ctx) { var t = ctx.computed.task; return formatDueDate(t ? t.dueDate || '' : '', 'label'); },
-		prioritySummary: function(ctx) { var t = ctx.computed.task; return formatPriority(t ? t.priority : undefined); },
-		notesSummary:    function(ctx) { var t = ctx.computed.task; return formatNotesSummary(t ? t.description || '' : ''); },
+		get taskId()          { var id = this.state.routeParams.id; return id ? String(id) : null; },
+		get task()            { var id = this.state.taskId; return id ? (this.state.tasks[id] || null) : null; },
+		get draftTitle()      { var t = this.state.task; return this.state.titleEdit != null ? this.state.titleEdit : (t ? t.title || '' : ''); },
+		get titleSummary()    { return String(this.state.draftTitle || '').trim() || 'Untitled'; },
+		get dueSummary()      { var t = this.state.task; return formatDueDate(t ? t.dueDate || '' : '', 'label'); },
+		get prioritySummary() { var t = this.state.task; return formatPriority(t ? t.priority : undefined); },
+		get notesSummary()    { var t = this.state.task; return formatNotesSummary(t ? t.description || '' : ''); },
 	},
 
 	bind: {
@@ -63,16 +61,16 @@ export default {
 			reset: ['confirmingDelete', 'titleEdit', 'openSection'],
 		},
 		openSection: {
-			handler: function(e, ctx) {
+			handler(e, { root }) {
 				if (e.val !== 'title') return;
-				var input = ctx.root.querySelector('.title-input');
+				const input = root.querySelector('.title-input');
 				if (input) try { input.focus(); input.select(); } catch (err) {}
 			},
 			afterRender: true,
 		},
 	},
 
-	style: (styleCtx) => styleCtx.css`
+	style: ({ css }) => css`
 		:host {
 			display: block;
 		}
@@ -330,101 +328,96 @@ export default {
 	`,
 
 	interactions: {
-		'click(.edit-row)': function(e, ctx) {
-			var section = e.matched.dataset.section || '';
+		'click(.delete-link)':       (e, { state }) => state.$set('confirmingDelete', true),
+		'click(.delete-cancel-btn)': (e, { state }) => state.$set('confirmingDelete', false),
+		'click(.edit-row)': function(e, { state }) {
+			const section = e.matched.dataset.section || '';
 			if (!section) return;
-			ctx.state.$set('openSection', ctx.state.openSection === section ? '' : section);
+			state.$set('openSection', state.openSection === section ? '' : section);
 		},
-		'keydown(.title-input)': function(e, ctx) {
-			var id   = ctx.computed.taskId;
-			var task = ctx.computed.task;
+		'keydown(.title-input)': function(e, { state, models }) {
+			const task = state.task;
 			if (!task) return;
-
 			if (e.key === 'Enter') {
 				e.preventDefault();
-				ctx.state.$set('titleEdit', commitTaskTitle(ctx.models, id, task.title || '', e.matched.value));
+				state.$set('titleEdit', commitTaskTitle(models, state.taskId, task.title || '', e.matched.value));
 				safeBlur(e.matched);
 				return;
 			}
 			if (e.key === 'Escape') {
 				e.preventDefault();
-				ctx.state.$set('titleEdit', task.title || '');
+				state.$set('titleEdit', task.title || '');
 				safeBlur(e.matched);
 			}
 		},
-		'blur(.title-input)': function(e, ctx) {
-			var task = ctx.computed.task;
+		'blur(.title-input)': function(e, { state, models }) {
+			const task = state.task;
 			if (!task) return;
-			ctx.state.$set('titleEdit', commitTaskTitle(ctx.models, ctx.computed.taskId, task.title || '', e.matched.value));
+			state.$set('titleEdit', commitTaskTitle(models, state.taskId, task.title || '', e.matched.value));
 		},
-		'dueDateChange(pwa-due-date-picker)': function(e, ctx) {
-			var id = ctx.computed.taskId;
+		'dueDateChange(pwa-due-date-picker)': function(e, { state, models }) {
+			const id = state.taskId;
 			if (!id) return;
-			updateTaskDueDate(ctx.models, id, (e.detail || {}).value || '');
+			updateTaskDueDate(models, id, (e.detail || {}).value || '');
 		},
-		'priorityChange(pwa-priority-picker)': function(e, ctx) {
-			var id = ctx.computed.taskId;
+		'priorityChange(pwa-priority-picker)': function(e, { state, models }) {
+			const id = state.taskId;
 			if (!id) return;
-			updateTaskPriority(ctx.models, id, (e.detail || {}).value || 'medium');
+			updateTaskPriority(models, id, (e.detail || {}).value || 'medium');
 		},
-		'change(.inline-textarea)': function(e, ctx) {
-			var id = ctx.computed.taskId;
-			if (id) updateTaskDescription(ctx.models, id, e.matched.value);
+		'change(.inline-textarea)': function(e, { state, models }) {
+			const id = state.taskId;
+			if (id) updateTaskDescription(models, id, e.matched.value);
 		},
-		'click(.complete-btn)': function(e, ctx) {
-			var id   = ctx.computed.taskId;
-			var task = ctx.computed.task;
+		'click(.complete-btn)': function(e, { state, models, animate }) {
+			const id   = state.taskId;
+			const task = state.task;
 			if (!id || !task) return;
-			if (!toggleTaskWithAnnounce(ctx.models, id, !!task.completed)) return;
-			ctx.animate(e.matched, 'pop', { durationFactor: 1.2 });
+			if (!toggleTaskWithAnnounce(models, id, !!task.completed)) return;
+			animate(e.matched, 'pop', { durationFactor: 1.2 });
 		},
-		'click(.delete-link)': function(e, ctx) {
-			ctx.state.$set('confirmingDelete', true);
-		},
-		'click(.delete-cancel-btn)': function(e, ctx) {
-			ctx.state.$set('confirmingDelete', false);
-		},
-		'click(.delete-confirm-btn)': function(e, ctx) {
-			var id = ctx.computed.taskId;
+		'click(.delete-confirm-btn)': function(e, { state, models, animate, router }) {
+			const id = state.taskId;
 			if (!id) return;
-			deleteTaskWithUndo(ctx.models, id, {
-				politeness: 'assertive',
+			deleteTaskWithUndo(models, id, {
+				politeness:  'assertive',
 				undoToastMs: 4000,
-				animate: ctx.animate,
-				afterDelete: function() { ctx.router.go(-1); },
+				animate,
+				afterDelete: () => router.go(-1),
 			});
 		},
 	},
 
-	render: function(ctx) {
-		var task = ctx.computed.task;
-		if (!task) return ctx.html`<div class="not-found">Task not found.</div>`;
+	render({ html, state }) {
+		const { task, titleSummary, draftTitle, dueSummary, prioritySummary, notesSummary, confirmingDelete } = state;
+		if (!task) return html`<div class="not-found">Task not found.</div>`;
 
-		var titleClass = 'title' + (task.completed ? ' done' : '');
-		var notesClass = 'notes' + (!String(task.description || '').trim() ? ' placeholder' : '');
+		const ctx       = { state, html }; // editRow helper needs both
+		const titleClass = 'title' + (task.completed ? ' done' : '');
+		const notesClass = 'notes' + (!String(task.description || '').trim() ? ' placeholder' : '');
 
-		return ctx.html`
+		return html`
 			<div class="body">
 
 				<div class="editor">
-					${editRow(ctx, 'title', 'Title', ctx.computed.titleSummary, titleClass, ctx.html`
+					${editRow(ctx, 'title', 'Title', titleSummary, titleClass, html`
 						<input
 							id="task-title-input"
 							class=${'title-input' + (task.completed ? ' done' : '')}
 							type="text"
-							.value=${ctx.computed.draftTitle}
+							.value=${draftTitle}
 							aria-label="Task title"
 							placeholder="Task title"
 							autocomplete="off"
 						/>
 					`)}
-					${editRow(ctx, 'due', 'Due date', ctx.computed.dueSummary, '', ctx.html`
+					${editRow(ctx, 'due', 'Due date', dueSummary, '', html`
 						<pwa-due-date-picker .value=${task.dueDate || ''}></pwa-due-date-picker>
 					`)}
-					${editRow(ctx, 'priority', 'Priority', ctx.computed.prioritySummary, '', ctx.html`
+					${editRow(ctx, 'priority', 'Priority', prioritySummary, '', html`
 						<pwa-priority-picker .value=${task.priority || 'medium'}></pwa-priority-picker>
 					`)}
-					${editRow(ctx, 'notes', 'More details', ctx.computed.notesSummary, notesClass, ctx.html`
+					${editRow(ctx, 'notes', 'More details', notesSummary, notesClass, html`
 						<textarea
 							class="inline-textarea"
 							placeholder="Add more details..."
@@ -439,7 +432,7 @@ export default {
 						${task.completed ? 'Mark as Open' : 'Mark as Complete'}
 					</button>
 
-					${ctx.state.confirmingDelete ? ctx.html`
+					${confirmingDelete ? html`
 						<div class="delete-confirm">
 							<div class="delete-confirm-msg">Delete this task?</div>
 							<div class="delete-confirm-btns">
@@ -447,7 +440,7 @@ export default {
 								<button class="delete-confirm-btn">Delete</button>
 							</div>
 						</div>
-					` : ctx.html`
+					` : html`
 						<button class="delete-link">Delete Task</button>
 					`}
 				</div>

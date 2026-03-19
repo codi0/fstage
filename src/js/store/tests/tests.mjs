@@ -164,13 +164,14 @@ async function runCreateStoreSuite(suite, test) {
 			assert(s.$get('x') === 1);
 		});
 
-		await test('deepCopy: true (default) — watcher val is clone', () => {
+		await test('deepCopy: true (default) — watcher val is clone', async () => {
 			const s = createStore({ state: { obj: { a: 1 } } });
 			const a = api(s);
 			let captured;
 			a.watch('obj', e => { captured = e.val; });
 			const newObj = { a: 2 };
 			a.set('obj', newObj);
+			await flush();
 			assert(captured !== newObj);
 			assertEqual(captured, newObj);
 		});
@@ -315,18 +316,28 @@ async function runStoreSuite(label, make, isProxy, suite, test) {
 	// -------------------------------------------------------------------------
 	await suite(`${label} — watch`, async () => {
 
-		await test('fires on change', () => {
+		await test('fires on change (sync)', () => {
 			const s = make({ x: 1 });
 			let val;
-			s.$watch('x', e => { val = e.val; });
+			s.$watch('x', e => { val = e.val; }, { sync: true });
 			s.$set('x', 2);
 			assertEqual(val, 2);
 		});
 
-		await test('receives oldVal when requested', () => {
+		await test('fires on change (async default)', async () => {
+			const s = make({ x: 1 });
+			let val;
+			s.$watch('x', e => { val = e.val; });
+			s.$set('x', 2);
+			assert(val === undefined, 'should not have fired synchronously');
+			await flush();
+			assertEqual(val, 2);
+		});
+
+		await test('receives oldVal', () => {
 			const s = make({ x: 1 });
 			let old;
-			s.$watch('x', e => { old = e.oldVal; }, { oldVal: true });
+			s.$watch('x', e => { old = e.oldVal; }, { sync: true });
 			s.$set('x', 2);
 			assertEqual(old, 1);
 		});
@@ -334,23 +345,32 @@ async function runStoreSuite(label, make, isProxy, suite, test) {
 		await test('parent watch fires on child change', () => {
 			const s = make({ user: { name: 'Alice' } });
 			let fired = false;
-			s.$watch('user', () => { fired = true; });
+			s.$watch('user', () => { fired = true; }, { sync: true });
 			s.$set('user.name', 'Bob');
 			assert(fired);
 		});
 
-		await test('parent oldVal is pre-write snapshot', () => {
+		await test('parent oldVal is pre-write snapshot (sync)', () => {
 			const s = make({ user: { name: 'Alice' } });
 			let old;
-			s.$watch('user', e => { old = e.oldVal; }, { oldVal: true });
+			s.$watch('user', e => { old = e.oldVal; }, { sync: true });
 			s.$set('user.name', 'Bob');
+			assertEqual(old, { name: 'Alice' });
+		});
+
+		await test('parent oldVal is pre-write snapshot (async)', async () => {
+			const s = make({ user: { name: 'Alice' } });
+			let old;
+			s.$watch('user', e => { old = e.oldVal; });
+			s.$set('user.name', 'Bob');
+			await flush();
 			assertEqual(old, { name: 'Alice' });
 		});
 
 		await test('unsubscribe stops notifications', () => {
 			const s = make({ x: 1 });
 			let calls = 0;
-			const off = s.$watch('x', () => calls++);
+			const off = s.$watch('x', () => calls++, { sync: true });
 			s.$set('x', 2);
 			assertEqual(calls, 1);
 			off();
@@ -361,7 +381,7 @@ async function runStoreSuite(label, make, isProxy, suite, test) {
 		await test('val is snapshot not live reference', () => {
 			const s = make({ obj: { a: 1 } });
 			let snap;
-			s.$watch('obj', e => { snap = e.val; });
+			s.$watch('obj', e => { snap = e.val; }, { sync: true });
 			s.$set('obj', { a: 2 });
 			const frozen = snap;
 			s.$set('obj', { a: 99 });
@@ -371,7 +391,7 @@ async function runStoreSuite(label, make, isProxy, suite, test) {
 		await test('watch("*") fires on any path', () => {
 			const s = make({ x: 1, y: 1 });
 			const paths = [];
-			s.$watch('*', e => { paths.push(e.path); });
+			s.$watch('*', e => { paths.push(e.path); }, { sync: true });
 			s.$set('x', 2);
 			s.$set('y', 2);
 			assert(paths.includes('x') && paths.includes('y'));
@@ -380,77 +400,84 @@ async function runStoreSuite(label, make, isProxy, suite, test) {
 		await test('replacing parent fires watcher exactly once', () => {
 			const s = make({ user: { name: 'Alice' } });
 			let calls = 0;
-			s.$watch('user', () => calls++);
+			s.$watch('user', () => calls++, { sync: true });
 			s.$set('user', { name: 'Bob' });
 			assertEqual(calls, 1);
-		});
-
-		await test('watch fires synchronously', () => {
-			const s = make({ x: 1 });
-			let fired = false;
-			s.$watch('x', () => { fired = true; });
-			s.$set('x', 2);
-			assert(fired);
 		});
 
 	});
 
 	// -------------------------------------------------------------------------
-	await suite(`${label} — batch`, async () => {
+	// $batch was removed — watch delivery is async by default (queueMicrotask),
+	// which coalesces multiple synchronous $set calls automatically.
+	await suite(`${label} — async coalescing`, async () => {
 
-		await test('coalesces multiple sets to one watch fire', () => {
-			const s = make({ x: 1, y: 1 });
-			let calls = 0;
-			s.$watch('x', () => calls++);
-			s.$watch('y', () => calls++);
-			s.$batch(() => { s.$set('x', 2); s.$set('y', 2); });
-			// both fire once each = 2, not 4
-			assert(calls <= 2);
-		});
-
-		await test('watch does not fire during batch', () => {
+		await test('async watch does not fire synchronously', () => {
 			const s = make({ x: 1 });
-			let firedDuring = false, firedAfter = false;
-			s.$watch('x', () => { firedAfter = true; });
-			s.$batch(() => {
-				s.$set('x', 2);
-				firedDuring = firedAfter;
-			});
-			assert(!firedDuring);
-			assert(firedAfter);
+			let fired = false;
+			s.$watch('x', () => { fired = true; });
+			s.$set('x', 2);
+			assert(!fired);
 		});
 
-		await test('nested batch flushes only at outermost end', () => {
-			const s = make({ x: 0 });
+		await test('async watch fires after microtask', async () => {
+			const s = make({ x: 1 });
+			let val;
+			s.$watch('x', e => { val = e.val; });
+			s.$set('x', 2);
+			await flush();
+			assertEqual(val, 2);
+		});
+
+		await test('multiple sets coalesce — watch fires once per path', async () => {
+			const s = make({ x: 1 });
 			let calls = 0;
 			s.$watch('x', () => calls++);
-			s.$batch(() => {
-				s.$batch(() => { s.$set('x', 1); });
-				s.$set('x', 2);
-			});
+			s.$set('x', 2);
+			s.$set('x', 3);
+			await flush();
 			assertEqual(calls, 1);
 		});
 
-		await test('oldVal is pre-batch not intermediate', () => {
+		await test('coalesced oldVal is the pre-first-set value', async () => {
 			const s = make({ x: 1 });
 			let old;
-			s.$watch('x', e => { old = e.oldVal; }, { oldVal: true });
-			s.$batch(() => { s.$set('x', 2); s.$set('x', 3); });
+			s.$watch('x', e => { old = e.oldVal; });
+			s.$set('x', 2);
+			s.$set('x', 3);
+			await flush();
 			assertEqual(old, 1);
 		});
 
-		await test('no-change batch fires no notifications', () => {
+		await test('coalesced val is the final value', async () => {
+			const s = make({ x: 1 });
+			let val;
+			s.$watch('x', e => { val = e.val; });
+			s.$set('x', 2);
+			s.$set('x', 3);
+			await flush();
+			assertEqual(val, 3);
+		});
+
+		await test('no-change set fires no notification', async () => {
 			const s = make({ x: 1 });
 			let calls = 0;
 			s.$watch('x', () => calls++);
-			s.$batch(() => { s.$set('x', 1); });
+			s.$set('x', 1);
+			await flush();
 			assertEqual(calls, 0);
 		});
 
-		await test('returns result of fn()', () => {
-			const s = make({});
-			const r = s.$batch(() => 42);
-			assertEqual(r, 42);
+		await test('multiple paths each fire once', async () => {
+			const s = make({ x: 1, y: 1 });
+			let xCalls = 0, yCalls = 0;
+			s.$watch('x', () => xCalls++);
+			s.$watch('y', () => yCalls++);
+			s.$set('x', 2);
+			s.$set('y', 2);
+			await flush();
+			assertEqual(xCalls, 1);
+			assertEqual(yCalls, 1);
 		});
 
 	});
@@ -506,12 +533,13 @@ async function runStoreSuite(label, make, isProxy, suite, test) {
 			assertEqual(runs, 3);
 		});
 
-		await test('effect sees final state after batch', () => {
+		await test('effect reruns on each set (effects are synchronous)', () => {
 			const s = make({ x: 1 });
 			const seen = [];
 			s.$effect(() => { seen.push(s.$get('x')); });
-			s.$batch(() => { s.$set('x', 2); s.$set('x', 3); });
-			assertEqual(seen, [1, 3]);
+			s.$set('x', 2);
+			s.$set('x', 3);
+			assertEqual(seen, [1, 2, 3]);
 		});
 
 		await test('re-entrancy: write during effect settles without infinite loop', () => {
