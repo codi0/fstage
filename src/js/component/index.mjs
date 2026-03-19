@@ -95,6 +95,24 @@ import { getType, adoptStyleSheet } from '../utils/index.mjs';
 // Mutates def in place; called once at define() time.
 // =============================================================================
 
+/**
+ * Normalise and validate all structured definition fields in place.
+ * Called once at `define()` time — never at runtime.
+ *
+ * Transforms performed:
+ * - Extracts getter properties from `def.state` into `def.stateGetters`.
+ * - Expands `$ext`, `$prop`, and bare-value shorthand state declarations to
+ *   full `{ $src, key, default, type }` descriptor form.
+ * - Normalises `bind` entries to `{ key, event, extract }` descriptor form;
+ *   throws if a bind entry conflicts with an interactions entry.
+ * - Normalises `watch` entries to pre-render or post-render descriptor form;
+ *   throws if `afterRender` is combined with `immediate` or `reset`.
+ * - Normalises `interactions` entries to full handler descriptor form.
+ * - Normalises the `host` block to `{ methods, attrs, vars }`.
+ * - Parses `animate.toggle(selector)` keys into `def.animate.toggle`.
+ *
+ * @param {Object} def - Component definition object. Mutated in place.
+ */
 function formatDefMap(def) {
 
 	// state — extract getter properties into def.stateGetters before processing.
@@ -267,6 +285,14 @@ function formatDefMap(def) {
 // Returns a cleanup function that removes all listeners.
 // =============================================================================
 
+/**
+ * Attach delegated input listeners on `ctx.root` for each `bind` entry.
+ * Called after the first render commit. Returns a cleanup function.
+ *
+ * @param {Object} def - Normalised component definition.
+ * @param {Object} ctx - Frozen component ctx.
+ * @returns {Function|null} Cleanup function, or `null` if no bind entries.
+ */
 function wireBind(def, ctx) {
 	if (!Object.keys(def.bind).length) return null;
 	const root      = ctx.root;
@@ -307,6 +333,19 @@ function wireBind(def, ctx) {
 // watch hook — auto-registers off() with ctx.cleanup on disconnect.
 // =============================================================================
 
+/**
+ * Store plugin installed once per `createRuntime` call.
+ * Provides per-component path translation, default value injection,
+ * and automatic watch cleanup on disconnect.
+ *
+ * Hooks added:
+ * - `path`  — translates declared state keys to namespaced store paths
+ *   (`__cl.{id}.*` for local, `__cp.{id}.*` for prop, raw key for external).
+ * - `read`  — injects declared defaults when the store has no value yet.
+ * - `watch` — auto-registers `off()` with `ctx.cleanup` on disconnect.
+ *
+ * @returns {{ methods: Object, hooks: Object }} Plugin descriptor.
+ */
 function scopePlugin() {
 	const stack = [];
 
@@ -370,6 +409,21 @@ function scopePlugin() {
 // State getters are dispatched directly to the getter fn with ctx as 'this'.
 // =============================================================================
 
+/**
+ * Create a per-component reactive state proxy over the global store.
+ * Every property access is auto-wrapped in `store.$withScope(component)`
+ * so path translation is always active — no manual `$withScope` at call sites.
+ *
+ * State getters are intercepted and called with `ctx` as `this`, inside
+ * `$withScope` so their reactive reads are tracked correctly.
+ *
+ * Direct assignment to the proxy throws; use `ctx.state.$set(key, val)`.
+ *
+ * @param {Object} component   - The LitElement component instance.
+ * @param {Object} store       - The global reactive store.
+ * @param {Object} stateGetters - Map of getter key → getter function (from `formatDefMap`).
+ * @returns {Proxy}
+ */
 function createStateProxy(component, store, stateGetters) {
 	return new Proxy({}, {
 		get: function(target, key) {
@@ -414,6 +468,34 @@ function createStateProxy(component, store, stateGetters) {
 // createRuntime
 // =============================================================================
 
+/**
+ * Create a component runtime.
+ * Returns a `{ define(def) }` object. Call `define(def)` for each component
+ * definition to register it as a custom element.
+ *
+ * The runtime wires together:
+ * - LitElement (or any compatible `baseClass`) as the rendering engine
+ * - The fstage store as the reactive state provider
+ * - The component definition standard (state, bind, watch, interactions, etc.)
+ * - Optional capabilities: animation, screen host, interaction extensions
+ *
+ * `ctx` is created per-instance and frozen after `createRenderRoot()`. All
+ * imperative instance state should live in `ctx._` (declared in `constructed`).
+ *
+ * @param {Object} config
+ * @param {Object}   config.store              - Shared reactive store instance.
+ * @param {Function} config.baseClass          - LitElement base class (or compatible).
+ * @param {Object}   config.registry           - Service registry for `inject`.
+ * @param {Object}   [config.ctx]              - Render helpers to expose on ctx
+ *   (e.g. `{ html, css, svg, repeat, classMap }` from lit-html).
+ * @param {Object}   [config.config]           - App config object exposed as `ctx.config`.
+ * @param {Object}   [config.animator]         - Animator with `.animate()`, `.createToggle()`.
+ * @param {Object}   [config.screenHost]       - Screen host for `activated`/`deactivated` hooks.
+ * @param {Object}   [config.interactionsManager] - Interactions manager for event wiring.
+ * @param {string}   [config.skipAttr='data-leaving'] - Attribute that signals host exit.
+ *
+ * @returns {{ define(def: Object): void }}
+ */
 export function createRuntime(config) {
 	config = config || {};
 	let idCounter = 0;

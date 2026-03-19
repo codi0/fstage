@@ -299,7 +299,30 @@ function wrapForm(el, opts={}) {
 	return el;
 }
 
-//create form
+/**
+ * Create or wrap a form element with validation, error display, multi-step,
+ * and field rendering helpers.
+ *
+ * If `el` is a string that matches a `document[el]` property, that element is
+ * used. Otherwise a new `<form>` element is created with the string as its name.
+ * If `el` is already a wrapped form (has `.step`), it is returned as-is.
+ *
+ * The returned element gains the following methods:
+ * - `render(type, name, opts?)` — create and append a form field.
+ * - `step(name?)` — get or set the active multi-step section.
+ * - `err(field?, message?)` — get or set field errors.
+ * - `val(field?, value?)` — get or set field values.
+ * - `reset(field?, skip?)` — reset fields to default values.
+ * - `isValid(field?)` — run validation; returns `true` if all fields pass.
+ *
+ * @param {string|HTMLFormElement} el - Selector name, or an existing form element.
+ * @param {Object} [opts]
+ * @param {Object}   [opts.fields]    - Field definitions: `{ [name]: { validator?, filter?, required? } }`.
+ * @param {string}   [opts.method]    - Form method when creating a new element (default `'post'`).
+ * @param {Function} [opts.onSuccess] - Called with `(values, errors, el)` on valid submit.
+ * @param {Function} [opts.onError]   - Called with `(values, errors, el)` on invalid submit.
+ * @returns {HTMLFormElement} The wrapped form element.
+ */
 export function createForm(el, opts={}) {
 	//element exists?
 	if(typeof el === 'string') {

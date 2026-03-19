@@ -309,6 +309,38 @@ function policyDefaults() {
 
 // EXPORTS
 
+/**
+ * Detect the current runtime environment and return a cached env object.
+ * Results are keyed by `ua + preset` so multiple calls with the same
+ * arguments return the same object.
+ *
+ * @param {Object} [opts]
+ * @param {string} [opts.ua]     - User-agent string (defaults to `navigator.userAgent`).
+ * @param {string} [opts.preset] - Override OS detection: `'ios'`, `'android'`, `'windows'`, `'mac'`.
+ *
+ * @returns {{
+ *   getFacts(): Object,
+ *   registerPolicy(policy: Object|Function, priority?: number): void,
+ *   getPolicy(path?: string, fallback?: *): *,
+ *   applyToDoc(el?: Element): void
+ * }}
+ *
+ * **`getFacts()`** — return a snapshot of detected environment facts:
+ * `{ os, deviceClass, hybrid, hybridEngine, standalone, touch, browser, node,
+ *    worker, notifications, serviceWorker, host, basePath, userAgent }`.
+ *
+ * **`registerPolicy(policy, priority?)`** — merge an additional motion/gesture
+ * policy layer. `policy` may be a plain object or a `(facts) => object` function.
+ * Lower `priority` values win (default `50`). Base platform policy has priority `0`.
+ *
+ * **`getPolicy(path?, fallback?)`** — read a value from the resolved merged policy
+ * by dot-notation path (e.g. `'motion.duration.normalMs'`). Returns the full
+ * policy object when `path` is omitted.
+ *
+ * **`applyToDoc(el?)`** — run once at boot. Sets `data-platform`, `data-hybrid`,
+ * `data-standalone` on the document element, wires keyboard-height CSS var,
+ * and injects all policy scalars as CSS custom properties (`--motion-duration-normal`, etc.).
+ */
 export function getEnv(opts) {
 	opts = opts || {};
 

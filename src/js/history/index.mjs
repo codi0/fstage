@@ -77,6 +77,39 @@ function buildUrl(opts, route) {
 	return cleanDoubleSlashes(url);
 }
 
+/**
+ * Create a browser history adapter that translates between URLs and route strings,
+ * wrapping the native `history` API with push, replace, and popstate support.
+ *
+ * Supports three URL schemes, controlled by `options.urlScheme`:
+ *   - `'hash'`  — route stored in `location.hash` (default; no server config needed)
+ *   - `'query'` — route stored as `?route=<path>` query parameter
+ *   - `'path'`  — route stored in `location.pathname` (requires server-side fallback)
+ *
+ * @param {Object} [options]
+ * @param {'hash'|'query'|'path'} [options.urlScheme='hash'] - URL encoding strategy.
+ * @param {string} [options.basePath='/'] - Path prefix stripped/prepended in path mode.
+ * @param {string} [options.defHome='/']  - Route treated as the home/root (omitted from URL).
+ *
+ * @returns {{
+ *   location(): { route: string, state: Object, href: string },
+ *   on(fn: Function): Function,
+ *   off(fn: Function): void,
+ *   push(route: string, state?: Object, opts?: Object): void,
+ *   replace(route: string, state?: Object, opts?: Object): void,
+ *   back(opts?: Object): void,
+ *   forward(opts?: Object): void,
+ *   go(n: number, opts?: Object): void
+ * }}
+ *
+ * Returned methods:
+ *   - `location()` — snapshot of the current URL as `{ route, state, href }`.
+ *   - `on(fn)` — subscribe to navigation events; returns an `off()` function.
+ *   - `off(fn)` — unsubscribe.
+ *   - `push/replace(route, state?, opts?)` — navigate and optionally emit silently.
+ *   - `back/forward/go` — wrap `history.back/forward/go`. Pass `{ silent: true }` to
+ *     suppress the next popstate emission.
+ */
 export function createBrowserHistory(options) {
 	options = options || {};
 

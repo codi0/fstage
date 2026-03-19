@@ -62,6 +62,32 @@ function normaliseRemote(remote) {
 //     id — record id to delete when payload is absent
 // ---------------------------------------------------------------------------
 
+/**
+ * Create a data handler for use with `createSyncManager`.
+ * Supports two driver types, selected by the shape of the first argument:
+ *
+ * **HTTP driver** (default, `driver` is `'http'` or omitted):
+ * Makes `fetch` and `write` calls against REST endpoints.
+ *   - `opts.baseUrl`       — base URL prepended to the key (e.g. `'https://api.example.com'`)
+ *   - `opts.routes`        — `{ [key]: url }` per-key URL overrides
+ *   - `opts.read.dataPath` — dot-path to unwrap from the response body
+ *   - `opts.read.keyPath`  — convert array response to `{ [keyPath]: record }` map
+ *   - `opts.write.dataPath`— wrap payload as `{ [dataPath]: payload }` before sending
+ *
+ * **Storage driver** (`driver` is a `createStorage()` instance):
+ * Reads and writes against local IDB/memory storage.
+ *   - `opts.namespace`     — storage namespace (defaults to the key at call time)
+ *   - `opts.seedUrl`       — fetch + populate on first read when store is empty
+ *   - `opts.read.keyPath`  — convert rows to `{ [keyPath]: record }` map
+ *   - `opts.write.idPath`  — dot-path in response where a server-assigned id is returned
+ *
+ * **Both drivers:**
+ *   - `opts.latency`       — artificial delay in ms (for dev/testing)
+ *
+ * @param {'http'|Object} driver - `'http'` (or omitted) for HTTP, or a storage instance.
+ * @param {Object} [opts]
+ * @returns {{ read(key: string, callOpts?: Object): Promise<*>, write(key: string, payload: *, callOpts?: Object): Promise<*> }}
+ */
 export function createHandler(driver, opts) {
 	opts = opts || {};
 
@@ -239,6 +265,44 @@ export function createHandler(driver, opts) {
 //   backoffMax     — ms cap for backoff delay (default: 30000)
 // ---------------------------------------------------------------------------
 
+/**
+ * Create a sync manager that bridges local storage and a remote handler,
+ * with an offline-capable write queue that retries with exponential backoff.
+ *
+ * @param {Object} [config]
+ * @param {Object}   [config.localHandler]  - Storage instance (default: `createStorage()`).
+ * @param {Object}   [config.remoteHandler] - Handler from `createHandler()`, or any `{ read, write }` object.
+ * @param {string}   [config.queueKey='syncQueue'] - Local storage key for persisting the retry queue.
+ * @param {number}   [config.interval=30000]       - ms between automatic queue retry sweeps.
+ * @param {number}   [config.maxRetries=5]         - Default max remote write retries per entry.
+ * @param {number}   [config.backoffBase=1000]      - Base ms for exponential backoff.
+ * @param {number}   [config.backoffMax=30000]      - Backoff cap in ms.
+ *
+ * @returns {{
+ *   local: Object,
+ *   remote: Object|null,
+ *   isOnline(): boolean,
+ *   read(key: string, opts?: Object): Promise<*>,
+ *   write(key: string, payload: *, opts?: Object): { promise: Promise<*>, rollback: Function, signal: AbortSignal|null },
+ *   processQueue(): void
+ * }}
+ *
+ * **`read(key, opts)`** — reads local first; fetches remote if local is absent or `opts.refresh` is true.
+ * Returns a Promise. Attaches `.next` when a background remote fetch is in flight.
+ *   - `opts.default`  — fallback when both local and remote are absent
+ *   - `opts.refresh`  — force remote fetch even when local data exists
+ *   - `opts.cache`    — write remote result to local (default `true`)
+ *   - `opts.remote`   — remote key string or `{ key, uri?, params?, dataPath?, keyPath? }`
+ *   - `opts.signal`   — `AbortSignal`
+ *
+ * **`write(key, payload, opts)`** — writes locally then queues a remote write with retry.
+ * Returns `{ promise, rollback, signal }`.
+ *   - `opts.remote`     — remote key or descriptor (omit to skip remote)
+ *   - `opts.skipLocal`  — skip the local write (caller already wrote locally)
+ *   - `opts.delete`     — treat as a delete
+ *   - `opts.idPath`     — dot-path in remote response for server-assigned id
+ *   - `opts.maxRetries` — per-write retry override
+ */
 export function createSyncManager(config) {
 	config = Object.assign({
 		queueKey:    'syncQueue',

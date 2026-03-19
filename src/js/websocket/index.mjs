@@ -1,4 +1,47 @@
-//create websocket
+/**
+ * Create a WebSocket connection with automatic reconnection, a send queue
+ * (flushes on reconnect), and channel-based pub/sub helpers.
+ *
+ * The `http://` or `https://` scheme in `url` is automatically converted to
+ * `ws://` / `wss://`. The connection is opened immediately unless
+ * `opts.open: false` is passed.
+ *
+ * @param {string} url - WebSocket server URL (http/https schemes are accepted).
+ * @param {Object} [opts]
+ * @param {string[]} [opts.protocols=[]]  - Sub-protocols passed to `new WebSocket()`.
+ * @param {number}   [opts.retries=50]    - Max reconnect attempts before giving up.
+ * @param {number}   [opts.wait=2000]     - Ms to wait between reconnect attempts.
+ * @param {boolean}  [opts.open=true]     - Open the connection immediately.
+ *
+ * @returns {{
+ *   ws: WebSocket|null,
+ *   open(): Object,
+ *   close(code?: number, reason?: string): Object,
+ *   send(data: *, opts?: Object): Object,
+ *   on(event: string, listener: Function): Object,
+ *   off(event: string, listener: Function): Object,
+ *   trigger(event: string, data: *): Object,
+ *   subscribe(channel: string, listener: Function): Object,
+ *   unsubscribe(channel: string, listener: Function): Object,
+ *   publish(channel: string, data: *): Object
+ * }}
+ *
+ * All methods return the api instance for chaining.
+ *
+ * **`on(event, listener)`** — listen to raw socket events (`'open'`,
+ * `'message'`, `'error'`, `'close'`) or custom JSON events by name.
+ *
+ * **`trigger(event, data)`** — send a `{ event, data }` JSON message.
+ *
+ * **`subscribe(channel, listener)`** — subscribe to a channel. Sends a
+ * `{ event: 'subscribe', channel }` message to the server.
+ *
+ * **`publish(channel, data)`** — send a `{ event: 'publish', channel, data }`
+ * message to the server.
+ *
+ * **`send(data, opts?)`** — send raw data. `opts.encode: true` JSON-stringifies
+ * before sending. `opts.queue: true` re-queues even when connected.
+ */
 export function createWebsocket(url, opts={}) {
 
 	//format url

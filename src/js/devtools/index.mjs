@@ -52,6 +52,56 @@
 // createDevtools
 // =============================================================================
 
+/**
+ * Create a devtools hub for inspecting and time-travelling the store, sync,
+ * and storage layers. Entirely opt-in — zero cost when not connected.
+ *
+ * @param {Object} [opts]
+ * @param {number} [opts.maxEvents=500] - Maximum events to keep in the log.
+ *
+ * @returns {{
+ *   connectStore(store: Object): void,
+ *   connectSync(syncManager: Object): void,
+ *   connectStorage(storage: Object): void,
+ *   subscribe(cb: Function): Function,
+ *   travel(idx: number): void,
+ *   toLive(): void,
+ *   back(): void,
+ *   forward(): void,
+ *   events: Array,
+ *   cursor: number,
+ *   isLive: boolean,
+ *   canBack: boolean,
+ *   canForward: boolean,
+ *   eventsByLayer(layer: string): Array,
+ *   eventsByType(type: string): Array,
+ *   pause(): void,
+ *   resume(): void,
+ *   paused: boolean,
+ *   clear(): void,
+ *   destroy(): void
+ * }}
+ *
+ * **`connectStore(store)`** — instrument a store instance via `$hook`. Captures
+ * state diffs and full snapshots for time-travel on every write.
+ *
+ * **`connectSync(syncManager)`** — wrap `syncManager.read` and `.write` with
+ * timing shims. Also monitors online/offline transitions.
+ *
+ * **`connectStorage(storage)`** — wrap `storage.read`, `.write`, and `.query`
+ * with timing shims.
+ *
+ * **`subscribe(cb)`** — subscribe to snapshot updates. `cb` is called
+ * immediately with the current snapshot, and after every subsequent event.
+ * Returns an unsubscribe function. Snapshot shape:
+ * `{ events, cursor, storeState, syncQueue, online }`.
+ *
+ * **`travel(idx)`** — restore store state to the snapshot at event index `idx`.
+ * Requires `connectStore()`. Only store-write events carry snapshots.
+ *
+ * **`back()` / `forward()`** — step to the previous/next store snapshot.
+ * `forward()` at the end returns to live mode.
+ */
 export function createDevtools(opts) {
 	opts = opts || {};
 	const maxEvents = opts.maxEvents || 500;

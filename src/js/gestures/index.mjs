@@ -141,6 +141,17 @@ function canStartPointer(e, opts, defaultExclude) {
 //   onCancel,          // (event) => void
 // }
 
+/**
+ * Create a pan-from-edge gesture recogniser. Tracks pointer movement
+ * originating within `edgeWidthPx` of the specified screen edge and
+ * fires `onStart`/`onProgress`/`onCommit`/`onCancel` callbacks.
+ *
+ * Intended for interactive back-navigation. Works with `createGestureManager`
+ * via `manager.on('edgePan', opts)` or standalone.
+ *
+ * @param {Object} [options] - See inline options block above for full details.
+ * @returns {{ onPointerDown: Function, onPointerMove: Function, onPointerUp: Function, onPointerCancel: Function }}
+ */
 export function createEdgePanGesture(options = {}) {
   const {
     target,
@@ -314,6 +325,15 @@ export function createEdgePanGesture(options = {}) {
 //   onCancel,          // (event) => void
 // }
 
+/**
+ * Create a swipe gesture recogniser. Physically translates the target element
+ * during the drag; snaps back on cancel and flies off on commit.
+ *
+ * Works with `createGestureManager` via `manager.on('swipe', opts)` or standalone.
+ *
+ * @param {Object} [options] - See inline options block above for full details.
+ * @returns {{ onPointerDown: Function, onPointerMove: Function, onPointerUp: Function, onPointerCancel: Function }}
+ */
 export function createSwipeGesture(options = {}) {
   const {
     target,
@@ -565,6 +585,16 @@ export function createSwipeGesture(options = {}) {
 //   onCancel,      // () => void
 // }
 
+/**
+ * Create a long-press gesture recogniser. Fires `onStart` after a sustained
+ * hold without significant movement. Triggers haptic feedback on supported
+ * devices. Never claims the pointer exclusively — co-exists with swipe and scroll.
+ *
+ * Works with `createGestureManager` via `manager.on('longPress', opts)` or standalone.
+ *
+ * @param {Object} [options] - See inline options block above for full details.
+ * @returns {{ onPointerDown: Function, onPointerMove: Function, onPointerUp: Function, onPointerCancel: Function }}
+ */
 export function createLongPressGesture(options = {}) {
   const {
     target,
@@ -642,6 +672,15 @@ export function createLongPressGesture(options = {}) {
 //   onTap,       // (event) => void  event: { target, x, y }
 // }
 
+/**
+ * Create a tap gesture recogniser. Distinguishes an intentional tap from
+ * accidental touches or scroll initiation by checking distance and duration.
+ *
+ * Works with `createGestureManager` via `manager.on('tap', opts)` or standalone.
+ *
+ * @param {Object} [options] - See inline options block above for full details.
+ * @returns {{ onPointerDown: Function, onPointerMove: Function, onPointerUp: Function, onPointerCancel: Function }}
+ */
 export function createTapGesture(options = {}) {
   const {
     target,
@@ -706,6 +745,33 @@ export function createTapGesture(options = {}) {
 //   const stop = manager.on('swipe', { target: rowEl, directions: ['left','right'], ... });
 //   stop(); // unregister
 
+/**
+ * Create a gesture manager that owns a single pointer event loop on a root
+ * element and dispatches to all registered gesture instances in order.
+ *
+ * Multiple gestures can be `'pending'` simultaneously on the same pointer;
+ * the first to claim on `pointermove` wins exclusively. Non-claiming gestures
+ * (longPress, tap) co-exist safely with claiming ones (edgePan, swipe).
+ *
+ * Built-in gesture types: `'edgePan'`, `'swipe'`, `'longPress'`, `'tap'`.
+ * Register custom types with `manager.add(type, factory)`.
+ *
+ * @param {Object} [config]
+ * @param {Element}  [config.rootEl]  - Default root element for `start()`.
+ * @param {Object}   [config.policy]  - Per-gesture-type policy overrides.
+ *
+ * @returns {{
+ *   start(rootEl?: Element): void,
+ *   stop(): void,
+ *   on(type: string, options: Object): Function,
+ *   add(type: string, factory: Function): void
+ * }}
+ *
+ * **`start(rootEl?)`** — attach pointer listeners to `rootEl` (or `config.rootEl`).
+ * **`stop()`** — detach all listeners and cancel in-flight gestures.
+ * **`on(type, options)`** — register a gesture instance; returns an `off()` function.
+ * **`add(type, factory)`** — register a custom gesture type factory.
+ */
 export function createGestureManager(config = {}) {
   const registry = [];          // ordered list of gesture instances { type, instance }
   const claimed  = new Map();   // pointerId -> gesture instance
@@ -916,6 +982,18 @@ export function createGestureManager(config = {}) {
 
 // Pre-built extension for interactionsManager.extend('gesture', ...).
 // Bridges gesture.xxx interaction keys to gestureManager.on().
+/**
+ * Create a pre-built `interactionsManager.extend()` handler that bridges
+ * `gesture.xxx` interaction keys to `gestureManager.on()`.
+ *
+ * Usage:
+ * ```js
+ * interactionsManager.extend('gesture', gestureInteraction(gestureManager));
+ * ```
+ *
+ * @param {Object} gestureManager - A `createGestureManager()` instance.
+ * @returns {Function} Extension handler for `interactionsManager.extend('gesture', ...)`.
+ */
 export function gestureInteraction(gestureManager) {
   return function(action, selector, value, ctx) {
     var target = selector ? ctx.root.querySelector(selector) : ctx.root;

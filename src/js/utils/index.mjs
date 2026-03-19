@@ -1,4 +1,10 @@
-//get input type
+/**
+ * Return a normalised type string for any value.
+ * More specific than `typeof` — distinguishes null, array, date, regexp, set, map.
+ *
+ * @param {*} input
+ * @returns {'null'|'undefined'|'boolean'|'number'|'string'|'function'|'array'|'date'|'regexp'|'set'|'map'|'object'}
+ */
 export function getType(input) {
 	if (input === null) return 'null';
 	if (input === undefined) return 'undefined';
@@ -12,7 +18,12 @@ export function getType(input) {
 	return 'object';
 }
 
-//has object got keys
+/**
+ * Return `true` if `input` is a non-null object or non-empty string with at least one own enumerable key.
+ *
+ * @param {*} input
+ * @returns {boolean}
+ */
 export function hasKeys(input) {
 	if (input) {
 		for (const i in input) return true;
@@ -20,7 +31,13 @@ export function hasKeys(input) {
 	return false;
 }
 
-//is empty value
+/**
+ * Return `true` for values that are semantically "empty":
+ * zero-length strings/arrays, empty objects, `null`, `false`, and `0`.
+ *
+ * @param {*} value
+ * @returns {boolean}
+ */
 export function isEmpty(value) {
 	//has length?
 	if(value && value.length !== undefined) {
@@ -34,20 +51,43 @@ export function isEmpty(value) {
 	return (value === null || value === false || value == 0);
 }
 
-//remove item from array
+/**
+ * Remove the first occurrence of `val` from `arr` in place.
+ * Returns the mutated array.
+ *
+ * @template T
+ * @param {T[]} arr
+ * @param {T} val
+ * @returns {T[]}
+ */
 export function spliceArr(arr, val) {
 	const idx = arr.indexOf(val);
 	if (idx !== -1) arr.splice(idx, 1);
 	return arr;
 }
 
-//extend object
+/**
+ * Shallow-merge all argument objects into `obj` (left to right) and return the result.
+ * Thin wrapper around `Object.assign`.
+ *
+ * @param {Object} [obj={}]
+ * @param {...Object} sources
+ * @returns {Object}
+ */
 export function extend(obj={}) {
 	var args = [].slice.call(arguments);
 	return Object.assign(...args);
 }
 
-//copy input
+/**
+ * Copy a value. Primitives and unrecognised class instances are returned as-is.
+ * Handles plain objects, arrays, Date, RegExp, Set, Map, ArrayBuffer, and typed arrays.
+ *
+ * @param {*} input - Value to copy.
+ * @param {boolean} [deep=false] - Recursively deep-clone nested structures.
+ * @param {WeakMap} [seen=null] - Internal cycle-guard; pass `null` on external calls.
+ * @returns {*} A shallow or deep copy, depending on `deep`.
+ */
 export function copy(input, deep = false, seen = null) {
 	if(input === null || typeof input !== 'object') return input;
 	const c = input.constructor;
@@ -91,7 +131,13 @@ export function copy(input, deep = false, seen = null) {
 	return clone;
 }
 
-//loop through input
+/**
+ * Iterate over an object's own enumerable keys or an array (or single value wrapped in an array).
+ * Callback signature: `fn(value, key, input)`.
+ *
+ * @param {Object|Array|*} input
+ * @param {Function} fn
+ */
 export function forEach(input, fn) {
 	//is empty?
 	if(!input) return;
@@ -117,7 +163,12 @@ export function forEach(input, fn) {
 	}
 }
 
-//input to string
+/**
+ * Convert `input` to a string. Objects are JSON-serialised; strings pass through.
+ *
+ * @param {*} input
+ * @returns {string}
+ */
 export function toString(input) {
 	//convert to string?
 	if(typeof input !== 'string') {
@@ -127,7 +178,14 @@ export function toString(input) {
 	return input;
 }
 
-//hash input
+/**
+ * Compute a fast 32-bit non-cryptographic hash from one or more arguments.
+ * Multiple arguments are joined with `:` before hashing.
+ * Uses a cyrb53-family double-MurmurHash mix.
+ *
+ * @param {...*} args - Values to hash. Non-strings are JSON-serialised.
+ * @returns {number} Unsigned 32-bit integer hash.
+ */
 export function hash(input) {
 	var parts = [];
 	for (var i = 0; i < arguments.length; i++) {
@@ -147,7 +205,13 @@ export function hash(input) {
 	return 4294967296 * (2097151 & h2) + (h1 >>> 0);
 }
 
-//cache function result
+/**
+ * Return a memoised version of `fn`. Results are cached by a hash of all arguments.
+ *
+ * @template {Function} F
+ * @param {F} fn
+ * @returns {F}
+ */
 export function memoize(fn) {
 	var cache = {};
 	return function() {
@@ -157,7 +221,14 @@ export function memoize(fn) {
 	};
 }
 
-//debounce function call
+/**
+ * Return a debounced version of `fn` that delays invocation until `wait` ms
+ * have elapsed since the last call.
+ *
+ * @param {Function} fn
+ * @param {number} [wait=100] - Delay in milliseconds.
+ * @returns {Function}
+ */
 export function debounce(fn, wait) {
 	wait = wait !== undefined ? wait : 100;
 	var tid;
@@ -171,17 +242,33 @@ export function debounce(fn, wait) {
 	};
 }
 
-//is url
+/**
+ * Return `true` if `input` looks like an absolute or relative URL.
+ *
+ * @param {string} input
+ * @returns {boolean}
+ */
 export function isUrl(input) {
 	return input.match(/(http(s)?:\/\/.)?(www\.)?[-a-zA-Z0-9@:%._\+~#=]{2,256}\.[a-z]{2,6}\b([-a-zA-Z0-9@:%_\+.~#?&//=]*)/g) !== null;
 }
 
-//capitalize input
+/**
+ * Return `input` with its first character uppercased.
+ *
+ * @param {string} input
+ * @returns {string}
+ */
 export function capitalize(input) {
 	return input ? input.charAt(0).toUpperCase() + input.slice(1) : '';
 }
 
-//parse html
+/**
+ * Parse an HTML string into a `NodeList`, or normalise an existing element.
+ *
+ * @param {string|Element|NodeList} input
+ * @param {boolean} [first=false] - Return only the first node/element instead of the full list.
+ * @returns {NodeList|Element|null}
+ */
 export function parseHTML(input, first=false) {
 	//parse html string?
 	if(typeof input === 'string') {
@@ -195,7 +282,13 @@ export function parseHTML(input, first=false) {
 	return first ? (input[0] || null) : input;
 }
 
-//parse svg
+/**
+ * Parse an SVG markup string into child nodes, or normalise an existing element.
+ *
+ * @param {string|Element|NodeList} input
+ * @param {boolean} [first=false] - Return only the first node/element instead of the full list.
+ * @returns {NodeList|Element|null}
+ */
 export function parseSVG(input, first=false) {
 	//parse svg string?
 	if(typeof input === 'string') {
@@ -209,14 +302,25 @@ export function parseSVG(input, first=false) {
 	return first ? (input[0] || null) : input;
 }
 
-//strip html
+/**
+ * Strip all HTML tags from `html` and return the plain text content.
+ *
+ * @param {string} html
+ * @returns {string}
+ */
 export function stripHTML(html) {
 	var el = document.createElement('div');
 	el.innerHTML = String(html);
 	return el.textContent;
 }
 
-//escape input
+/**
+ * Escape `input` for safe insertion into a given context.
+ *
+ * @param {*} input
+ * @param {'html'|'attr'|'js'|'css'} [type='html']
+ * @returns {string}
+ */
 export function esc(input, type='html') {
 	return type ? esc[type](input) : input;
 }
@@ -244,7 +348,13 @@ esc.css = function(input) {
 	return input;
 };
 
-//decode input
+/**
+ * Decode an escaped string. Currently supports `'html'` decoding via DOMParser.
+ *
+ * @param {string} input
+ * @param {'html'} [type='html']
+ * @returns {string}
+ */
 export function decode(input, type='html') {
 	return type ? decode[type](input) : input;
 }
@@ -254,7 +364,16 @@ decode.html = function(input) {
 	return (new DOMParser()).parseFromString(input, "text/html").documentElement.textContent;
 };
 
-//get or set nested key
+/**
+ * Get or set a value at a dot-notation path within a nested object.
+ *
+ * @param {Object} input - Root object to read from / write to.
+ * @param {string} key   - Dot-notation path, e.g. `'user.address.city'`.
+ * @param {{ val?: *, default?: * }} [opts]
+ *   - `val`     — if present, sets the value at `key` (pass `undefined` to delete).
+ *   - `default` — fallback when the path is not found during a read.
+ * @returns {*} The read value (when `opts.val` is absent) or `input` (when setting).
+ */
 export function nestedKey(input, key, opts) {
 	//set vars
 	var res = input;
@@ -307,7 +426,15 @@ export function nestedKey(input, key, opts) {
 	return hasVal ? input : res;
 }
 
-//check value equality
+/**
+ * Deep structural equality check.
+ * Handles primitives, Date, RegExp, Set, Map, arrays, and plain objects.
+ * Returns `true` when `a` and `b` are structurally identical.
+ *
+ * @param {*} a
+ * @param {*} b
+ * @returns {boolean}
+ */
 export function isEqual(a, b) {
 	//is same?
 	if(a === b) {
@@ -393,7 +520,17 @@ export function isEqual(a, b) {
 	return a === b;
 }
 
-//diff values
+/**
+ * Compute a list of changed leaf-level paths between `oldVal` and `newVal`.
+ * Each change entry: `{ action: 'add'|'update'|'remove', path, val, oldVal }`.
+ * Handles nested objects and arrays; guards against circular references.
+ *
+ * @param {*} oldVal
+ * @param {*} newVal
+ * @param {string} [path=''] - Dot-prefix for nested recursion.
+ * @param {WeakSet} [processed=null] - Internal cycle guard.
+ * @returns {Array<{action: string, path: string, val: *, oldVal: *}>}
+ */
 export function diffValues(oldVal, newVal, path='', processed=null) {
 	var changes = [];
 
@@ -479,9 +616,19 @@ export function diffValues(oldVal, newVal, path='', processed=null) {
 	return changes;
 }
 
-//schedule helper — queues a fn for micro / macro / animation-frame execution
-//type: 'sync' | 'micro' | 'macro' | 'frame' | 'frame2'
-//allowDupes: allow the same fn to be queued more than once per flush
+/**
+ * Queue `fn` for deferred execution. Identical functions are deduplicated per
+ * queue slot unless `allowDupes` is true.
+ *
+ * @param {Function} fn
+ * @param {'sync'|'micro'|'macro'|'frame'|'frame2'} type
+ *   - `sync`   — call immediately (no queuing)
+ *   - `micro`  — `queueMicrotask`
+ *   - `macro`  — `setTimeout(fn, 0)`
+ *   - `frame`  — `requestAnimationFrame`
+ *   - `frame2` — two `requestAnimationFrame` ticks (post-paint)
+ * @param {boolean} [allowDupes=false] - Allow the same fn to be queued multiple times.
+ */
 export function schedule(fn, type, allowDupes) {
 	if (!schedule.__queued) {
 		schedule.__queued   = {};
@@ -517,7 +664,9 @@ export function schedule(fn, type, allowDupes) {
 	});
 }
 
-// Clear any active text selection
+/**
+ * Clear any active text selection in the document.
+ */
 export function clearSelection() {
 	try {
 		var sel = globalThis.getSelection ? globalThis.getSelection() : null;
@@ -525,9 +674,14 @@ export function clearSelection() {
 	} catch (err) {}
 }
 
-// Creates a ref-counted toggle — safe for concurrent callers.
-// on() and off() are called only when the count transitions 0→1 and 1→0.
-// Returns a function: call with true to increment, false to decrement.
+/**
+ * Create a reference-counted toggle. `on` fires when the count goes 0 → 1;
+ * `off` fires when it goes 1 → 0. Safe for multiple concurrent callers.
+ *
+ * @param {Function} on  - Called when the first caller activates.
+ * @param {Function} off - Called when the last caller deactivates.
+ * @returns {function(boolean): void} Call with `true` to increment, `false` to decrement.
+ */
 export function createRefCountedToggle(on, off) {
 	var count = 0;
 	return function(active) {
@@ -541,7 +695,14 @@ export function createRefCountedToggle(on, off) {
 	};
 }
 
-// css to string
+/**
+ * Serialise a CSSResult, CSSResult[], or string to a plain CSS string.
+ * Optionally replaces `:host` selectors with `tagName`.
+ *
+ * @param {string|{cssText:string}|Array} css
+ * @param {string} [tagName]
+ * @returns {string}
+ */
 export function cssToString(css, tagName) {
     if (Array.isArray(css)) {
         return css.map(s => cssToString(s, tagName)).join('\n');
@@ -557,7 +718,13 @@ export function cssToString(css, tagName) {
     return css;
 }
 
-// css to sheet
+/**
+ * Convert a CSS value to a `CSSStyleSheet` via `adoptedStyleSheets`.
+ *
+ * @param {string|{cssText:string}|Array} css
+ * @param {string} [tagName] - Replaces `:host` selectors when provided.
+ * @returns {CSSStyleSheet|null}
+ */
 export function cssToSheet(css, tagName) {
     const cssText = cssToString(css, tagName);
     if (!cssText) return null;
@@ -566,7 +733,13 @@ export function cssToSheet(css, tagName) {
     return sheet;
 }
 
-// adopt css stylesheet
+/**
+ * Adopt a stylesheet into `root.adoptedStyleSheets` if not already present.
+ *
+ * @param {Document|ShadowRoot} root
+ * @param {string|{cssText:string}|Array} css
+ * @param {string} [tagName] - Replaces `:host` selectors when provided.
+ */
 export function adoptStyleSheet(root, css, tagName) {
     const sheet = cssToSheet(css, tagName);
     if (sheet && root.adoptedStyleSheets && !root.adoptedStyleSheets.includes(sheet)) {
@@ -574,7 +747,13 @@ export function adoptStyleSheet(root, css, tagName) {
     }
 }
 
-//get global css
+/**
+ * Return all current document stylesheets as `CSSStyleSheet` instances.
+ * Result is cached after the first call unless `useCache` is `false`.
+ *
+ * @param {boolean} [useCache=true]
+ * @returns {CSSStyleSheet[]}
+ */
 export function getGlobalCss(useCache=true) {
 	//generate cache?
 	if(!useCache || !getGlobalCss.__$cache) {
@@ -594,8 +773,16 @@ export function getGlobalCss(useCache=true) {
 	return getGlobalCss.__$cache;
 }
 
-//emulate calling class 'super'
-export 	function callSuper(instance, method, args = []) {
+/**
+ * Walk the prototype chain of `instance` and call the nearest ancestor
+ * implementation of `method` (i.e. emulate `super.method()`).
+ *
+ * @param {Object} instance
+ * @param {string} method
+ * @param {Array}  [args=[]]
+ * @returns {*}
+ */
+export function callSuper(instance, method, args = []) {
 	//get parent prototype
 	var proto = Object.getPrototypeOf(instance.constructor.prototype);
 	//walk up the prototype chain
@@ -611,7 +798,20 @@ export 	function callSuper(instance, method, args = []) {
 	throw new Error(`Method ${method} not found in prototype chain`);
 }
 
-//hooks wrapper
+/**
+ * Create a named-hook registry.
+ * Multiple handlers can be registered per name; `run()` invokes them in order,
+ * passing a shared event object `e` and returning it after all handlers run.
+ *
+ * @returns {{
+ *   has(name: string): boolean,
+ *   get(name: string): Function[],
+ *   add(name: string, fn: Function): void,
+ *   remove(name: string, fn: Function): void,
+ *   run(name: string, e: Object): Object,
+ *   clear(): void
+ * }}
+ */
 export function createHooks() {
   const map = new Map();
   return {

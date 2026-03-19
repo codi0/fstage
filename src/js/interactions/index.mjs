@@ -129,6 +129,32 @@ function activateDomEvent(root, isShadow, eventName, selector, handler) {
 }
 
 // Interactions Manager export
+/**
+ * Create an interactions manager that wires a component's declarative
+ * `interactions` block to DOM events and registered extension groups.
+ *
+ * **Key formats:**
+ * - `'click(.selector)'` — delegated DOM event on `ctx.root`
+ * - `'click(document)'` / `'click(window)'` — global listener
+ * - `'gesture.swipe(.row)'` — prefixed extension group (requires `extend()`)
+ *
+ * @returns {{
+ *   extend(group: string, handler: Function): void,
+ *   dispatch(host: Element, type: string, detail?: *, opts?: Object): boolean,
+ *   activate(interactions: Object, ctx: Object): Function
+ * }}
+ *
+ * **`extend(group, handler)`** — register a handler for a prefixed interaction
+ * group. `handler(action, selector, value, ctx)` should return an `off`
+ * function or void.
+ *
+ * **`dispatch(host, type, detail?, opts?)`** — dispatch a `CustomEvent` from
+ * the host element (`bubbles: true, composed: true` by default).
+ *
+ * **`activate(interactions, ctx)`** — wire all entries in the interactions map
+ * for a component instance. Returns a single cleanup function that removes all
+ * listeners when called.
+ */
 export function createInteractionsManager() {
 	const extensions = {};
 

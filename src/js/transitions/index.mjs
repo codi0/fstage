@@ -38,6 +38,31 @@
 // TRANSITION ENGINE (core)
 // ------------------------------------------------------
 
+/**
+ * Create a screen transition engine that orchestrates mount/unmount,
+ * animation, and lifecycle hooks (activate/deactivate) for page-level
+ * transitions. Supports cancellable/interruptible transitions via tokens.
+ *
+ * At most two screens are mounted simultaneously during a transition.
+ * Starting a new `run()` while one is in progress cancels the previous run.
+ *
+ * @param {Object} [options]
+ * @param {Object} [options.animator]   - Animator instance with `.start()` method.
+ * @param {Object} [options.screenHost] - Screen host from `createScreenHost()`.
+ *
+ * @returns {{
+ *   current(): Object|null,
+ *   run(nextEntry: Object, opts?: Object): Promise<void|Object>,
+ *   cancel(): boolean
+ * }}
+ *
+ * **`run(nextEntry, opts)`** — transition to `nextEntry`.
+ * `opts`: `{ interactive, transition, policy }`.
+ * Returns an interactive controller `{ progress, commit, cancel, destroy }` when
+ * `opts.interactive` is `true`; otherwise returns a plain Promise.
+ *
+ * **`cancel()`** — abort the in-flight transition immediately.
+ */
 export function createTransitionEngine(options) {
   options = options || {};
 
@@ -205,6 +230,36 @@ export function createTransitionEngine(options) {
 // SCREEN HOST
 // ------------------------------------------------------
 
+/**
+ * Create a screen host that manages mounting, unmounting, and activating
+ * screen elements inside a container element.
+ *
+ * Implements the lifecycle contract expected by `createTransitionEngine`:
+ * `mount`, `unmount`, `activate`, `deactivate`, `abort`.
+ *
+ * Each screen entry must have `entry.meta.component` — the custom element tag
+ * name to render. `screenHost.mount()` creates a wrapper div, appends the
+ * component element, and sets `entry.target`.
+ *
+ * @param {Object} [options]
+ * @param {Element} [options.el]          - Container element for screen wrappers.
+ * @param {string}  [options.name]        - App name appended to document title on activate.
+ * @param {boolean} [options.inlineCss=true] - Apply inline position/overflow styles to wrappers.
+ * @param {Object}  [options.actions]     - Override any default lifecycle action.
+ *
+ * @returns {{
+ *   mount(next: Object, prev?: Object): void,
+ *   unmount(prev: Object): void,
+ *   activate(next: Object, prev?: Object): void,
+ *   deactivate(prev: Object): void,
+ *   abort(next: Object, prev?: Object): void,
+ *   on(name: string, fn: Function): Function,
+ *   start(rootEl?: Element): void
+ * }}
+ *
+ * **`on(name, fn)`** — subscribe to lifecycle events (`mount`, `unmount`,
+ * `activate`, `deactivate`, `abort`). Returns an unsubscribe function.
+ */
 export function createScreenHost(options) {
   options = options || {};
 
@@ -337,6 +392,14 @@ export const ACCOMPANY_ATTRS = {
   entering: 'data-accompany-entering',
 };
 
+/**
+ * Instantly snap an element to its final visible/hidden state without a
+ * transition. Clears all in-flight accompany attributes.
+ * Use in `rendered()` when `data-transitioning` is not active.
+ *
+ * @param {Element} el
+ * @param {boolean} visible
+ */
 export function accompanySettle(el, visible) {
   var A = ACCOMPANY_ATTRS;
   el.style.height = '';
@@ -356,6 +419,18 @@ export function accompanySettle(el, visible) {
 
 var DEFAULT_EVENTS = { mount: 'mount', activate: 'activate', abort: 'abort' };
 
+/**
+ * Create a pre-built `interactionsManager.extend()` handler for elements that
+ * animate alongside page transitions (e.g. tab bars, toolbars, side panels).
+ *
+ * Listens to the emitter's `mount`/`activate`/`abort` events and applies
+ * `data-accompany-*` attributes to drive CSS transitions on the element.
+ *
+ * @param {Object} emitter          - Event emitter with `on(name, fn)` (e.g. `screenHost`).
+ * @param {Object} [events]         - Override default event name mapping:
+ *   `{ mount, activate, abort }` (defaults to `screenHost` event names).
+ * @returns {Function} Extension handler for `interactionsManager.extend('transition.accompany', ...)`.
+ */
 export function accompanyInteraction(emitter, events) {
   events = Object.assign({}, DEFAULT_EVENTS, events || {});
 
@@ -437,6 +512,18 @@ export function accompanyInteraction(emitter, events) {
   };
 }
 
+/**
+ * Create a pre-built `interactionsManager.extend()` handler that forwards
+ * all `screenHost.on(action, ...)` calls to the `interactions` block.
+ *
+ * Usage:
+ * ```js
+ * interactionsManager.extend('screenHost', screenHostInteraction(screenHost));
+ * ```
+ *
+ * @param {Object} screenHost - A `createScreenHost()` instance.
+ * @returns {Function} Extension handler for `interactionsManager.extend('screenHost', ...)`.
+ */
 export function screenHostInteraction(screenHost) {
   return function(action, selector, value, ctx) {
     return screenHost.on(action, function(next, prev) {

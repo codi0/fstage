@@ -25,6 +25,22 @@ import { getType, hasKeys, copy, nestedKey, diffValues, hash, isEqual, createHoo
 // createTracker
 // =============================================================================
 
+/**
+ * Create a dependency tracker — the reactive primitive underlying `$effect`,
+ * `$computed`, `$track`, and component render tracking.
+ *
+ * Usage: wrap reads inside `capture(item, fn)` to record which paths `fn` touches.
+ * Later, when any of those paths change, call `item.invalidate()` to re-run.
+ *
+ * @returns {{
+ *   touch(path: string): void,
+ *   capture(item: {deps: Set, invalidate: Function}, fn: Function): void,
+ *   dispose(item: {deps: Set}): void,
+ *   map: Map<string, Set>,
+ *   stack: Array,
+ *   runId: number
+ * }}
+ */
 export function createTracker() {
   const trackerMap   = new Map();
   const trackerStack = [];
@@ -313,8 +329,16 @@ export function createBase(config) {
 // createPlain
 // =============================================================================
 
+/**
+ * Create a plain-object store with the base plugin system wired up.
+ * Use `store.$extend(storePlugin)` to add the public `$get`/`$set`/`$watch` API.
+ * For most app usage, prefer `createStore()` instead.
+ *
+ * @param {Object} [config] - Same options as `createBase`.
+ * @returns {Object} Plain store instance (no `$` methods until plugins are extended).
+ */
 export function createPlain(config) {
-  return createBase(config).setup();
+	return createBase(config).setup();
 }
 
 
@@ -322,6 +346,16 @@ export function createPlain(config) {
 // createProxy
 // =============================================================================
 
+/**
+ * Create a deep reactive Proxy store.
+ * Direct property reads and writes are intercepted and routed through the store
+ * engine, giving fine-grained reactivity without explicit `$get`/`$set` calls.
+ * Use `store.$extend(storePlugin)` to add the public `$` API.
+ * For most app usage, prefer `createStore({ useProxy: true })` instead.
+ *
+ * @param {Object} [config] - Same options as `createBase`.
+ * @returns {Proxy} Proxy store instance.
+ */
 export function createProxy(config) {
   const ctx        = createBase(config);
   const api        = {};
@@ -385,6 +419,17 @@ export function createProxy(config) {
 // immediate synchronous delivery.
 // =============================================================================
 
+/**
+ * Core store plugin — mounts `$has`, `$get`, `$set`, `$merge`, `$del`, `$reset`,
+ * `$watch`, and `$raw` onto the store instance.
+ *
+ * Watch delivery is **async by default** (queued via `queueMicrotask`), coalescing
+ * multiple synchronous writes into a single notification per path. Pass
+ * `{ sync: true }` to `$watch` for synchronous delivery.
+ *
+ * @param {Object} ctx - Internal store context from `createBase`.
+ * @returns {{ methods: Object, hooks: Object }} Plugin descriptor.
+ */
 export function storePlugin(ctx) {
   const subs        = new Map();
   const syncSubs    = new Set(); // callbacks registered with { sync: true }
@@ -633,6 +678,17 @@ export function storePlugin(ctx) {
 // reactivePlugin — $effect, $computed, $track
 // =============================================================================
 
+/**
+ * Reactive plugin — mounts `$effect`, `$computed`, and `$track` onto the store.
+ *
+ * - `$effect(fn)` — re-runs `fn` whenever any store value it reads changes.
+ * - `$computed(fn)` — lazy derived value; recomputes only when dependencies change.
+ * - `$track(owner?, fn)` — like `$effect` but `fn` returns an invalidation callback
+ *   called before each re-run. Used internally by the component runtime.
+ *
+ * @param {Object} ctx - Internal store context from `createBase`.
+ * @returns {{ methods: Object, hooks: Object }} Plugin descriptor.
+ */
 export function reactivePlugin(ctx) {
   const activeEffects = new Set();
   const ownerMap      = new WeakMap();
@@ -766,6 +822,18 @@ export function reactivePlugin(ctx) {
 //   { append: true }) to load the next page — results are merged into the store.
 // =============================================================================
 
+/**
+ * Operation plugin — mounts `$operation`, `$fetch`, `$send`, `$query`, and `$opStatus`.
+ *
+ * A single `$operation` definition owns the full data lifecycle for a store path:
+ * fetching, caching, TTL, optimistic updates, rollback, cancellation, and pagination.
+ *
+ * The fetch hook is triggered automatically when the path is read for the first time
+ * (or when stale). The mutate hook fires synchronously whenever the path is written.
+ *
+ * @param {Object} ctx - Internal store context from `createBase`.
+ * @returns {{ methods: Object, hooks: Object }} Plugin descriptor.
+ */
 export function operationPlugin(ctx) {
 
   // --------------------------------------------------------------------------

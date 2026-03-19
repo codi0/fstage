@@ -1,7 +1,49 @@
 //private vars
 const _cache = {};
 
-//webpush wrapper
+/**
+ * Create a Web Push notification manager.
+ *
+ * Call `init(url, vapidKey)` before any subscribe/unsubscribe calls to supply
+ * the server endpoint and VAPID public key.
+ *
+ * Requires a registered service worker with PushManager support.
+ * On browsers without push support, `can()` returns `false` and
+ * `subscribe()`/`unsubscribe()` resolve immediately with `false`.
+ *
+ * Topic subscriptions are persisted to `localStorage` so they survive page
+ * reloads without re-subscribing.
+ *
+ * @param {Object} [config] - Reserved for future options.
+ *
+ * @returns {{
+ *   init(url: string, vapidKey: string): void,
+ *   can(): boolean,
+ *   topics(): string[],
+ *   state(opts?: Object): Promise<string>,
+ *   subscribe(topic?: string): Promise<boolean>,
+ *   unsubscribe(topic?: string): Promise<void>,
+ *   close(topic?: string): Promise<void>
+ * }}
+ *
+ * **`init(url, vapidKey)`** — set the server endpoint URL and VAPID public key.
+ * Must be called before `subscribe` or `unsubscribe`.
+ *
+ * **`can()`** — return `true` if PushManager is available in this browser.
+ *
+ * **`topics()`** — return the list of currently subscribed topic strings.
+ *
+ * **`state(opts?)`** — return the push permission state
+ * (`'granted'`, `'denied'`, or `'prompt'`).
+ *
+ * **`subscribe(topic?)`** — subscribe to push notifications and optionally
+ * register a topic. Syncs to server via POST.
+ *
+ * **`unsubscribe(topic?)`** — unsubscribe a topic (or the entire subscription
+ * if no topics remain). Syncs to server via PUT or DELETE.
+ *
+ * **`close(topic?)`** — close active notifications matching `topic` (or all).
+ */
 export function createWebpush(config={}) {
 
 	//internal vars

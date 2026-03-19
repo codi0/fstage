@@ -1,6 +1,32 @@
 /**
- * A javascript module loader and registry, to support building composable frameworks
-**/
+ * @fstage/fstage
+ *
+ * Zero-build module loader and registry — the entry point for fstage.
+ *
+ * Bootstraps the fstage module system:
+ *   1. Reads optional config from `window.FSCONFIG`.
+ *   2. Injects an import-map for all built-in fstage modules (`@fstage/<name>`).
+ *   3. Loads `config.configPath` (if set) and merges it into the active config.
+ *   4. Loads `config.loadAssets` and fires `fstage.ready` when complete.
+ *
+ * Public API (also available on `globalThis.fstage`):
+ *   - `get(path, args?)` — retrieve or invoke an export from the module registry.
+ *   - `load(path, type?)` — dynamically load modules or assets.
+ *
+ * Config (`window.FSCONFIG` or a loaded config module's default export):
+ *   - `configPath`   — path to a config module (default: `''`, skipped if empty).
+ *   - `scriptDir`    — base directory for fstage module resolution.
+ *   - `baseDir`      — base directory for relative asset paths.
+ *   - `importMap`    — additional import-map entries merged into the auto-generated map.
+ *   - `loadAssets`   — assets/modules to load during boot (same format as `load()`).
+ *   - `beforeLoad(e)` — hook called before each asset load; mutate `e.path` to redirect.
+ *   - `afterLoad(e)`  — hook called after each successful module load.
+ *   - `afterLoad<Group>(e)` — called after each named boot-phase group finishes.
+ *
+ * Events dispatched on `globalThis`:
+ *   - `fstage.ready`  — all boot assets loaded successfully.
+ *   - `fstage.failed` — an error occurred during boot (detail includes `error`).
+ */
 
 //config vars
 var _name = 'fstage';

@@ -2,6 +2,28 @@ import { copy } from '../utils/index.mjs';
 
 var _cache = new WeakMap();
 
+/**
+ * Wrap `target` in a deep reactive Proxy that emits `get`, `set`, and `delete`
+ * events via an internal event bus. Repeated calls with the same object return
+ * the cached proxy.
+ *
+ * The proxy exposes reserved properties on any proxied object:
+ *   - `__isProxy`  — `true`
+ *   - `__target`   — the unwrapped raw object
+ *   - `__path`     — dot-notation path from the root
+ *   - `__root`     — the root proxy instance
+ *   - `__events`   — the shared `{ on, emit }` event bus
+ *   - `__raw`      — a deep copy of the target (non-reactive snapshot)
+ *
+ * @param {Object} target - Plain object or array to observe.
+ * @param {Object} [opts]
+ * @param {string[]} [opts.pathArray=[]]  - Dot-path segments from root (used internally for nesting).
+ * @param {Object}   [opts.root=null]     - Root proxy instance (set automatically on recursion).
+ * @param {Object}   [opts.events]        - Shared `{ on(event, cb), emit(event, data) }` bus.
+ *   Created automatically if not provided; share one bus across related observers.
+ * @param {boolean}  [opts.deep=true]     - Recursively proxy nested objects.
+ * @returns {Proxy} A reactive proxy over `target`.
+ */
 export function createObserver(target, opts) {
   opts = opts || {};
   

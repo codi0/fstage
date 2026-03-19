@@ -1,7 +1,12 @@
 //cache
 var cache = null;
 
-//default registry singleton
+/**
+ * Return the process-level default registry singleton.
+ * Created on first call; subsequent calls return the same instance.
+ *
+ * @returns {Registry}
+ */
 export function defaultRegistry() {
 	if (cache === null) {
 		cache = createRegistry();
@@ -9,7 +14,23 @@ export function defaultRegistry() {
 	return cache;
 }
 
-//create registry factory
+/**
+ * @typedef {Object} Registry
+ * @property {function(string): boolean} has - Return `true` if `key` is registered.
+ * @property {function(string, *=): *} get - Retrieve a value (or factory result). Warns if key missing and no default supplied.
+ * @property {function(string, *, boolean=): void} set - Register a value or factory function.
+ * @property {function(string, *): void} setFactory - Shorthand for `set(key, fn, true)`.
+ * @property {function(string): void} del - Remove a key.
+ * @property {function(): void} seal - Prevent further `set`/`del` on existing keys.
+ */
+
+/**
+ * Create a new service registry.
+ * Supports plain values and lazy factory functions (instantiated on first `get`).
+ * Call `seal()` to make the registry immutable after initial setup.
+ *
+ * @returns {Registry}
+ */
 export function createRegistry() {
 	//set vars
 	const _data = {};

@@ -4,7 +4,24 @@ import { Hls } from 'https://cdn.jsdelivr.net/npm/hls.js@1/+esm';
 //exports
 export * from 'https://cdn.jsdelivr.net/npm/hls.js@1/+esm';
 
-//create stream
+/**
+ * Create an HLS media stream and attach it to a new `<video>` (or `<audio>`)
+ * element. Supports both regular HTTP URLs and `ipfs://` paths.
+ *
+ * When `path` starts with `ipfs://` and no custom `opts.loader` or
+ * `opts.ipfsNode` is provided, a Helia IPFS node is created automatically
+ * via `createIpfsNode()` from `@fstage/ipfs`.
+ *
+ * @param {string} path - HLS manifest URL or `ipfs://` CID path.
+ * @param {Object} [opts]
+ * @param {string}   [opts.type='video']  - Media element type: `'video'` or `'audio'`.
+ * @param {boolean}  [opts.debug=false]   - Enable HLS.js debug logging.
+ * @param {Function} [opts.loader]        - Custom HLS.js loader constructor.
+ * @param {Object}   [opts.ipfsNode]      - Pre-created Helia UnixFS instance.
+ * @param {Function} [opts.callback]      - Called with the media element once the
+ *   manifest is parsed and the stream is ready to play.
+ * @returns {Promise<Hls>} Resolves with the HLS.js instance.
+ */
 export function createHlsStream(path, opts = {}) {
 	//set vars
 	var proms = [];
@@ -49,7 +66,17 @@ export function createHlsStream(path, opts = {}) {
 	});
 }
 
-//hls custom loader
+/**
+ * Create a custom HLS.js loader that fetches segments from an IPFS node
+ * via a Helia UnixFS interface instead of HTTP.
+ *
+ * Assign the returned factory to `hls.config.loader` before calling
+ * `hls.loadSource()`.
+ *
+ * @param {Object}  heliaFs - A Helia UnixFS instance (from `createIpfsNode().fs`).
+ * @param {boolean} [debug=false] - Log fetch activity to the console.
+ * @returns {Function} HLS.js loader constructor.
+ */
 export function hlsIpfsLoader(heliaFs, debug) {
 
 	//loader function

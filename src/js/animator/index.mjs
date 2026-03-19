@@ -6,12 +6,26 @@ export var MOTION_DEFAULTS = {
   easing: 'ease',
 };
 
+/**
+ * Return `true` if the user's OS has requested reduced motion
+ * (`prefers-reduced-motion: reduce`).
+ *
+ * @returns {boolean}
+ */
 export function prefersReducedMotion() {
   try {
     return !!(globalThis.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
   } catch (err) { return false; }
 }
 
+/**
+ * Resolve the effective animation duration in ms from a motion policy object.
+ * Returns `0` when reduced motion is active or `policy.reduced` is truthy.
+ *
+ * @param {Object} [policy] - Motion policy with optional `{ duration: { normalMs }, reduced }`.
+ * @param {number|null} [override] - Explicit duration that bypasses the policy.
+ * @returns {number} Duration in milliseconds.
+ */
 export function resolveMotionDuration(policy, override) {
   policy = policy || {};
   if (prefersReducedMotion() || !!policy.reduced) return 0;
@@ -21,6 +35,13 @@ export function resolveMotionDuration(policy, override) {
     : MOTION_DEFAULTS.normalMs;
 }
 
+/**
+ * Resolve the effective CSS easing string from a motion policy object.
+ *
+ * @param {Object} [policy] - Motion policy with optional `{ easing }`.
+ * @param {string} [override] - Explicit easing that bypasses the policy.
+ * @returns {string}
+ */
 export function resolveMotionEasing(policy, override) {
   policy = policy || {};
   return override || policy.easing || MOTION_DEFAULTS.easing;
@@ -28,6 +49,15 @@ export function resolveMotionEasing(policy, override) {
 
 // Read a CSS custom property from an element, coerced to a number.
 // parseFloat strips trailing units ('ms', 'px', etc.) automatically.
+/**
+ * Read a CSS custom property from an element as a number.
+ * `parseFloat` strips trailing units (`ms`, `px`, etc.) automatically.
+ *
+ * @param {Element|null} el
+ * @param {string} varName - CSS variable name, e.g. `'--motion-duration'`.
+ * @param {number} fallback - Returned when the property is absent or non-numeric.
+ * @returns {number}
+ */
 export function readCss(el, varName, fallback) {
   if (!el) return fallback;
   var n = parseFloat(getComputedStyle(el).getPropertyValue(varName));
@@ -38,6 +68,16 @@ export function readCss(el, varName, fallback) {
 // Collapse an element's height/opacity/marginBottom to zero, then clear styles.
 // Returns a Promise that resolves when done.
 // opts: { duration, easing }
+/**
+ * Animate an element's height, opacity, and margin-bottom to zero, then clear
+ * the inline styles. Useful for list-item removal animations.
+ *
+ * @param {Element} el
+ * @param {Object} [opts]
+ * @param {number} [opts.duration=220] - Duration in ms.
+ * @param {string} [opts.easing]       - CSS easing string.
+ * @returns {Promise<void>} Resolves when the animation completes.
+ */
 export function collapseElement(el, opts) {
   opts = opts || {};
   var ms     = typeof opts.duration === 'number' ? opts.duration : 220;
@@ -300,6 +340,20 @@ function shouldRebaseTarget(config, target) {
 // Special case: presets with only `from` (no `to`) are treated as
 // multi-keyframe sequences applied directly to the element (e.g. `pop`).
 
+/**
+ * Named keyframe preset map. Each entry is `{ from, to }` (enter/exit pairs)
+ * or `{ from }` only for multi-keyframe sequences (e.g. `pop`, `tabBounce`).
+ *
+ * Extend at runtime to add application-specific presets:
+ * ```js
+ * import { ANIMATION_PRESETS } from '@fstage/animator';
+ * ANIMATION_PRESETS.myEffect = { from: [...], to: [...] };
+ * ```
+ *
+ * The sentinel value `'current'` in a keyframe property is replaced at
+ * animation start with the element's computed style — useful for gestures
+ * that begin mid-animation (e.g. `slideDownSheet`).
+ */
 export const ANIMATION_PRESETS = {
 
   fadeIn: {
@@ -406,6 +460,42 @@ var _mountSeen = new WeakSet();
 
 // --- Animator ----------------------------------------------------------------
 
+/**
+ * Create a WAAPI-based animator instance.
+ * Policy-driven: all timing values and easing come from the passed `options.motion`
+ * policy, with per-call overrides supported.
+ *
+ * @param {Object} [options]
+ * @param {Object} [options.motion] - Motion policy: `{ duration: { normalMs }, easing, reduced }`.
+ * @param {Object} [options.policy] - Alias for `options.motion`.
+ *
+ * @returns {{
+ *   start(args: Object): Object,
+ *   animate(el: Element, preset: string|Object, opts?: Object): { finished: Promise<void>, cancel: Function },
+ *   createToggle(spec: Object): { update(el: Element, value: boolean): boolean, cancel(): void },
+ *   collapse(el: Element, opts?: Object): { finished: Promise<void>, cancel: Function },
+ *   flip(mutationFn: Function, targets: Element|Element[], opts?: Object): Promise<void>,
+ *   stagger(els: Element[], preset: string|Object, opts?: Object): { finished: Promise<void>, cancel: Function }
+ * }}
+ *
+ * **`start(args)`** — screen-to-screen transition. `args`: `{ from, to, direction, transition, interactive, policy }`.
+ * Returns `{ finished, destroy }` or an interactive handle with `{ progress, commit, cancel, destroy }`.
+ *
+ * **`animate(el, preset, opts)`** — single-element named-preset animation.
+ * `opts`: `{ duration, durationFactor, easing, fill, delay, onMount, onSettle, rebaseFromCurrent }`.
+ *
+ * **`createToggle(spec)`** — boolean-driven show/hide controller. `spec`: `{ show, hide }` where
+ * each side is `{ preset, durationFactor, easing, onSettle }`.
+ *
+ * **`collapse(el, opts)`** — animate height/opacity/margin to zero.
+ * `opts`: `{ durationFactor, easing, onSettle }`.
+ *
+ * **`flip(mutationFn, targets, opts)`** — snapshot positions before and after a DOM mutation
+ * and animate the delta. `opts`: `{ durationFactor, easing, frames }`.
+ *
+ * **`stagger(els, preset, opts)`** — animate a collection with per-item delay.
+ * `opts`: `{ durationFactor, easing, staggerFactor, staggerMs, onMount, onSettle }`.
+ */
 export function createAnimator(options = {}) {
 
   const policy = options.motion || options.policy || {};

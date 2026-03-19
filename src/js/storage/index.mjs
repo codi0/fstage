@@ -177,6 +177,29 @@ function schemaVersion(schemas) {
 //   db.raw                           — Promise<IDBDatabase>
 // =============================================================================
 
+/**
+ * Create a low-level IndexedDB database handle with multiple object stores,
+ * indexes, cursor support, multi-store transactions, and schema migration.
+ *
+ * @param {Object} opts
+ * @param {string}   opts.name                  - Database name (required).
+ * @param {number}   [opts.version=1]            - Schema version; increment to trigger migration.
+ * @param {Object}   [opts.stores={}]            - Object store definitions:
+ *   `{ [storeName]: { keyPath, autoIncrement?, indexes?: { [indexName]: { keyPath, unique?, multiEntry? } } } }`
+ * @param {Function} [opts.migrate]              - `(db, oldVersion, newVersion, tx)` — called
+ *   inside `upgradeneeded` after stores and indexes are created.
+ *
+ * @returns {{
+ *   store(name: string): Object,
+ *   transaction(names: string[], mode: string, fn: Function): Promise<*>,
+ *   close(): Promise<void>,
+ *   raw: Promise<IDBDatabase>
+ * }}
+ *
+ * `store(name)` returns a handle with: `get`, `getAll`, `getByIndex`,
+ * `getKeysByIndex`, `count`, `put`, `putMany`, `delete`, `deleteMany`,
+ * `clear`, and `cursor`.
+ */
 export function createDatabase(opts) {
 	if (!opts || !opts.name) throw new Error('[storage] createDatabase() requires opts.name');
 	if (!hasIdb())           throw new Error('[storage] IndexedDB is not available');
@@ -783,14 +806,34 @@ function createIdbDriver(opts) {
 // =============================================================================
 
 /**
- * createStorage(opts)
+ * Create a high-level storage instance suitable for use as a `localHandler`
+ * in `createSyncManager`, or standalone read/write/query operations.
  *
- * opts:
- *   driver   — 'idb' (default) | 'memory'
- *   name     — IDB database name (default: 'fstage')
- *   store    — blob store name (default: 'data')
- *   schemas  — { [namespace]: { keyPath, autoIncrement?, indexes? } }
- *   migrate  — fn(db, oldVersion, newVersion, tx)
+ * Supports two modes per key namespace:
+ * - **Blob mode** (default) — each top-level key is stored as a single JSON value.
+ * - **Schema mode** (opt-in via `opts.schemas`) — each record is stored as an
+ *   individual IDB row with full index support for efficient filtered queries.
+ *
+ * @param {Object} [opts]
+ * @param {'idb'|'memory'} [opts.driver='idb']  - Storage driver. Falls back to
+ *   `'memory'` automatically if IndexedDB is unavailable.
+ * @param {string}  [opts.name='fstage']         - IDB database name.
+ * @param {string}  [opts.store='data']           - Blob object store name.
+ * @param {Object}  [opts.schemas]               - Schema definitions enabling per-record
+ *   storage: `{ [namespace]: { keyPath, autoIncrement?, indexes? } }`.
+ *   The IDB version is derived automatically from the schema hash.
+ * @param {Function} [opts.migrate]              - `(db, oldVersion, newVersion, tx)`
+ *   for data transforms on schema changes.
+ *
+ * @returns {{
+ *   read(key: string): Promise<*>,
+ *   write(key: string, value: *): Promise<void>,
+ *   query(namespace: string, opts: Object): Promise<Array>,
+ *   db: Object
+ * }}
+ *
+ * **`query(namespace, opts)`** — only available for schema namespaces.
+ * `opts`: `{ where, filter, order, limit, offset }` — see module header for full syntax.
  */
 export function createStorage(opts) {
 	opts = opts || {};
