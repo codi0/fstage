@@ -112,7 +112,7 @@ export default {
 
 			</div>
 
-			<pwa-bottom-sheet .title=${'Appearance'} .open=${themeSheetOpen}>
+			<fs-bottom-sheet .title=${'Appearance'} .open=${themeSheetOpen}>
 				<div class="theme-options">
 					${['auto', 'light', 'dark'].map(function(v) { return html`
 						<button class="theme-option" data-value=${v}>
@@ -123,7 +123,7 @@ export default {
 						</button>
 					`; })}
 				</div>
-			</pwa-bottom-sheet>
+			</fs-bottom-sheet>
 		`;
 	},
 

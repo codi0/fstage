@@ -1,5 +1,28 @@
-import { safeBlur } from '../../utils/shared.mjs';
-import { createSheetBehavior, createRefCountedToggle } from '../../utils/dom.mjs';
+/**
+ * @fstage/ui — bottom sheet
+ *
+ * A swipe-dismissable modal bottom sheet. State-driven: set the `open`
+ * property/attribute to show or hide. Slot content is rendered inside.
+ *
+ * Usage:
+ *   <fs-bottom-sheet open title="Sheet Title">
+ *     <!-- slotted content -->
+ *   </fs-bottom-sheet>
+ *
+ * CSS custom properties (set on :root or the host element):
+ *   --fs-safe-area-bottom    Safe area inset at the bottom (default: 0px).
+ *                            Map from env(safe-area-inset-bottom) in the host app.
+ *   --fs-keyboard-height     Height of the on-screen keyboard (default: 0px).
+ *                            Typically managed by the host app's env module.
+ *
+ * Events emitted:
+ *   bottomSheetClosed   Fired when the user dismisses the sheet (swipe / backdrop tap / close btn).
+ *                       The host component is expected to set `open` to false in response.
+ */
+
+import { createRefCountedToggle } from '../utils/index.mjs';
+import { safeBlur } from './_dom.mjs';
+import { createSheetBehavior } from './_sheet-behavior.mjs';
 
 var grabCursorPrev = '';
 var setGlobalGrabCursor = createRefCountedToggle(
@@ -16,8 +39,8 @@ var setGlobalGrabCursor = createRefCountedToggle(
 );
 
 function applySheetState(isOpen, ctx) {
-	var panel    = ctx.root && ctx.root.querySelector('.sheet-panel');
-	var backdrop = ctx.root && ctx.root.querySelector('.sheet-backdrop');
+	var panel    = ctx.root && ctx.root.querySelector('.fs-sheet-panel');
+	var backdrop = ctx.root && ctx.root.querySelector('.fs-sheet-backdrop');
 	if (!panel || !backdrop) return;
 
 	if (!ctx._.panelToggle.update(panel, isOpen)) return;
@@ -30,15 +53,6 @@ function applySheetState(isOpen, ctx) {
 		panel.classList.remove('is-open');
 		ctx._.sheet.open(panel, {
 			onEscape: function() { requestClose(ctx); },
-			initialFocus: function() {
-				var slot  = ctx.root.querySelector('slot');
-				var nodes = slot && slot.assignedElements({ flatten: true });
-				if (nodes) for (var i = 0; i < nodes.length; i++) {
-					var el = nodes[i].querySelector('input, textarea, [autofocus]');
-					if (el) return el;
-				}
-				return null;
-			}
 		});
 	} else {
 		ctx._.sheet.close();
@@ -53,7 +67,7 @@ function requestClose(ctx) {
 
 export default {
 
-	tag: 'pwa-bottom-sheet',
+	tag: 'fs-bottom-sheet',
 
 	inject: {
 		animator: 'animator'
@@ -65,9 +79,9 @@ export default {
 	},
 
 	constructed({ _ }) {
-		_.sheet        = null;
-		_.panelToggle  = null;
-		_.closeRequested = false;
+		_.sheet           = null;
+		_.panelToggle     = null;
+		_.closeRequested  = false;
 	},
 
 	watch: {
@@ -82,62 +96,62 @@ export default {
 			display: contents;
 		}
 
-		.sheet-backdrop {
+		.fs-sheet-backdrop {
 			position: fixed; inset: 0;
 			background: rgba(0,0,0,0);
 			z-index: 100;
-			transition: background calc(var(--motion-duration-normal) * 1.4) var(--motion-easing, ease);
+			transition: background calc(var(--motion-medium, 200ms) * 1.4) var(--easing-standard, ease);
 			pointer-events: none;
 		}
-		.sheet-backdrop.visible {
+		.fs-sheet-backdrop.visible {
 			background: rgba(0,0,0,0.38);
 			pointer-events: auto;
 		}
 
-		.sheet-panel {
+		.fs-sheet-panel {
 			position: fixed; left: 0; right: 0; bottom: 0;
 			z-index: 101;
-			background: var(--bg-secondary);
-			border-radius: var(--radius-xl) var(--radius-xl) 0 0;
-			padding-bottom: max(var(--safe-bottom), var(--keyboard-height, 0px));
-			transition: padding-bottom calc(var(--motion-duration-normal) * 1.1) var(--motion-easing, ease);
+			background: var(--bg-secondary, #f5f5f5);
+			border-radius: var(--radius-xl, 24px) var(--radius-xl, 24px) 0 0;
+			padding-bottom: max(var(--fs-safe-area-bottom, 0px), var(--fs-keyboard-height, 0px));
+			transition: padding-bottom calc(var(--motion-medium, 200ms) * 1.1) var(--easing-standard, ease);
 			max-height: 92dvh;
 			display: flex; flex-direction: column;
 			transform: translateY(100%);
 			will-change: transform;
 			box-shadow: 0 -2px 24px rgba(0,0,0,0.10);
 		}
-		.sheet-panel.is-open { transform: none; }
+		.fs-sheet-panel.is-open { transform: none; }
 
-		.sheet-handle-row {
+		.fs-sheet-handle-row {
 			display: flex; align-items: center; justify-content: center;
 			padding: 10px 0 4px; flex-shrink: 0; cursor: grab;
 			touch-action: none;
 		}
-		.sheet-handle-row:active,
-		.sheet-panel.is-dragging .sheet-handle-row { cursor: grabbing; }
+		.fs-sheet-handle-row:active,
+		.fs-sheet-panel.is-dragging .fs-sheet-handle-row { cursor: grabbing; }
 
-		.sheet-handle {
+		.fs-sheet-handle {
 			width: 36px; height: 4px; border-radius: 2px;
-			background: var(--separator-heavy); opacity: 0.6;
+			background: var(--separator-heavy, rgba(0,0,0,0.18)); opacity: 0.6;
 		}
 
-		.sheet-header {
+		.fs-sheet-header {
 			display: flex; align-items: center; justify-content: space-between;
 			padding: 4px 20px 12px; flex-shrink: 0;
 		}
-		.sheet-title {
-			font-size: 17px; font-weight: 600; color: var(--text-primary);
+		.fs-sheet-title {
+			font-size: 17px; font-weight: 600; color: var(--text-primary, #111);
 			letter-spacing: -0.02em;
 		}
 
-		.sheet-close {
+		.fs-sheet-close {
 			width: 30px; height: 30px; border-radius: 50%;
-			background: var(--bg-tertiary); border: none; cursor: pointer;
+			background: var(--bg-tertiary, rgba(0,0,0,0.06)); border: none; cursor: pointer;
 			display: flex; align-items: center; justify-content: center;
-			color: var(--text-secondary); -webkit-tap-highlight-color: transparent; padding: 0;
+			color: var(--text-secondary, #555); -webkit-tap-highlight-color: transparent; padding: 0;
 		}
-		.sheet-close::before {
+		.fs-sheet-close::before {
 			content: '';
 			display: block; width: 16px; height: 16px;
 			background-color: currentColor;
@@ -147,65 +161,65 @@ export default {
 			-webkit-mask-position: center; mask-position: center;
 		}
 
-		.sheet-body {
+		.fs-sheet-body {
 			flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch;
 			padding: 0 20px 16px;
 		}
 	`,
 
 	interactions: {
-		'click(.sheet-backdrop)': function(e, ctx) {
+		'click(.fs-sheet-backdrop)': function(e, ctx) {
 			requestClose(ctx);
 		},
-		'click(.sheet-close)': function(e, ctx) {
+		'click(.fs-sheet-close)': function(e, ctx) {
 			e.preventDefault();
 			if (e.matched) safeBlur(e.matched);
 			requestClose(ctx);
 		},
-		'gesture.swipe(.sheet-panel)': {
-			trigger:    '.sheet-panel',
+		'gesture.swipe(.fs-sheet-panel)': {
+			trigger:    '.fs-sheet-panel',
 			directions: ['down'],
 			onStart: function(e, ctx) {
 				if (!ctx.state.open) return false;
-				var panel = ctx.root.querySelector('.sheet-panel');
+				var panel = ctx.root.querySelector('.fs-sheet-panel');
 				if (panel && !panel.classList.contains('is-open')) return false;
-				var body = ctx.root.querySelector('.sheet-body');
+				var body = ctx.root.querySelector('.fs-sheet-body');
 				if (body && body.scrollTop > 2) return false;
 				if (panel) panel.classList.add('is-dragging');
 				setGlobalGrabCursor(true);
 			},
 			onProgress: function(e, ctx) {
-				var backdrop = ctx.root.querySelector('.sheet-backdrop');
+				var backdrop = ctx.root.querySelector('.fs-sheet-backdrop');
 				if (backdrop) backdrop.style.background = 'rgba(0,0,0,' + Math.max(0, 0.38 * (1 - e.progress * 1.4)) + ')';
 			},
 			onCommit: function(e, ctx) {
-				var panel    = ctx.root.querySelector('.sheet-panel');
-				var backdrop = ctx.root.querySelector('.sheet-backdrop');
-				if (panel) panel.classList.remove('is-dragging');
-				setGlobalGrabCursor(false);
+				var panel    = ctx.root.querySelector('.fs-sheet-panel');
+				var backdrop = ctx.root.querySelector('.fs-sheet-backdrop');
+				if (panel)    panel.classList.remove('is-dragging');
 				if (backdrop) backdrop.style.background = '';
+				setGlobalGrabCursor(false);
 				requestClose(ctx);
 			},
 			onCancel: function(e, ctx) {
-				var panel    = ctx.root.querySelector('.sheet-panel');
-				var backdrop = ctx.root.querySelector('.sheet-backdrop');
-				if (panel) panel.classList.remove('is-dragging');
-				setGlobalGrabCursor(false);
+				var panel    = ctx.root.querySelector('.fs-sheet-panel');
+				var backdrop = ctx.root.querySelector('.fs-sheet-backdrop');
+				if (panel)    panel.classList.remove('is-dragging');
 				if (backdrop) backdrop.style.background = '';
+				setGlobalGrabCursor(false);
 			}
 		}
 	},
 
 	render: function(ctx) {
 		return ctx.html`
-			<div class=${ctx.state.open ? 'sheet-backdrop visible' : 'sheet-backdrop'}></div>
-			<div class="sheet-panel" role="dialog" aria-modal="true" aria-label=${ctx.state.title}>
-				<div class="sheet-handle-row"><div class="sheet-handle"></div></div>
-				<div class="sheet-header">
-					<span class="sheet-title">${ctx.state.title}</span>
-					<button class="sheet-close" aria-label="Close"></button>
+			<div class=${ctx.state.open ? 'fs-sheet-backdrop visible' : 'fs-sheet-backdrop'}></div>
+			<div class="fs-sheet-panel" role="dialog" aria-modal="true" aria-label=${ctx.state.title}>
+				<div class="fs-sheet-handle-row"><div class="fs-sheet-handle"></div></div>
+				<div class="fs-sheet-header">
+					<span class="fs-sheet-title">${ctx.state.title}</span>
+					<button class="fs-sheet-close" aria-label="Close"></button>
 				</div>
-				<div class="sheet-body"><slot></slot></div>
+				<div class="fs-sheet-body"><slot></slot></div>
 			</div>
 		`;
 	},

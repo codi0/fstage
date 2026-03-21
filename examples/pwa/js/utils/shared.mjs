@@ -1,4 +1,4 @@
-export { esc } from '@fstage/utils';
+export { esc, safeBlur } from '@fstage/utils';
 
 var livePolite = null;
 var liveAssertive = null;
@@ -100,12 +100,6 @@ export function scrollTo(el, opts) {
 	el.scrollIntoView({ behavior: behavior, block: block });
 	var delay = behavior === 'smooth' ? 400 : 0;
 	return new Promise(function(resolve) { setTimeout(resolve, delay); });
-}
-
-export function safeBlur(el) {
-	if (!el || typeof el.blur !== 'function') return false;
-	try { el.blur(); return true; } catch (err) {}
-	return false;
 }
 
 function collectTaskRowsDeep(root, out) {

@@ -1,43 +1,14 @@
-// DOM utilities shared across components.
-import { createRefCountedToggle, clearSelection, focusElement } from '@fstage/utils';
-import { readCss, collapseElement } from '@fstage/animator';
+/**
+ * @fstage/ui — modal manager
+ *
+ * Manages imperatively-injected modal overlays (action-sheet, etc.).
+ * Handles focus trapping, scroll locking, inert siblings, Escape,
+ * and focus restoration on close.
+ *
+ * Not part of the public package surface — import via action-sheet.mjs.
+ */
 
-export { createRefCountedToggle, clearSelection, focusElement, readCss, collapseElement };
-
-// --- Focus management --------------------------------------------------------
-
-export var FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
-export function getFocusable(root) {
-	if (!root) return [];
-	return Array.from(root.querySelectorAll(FOCUSABLE)).filter(function(el) {
-		return !el.hasAttribute('disabled') && el.getAttribute('aria-hidden') !== 'true';
-	});
-}
-
-// --- Body scroll lock (ref-counted) -----------------------------------------
-
-var bodyOverflowPrev = '';
-export var setBodyScrollLocked = createRefCountedToggle(
-	function() {
-		var el = document.body || document.documentElement;
-		if (!el) return;
-		bodyOverflowPrev = el.style.overflow || '';
-		el.style.overflow = 'hidden';
-	},
-	function() {
-		var el = document.body || document.documentElement;
-		if (!el) return;
-		el.style.overflow = bodyOverflowPrev || '';
-		bodyOverflowPrev = '';
-	}
-);
-
-// --- Modal manager ----------------------------------------------------------
-// Manages imperatively-injected modal overlays (action-sheet, toast etc).
-// Uses the shared primitives above — getFocusable, focusElement, setBodyScrollLocked.
-// trapFocus is not used here because the keydown handler needs to dynamically
-// read the top of the modal stack rather than capturing a fixed element.
+import { getFocusable, focusElement, setBodyScrollLocked } from './_dom.mjs';
 
 function createModalManager() {
 	var entries    = new Map();
@@ -49,7 +20,7 @@ function createModalManager() {
 	function ensureRoot() {
 		if (root && root.isConnected) return root;
 		root = document.createElement('div');
-		root.setAttribute('data-modal-manager', '');
+		root.setAttribute('data-fs-modal-manager', '');
 		root.style.cssText = 'position:fixed;inset:0;z-index:200;pointer-events:none;';
 		document.body.appendChild(root);
 		return root;
@@ -197,4 +168,5 @@ function createModalManager() {
 	return manager;
 }
 
+/** Shared singleton. One per page — action-sheets stack on top of each other correctly. */
 export var modalManager = createModalManager();

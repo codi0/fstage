@@ -237,13 +237,16 @@ If you need an eager background refresh regardless of subscriptions (e.g. a glob
 
 ### Pagination
 
-Attach a `pagination` object to the fetch Promise to inform the plugin of continuation state:
+Return a `{ data, pagination }` object from the fetch Promise to inform the plugin of continuation state:
 
 ```js
 fetch: function(ctx) {
-  var p = fetchPage(ctx.query);
-  p.pagination = { hasMore: true, next: { cursor: 'abc' } };
-  return p;
+  return fetchPage(ctx.query).then(function(res) {
+    return {
+      data:       res.items,
+      pagination: { hasMore: res.hasMore, next: { cursor: res.nextCursor } },
+    };
+  });
 },
 ```
 

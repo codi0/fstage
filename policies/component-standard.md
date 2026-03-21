@@ -1,6 +1,6 @@
 # Fstage - Universal Component Definition Standard
 
-Version: 1.4
+Version: 1.6
 
 ---
 
@@ -23,9 +23,9 @@ A conformant runtime MUST support:
 3. Reactive State Provider contract in Section 4.4.
 4. Declarative `inject` behavior in Section 5.
 5. Interaction map with DOM/document/window handling in Section 6.
-6. Declarative `bind` block in Section 8.
-7. Declarative `watch` block in Section 9.
-8. Lifecycle semantics in Section 12.
+6. Declarative `bind` block in Section 9.
+7. Declarative `watch` block in Section 10.
+8. Lifecycle semantics in Section 14.
 9. Required `ctx` APIs in Section 7.
 
 ### 1.2 Optional Capability Profiles
@@ -38,6 +38,7 @@ A runtime MAY declare support for:
 - `ssr`: server rendering and hydration
 - `hostMethods`: imperative host method exposure
 - `asyncState`: `ctx.state.$query` for async loading state
+- `form`: declarative form lifecycle via `form` / `forms` block
 
 If a runtime claims a capability, it MUST implement all requirements in that capability's section.
 
@@ -53,13 +54,15 @@ The recommended field order is: **identity → dependencies → data → input w
 |---|---|---|
 | `tag` | `string` | Custom element tag name. MUST contain a hyphen. |
 | `shadow` | `boolean` | Render into shadow root. Default: `true`. |
-| `onError(err, ctx)` | `function` | Called when `render` or a state getter throws. |
+| `onError(err, ctx, location)` | `function` | Component-level error handler. Called when `render`, a watch handler, state getter, computed getter, `host.attrs`, or `host.vars` throws. `location` is a string identifying the throw site (e.g. `'render'`, `'watch.taskId'`, `'state.getter.groups'`). Takes precedence over the runtime-level `onError`. |
 | `inject` | `InjectSpec` | Per-component registry services injected onto `ctx`. |
 | `state` | `StateSpec` | Reactive state declaration: local, prop, external keys, and derived getters. |
-| `bind` | `BindSpec` | Declarative two-way binding between selectors and state keys. See Section 8. |
+| `bind` | `BindSpec` | Declarative two-way binding between selectors and state keys. See Section 9. |
 | `watch` | `WatchSpec` | Declarative state subscriptions — covers both pre-render coordination and post-render DOM operations. See Section 10. |
 | `interactions` | `InteractionMap` | Declarative interaction handlers. |
 | `animate` | `AnimateSpec` | Declarative animation block. Requires `animation` capability. |
+| `form` | `FormSpec` | Declarative form lifecycle (singular shorthand). Requires `form` capability. See Section 11. |
+| `forms` | `FormsSpec` | Multiple named form controllers. Requires `form` capability. See Section 11. |
 | `host` | `HostSpec` | Host element configuration: imperative methods, attribute projections, CSS custom properties. See Section 8. |
 | `style` | `string \| StyleResult \| StyleResult[] \| fn` | Component-scoped styles. Function receives `{ css, unsafeCSS }`. |
 | `render(ctx)` | `function` | Returns renderable output. |
@@ -431,7 +434,146 @@ Runtime MUST:
 
 ---
 
-## 11. Declarative `computed` (Deprecated)
+## 11. Declarative `form` / `forms` (Capability: `form`)
+
+The `form` / `forms` block wires validation, error display, and submit lifecycle onto a plain HTML `<form>` element by name. Field values live in `state` — the form module is purely a validation and submit-lifecycle layer, not a value owner.
+
+Because field values are reactive store state, the render function has full access to them: `?disabled`, character counts, conditional visibility, and any other value-driven UI work naturally without any special form API.
+
+### 11.1 Singular and plural forms
+
+`form` is shorthand for a single form wired to `<form name="form">`. `forms` supports multiple named forms, each wired to `<form name="{key}">`.
+
+```js
+// Singular — wires to <form name="form">
+form: {
+  fields: {
+    email:    { required: true, type: 'email' },
+    password: { required: true, minLength: 8 },
+  },
+  onSubmit(values, form, ctx) { ... },
+  onError(errors, form, ctx)  { ... },
+},
+
+// Plural — multiple named forms
+forms: {
+  login:   { fields: { ... }, onSubmit(...) { ... } },
+  profile: { fields: { ... }, onSubmit(...) { ... } },
+},
+```
+
+### 11.2 Field names
+
+Each field name MUST match:
+1. The `name` attribute on the corresponding `<input>` / `<select>` / `<textarea>` element.
+2. The corresponding key in the component's `state` block.
+3. The corresponding `bind` entry that keeps the DOM value and store value in sync.
+
+### 11.3 Field definition options
+
+| Option | Type | Description |
+|---|---|---|
+| `required` | `boolean` | Must be non-empty. |
+| `minLength` | `number` | Minimum string length. |
+| `maxLength` | `number` | Maximum string length. |
+| `type` | `string` | `'email'` \| `'url'` \| `'number'` \| `'date'` — format check. |
+| `oneOf` | `Array` | Value must appear in this list. |
+| `min` | `number` | Numeric or ISO date-string minimum. |
+| `max` | `number` | Numeric or ISO date-string maximum. |
+| `validate` | `Function` | `(value, values) => string\|null` — custom sync rule. |
+| `validateAsync` | `Function` | `(value, values) => Promise<string\|null>` — async rule. |
+| `enabled` | `Function` | `(values) => boolean` — false skips validation and excludes from submit payload. |
+| `default` | `*` | Value written to store on `reset()`. Defaults to `''`. |
+| `validateOn` | `string` | `'blur'` \| `'change'` — overrides form-level setting. |
+
+### 11.4 Form definition options
+
+| Option | Type | Description |
+|---|---|---|
+| `fields` | `Object` | Field definitions (required). |
+| `validate` | `Function` | `(values) => { field: msg }\|null` — form-level sync rule, runs after all field rules on submit. |
+| `onSubmit` | `Function` | `(values, form, ctx) => void\|Promise` — called on successful validation. |
+| `onError` | `Function` | `(errors, form, ctx) => void` — called when submit validation fails. |
+| `validateOn` | `string` | `'blur'` (default) \| `'change'`. |
+| `debounce` | `number` | Debounce ms for async validators (default: 300). |
+
+### 11.5 `ctx.form` and `ctx.forms`
+
+`ctx.form` — direct reference to the controller when a singular `form` block is used.
+`ctx.forms` — map of form name → controller for all declared forms.
+
+Each controller exposes:
+
+| API | Description |
+|---|---|
+| `form.submit()` | Programmatically submit. Returns `Promise<void>`. |
+| `form.reset()` | Reset all fields to defaults via store writes. Clears errors and touched state. |
+| `form.setValues(values)` | Write field values to the store. |
+| `form.setError(field, msg)` | Set a server-side error on a field. |
+| `form.clearError(field)` | Clear a field error. |
+| `form.values` | Transformed values for enabled fields (getter). |
+| `form.errors` | Current error map (getter). |
+| `form.submitting` | True while `onSubmit` is in flight (getter). |
+| `form.isDirty` | True if any field differs from its default (getter). |
+| `form.isValid` | True when no errors are present (getter). |
+
+### 11.6 DOM conventions
+
+- `novalidate` is set on the `<form>` element on mount to suppress native browser validation UI.
+- Errors are injected as `<div class="form-error">` immediately after the offending field.
+- The field receives the class `field-invalid`.
+- Both are removed when the field passes validation.
+- Submit buttons receive `disabled` during async submission.
+
+### 11.7 Typical usage pattern
+
+```js
+state: {
+  email:    '',
+  password: '',
+},
+
+bind: {
+  '[name="email"]':    'email',
+  '[name="password"]': 'password',
+},
+
+form: {
+  fields: {
+    email:    { required: true, type: 'email' },
+    password: { required: true, minLength: 8 },
+  },
+  onSubmit(values, form, ctx) {
+    return ctx.models.get('auth').login(values);
+  },
+},
+
+render({ html, state }) {
+  const { email, password } = state;
+  return html`
+    <form name="form">
+      <input name="email"    .value=${email}    type="email">
+      <input name="password" .value=${password} type="password">
+      <button type="submit" ?disabled=${!email || !password}>Sign in</button>
+    </form>
+  `;
+},
+```
+
+### 11.8 Runtime Contract
+
+When the `form` capability is present, runtime MUST:
+
+1. Normalise singular `form` into `forms: { form: def.form }` at `define()` time.
+2. Create one form controller per entry in `forms` during construction, passing `ctx` as the second argument.
+3. Expose controllers on `ctx.forms` (and `ctx.form` for the singular case) before `constructed()` is called.
+4. Call `controller.mount(ctx.root, name)` after every render commit.
+5. Register `controller.unmount` via `ctx.cleanup` so forms tear down automatically on disconnect.
+6. `mount` is idempotent — it only re-wires when the `<form>` element reference has changed.
+
+---
+
+## 12. Declarative `computed` (Deprecated)
 
 The `computed` block is retained for backwards compatibility but is superseded by state getters (Section 4.1). Prefer getters for all new components.
 
@@ -449,11 +591,11 @@ computed: {
 
 ---
 
-## 12. Declarative `animate` (Capability: `animation`)
+## 13. Declarative `animate` (Capability: `animation`)
 
 The `animate` block declares animation intent. The runtime interprets descriptors using its animation system.
 
-### 12.1 `enter` and `exit`
+### 13.1 `enter` and `exit`
 
 ```js
 animate: {
@@ -464,7 +606,7 @@ animate: {
 
 `enter` fires once on first render commit. `exit` fires when the runtime signals the host is leaving.
 
-### 12.2 `toggle(selector)` entries
+### 13.2 `toggle(selector)` entries
 
 State-driven animations on child elements.
 
@@ -488,9 +630,9 @@ Runtime MUST skip toggle animations on first render, track previous boolean per 
 
 ---
 
-## 13. Lifecycle Semantics (Normative)
+## 14. Lifecycle Semantics (Normative)
 
-### 13.1 Construction (once)
+### 14.1 Construction (once)
 
 1. Create `ctx` with all required fields.
 2. Extract and wire state getters onto the state proxy.
@@ -501,7 +643,7 @@ Runtime MUST skip toggle animations on first render, track previous boolean per 
 7. Call `constructed(ctx)`.
 8. On first render, assign `ctx.root` then call `Object.freeze(ctx)` — ctx structure is now immutable; `ctx._` contents remain mutable.
 
-### 13.2 Connect
+### 14.2 Connect
 
 1. Initialise state defaults (props resolved from attributes).
 2. Wire `watch` subscriptions: pre-render with `{ sync: true }`, post-render with async (default).
@@ -512,7 +654,7 @@ Runtime MUST skip toggle animations on first render, track previous boolean per 
 7. After first render commit: activate `interactions` and `bind`; run `animate.enter`.
 8. After each render commit: apply `host.attrs` and `host.vars`; call `rendered(ctx, isFirst)`; run `animate.toggle` checks; run post-render watch checks (skipped on first render).
 
-### 13.3 Disconnect
+### 14.3 Disconnect
 
 1. Stop render loop; dispose trackers.
 2. Run cleanups in reverse order.
@@ -520,17 +662,37 @@ Runtime MUST skip toggle animations on first render, track previous boolean per 
 
 ---
 
-## 14. Error Handling (Normative)
+## 15. Error Handling (Normative)
 
-Runtime MUST catch errors thrown by `render`, state getters, `computed` getters, `watch` handlers, `host.attrs`, and `host.vars`. Route to `onError` if defined; otherwise log to `console.error`.
+Runtime MUST wrap the following call sites in try/catch:
+
+| Call site | `location` string |
+|---|---|
+| `render()` | `'render'` |
+| Pre-render watch handler | `'watch.<key>'` |
+| Post-render watch handler | `'watch.<key>'` |
+| State getter | `'state.getter.<key>'` |
+| Deprecated `computed` getter | `'computed.<key>'` |
+| `host.attrs` evaluator | `'host.attrs["<name>"]'` |
+| `host.vars` evaluator | `'host.vars["<name>"]'` |
+
+Errors MUST be routed through the following precedence chain:
+
+1. **`def.onError(err, ctx, location)`** — component-level override. If defined, called exclusively.
+2. **`config.onError(err, ctx, location)`** — runtime-level fallback. Called when no component-level handler is set.
+3. **`console.error`** — last resort when neither is defined.
+
+The `location` argument identifies the throw site (see table above) and SHOULD be used as a queryable tag when routing to error monitoring services (e.g. Sentry).
+
+Existing `def.onError(err, ctx)` handlers that ignore the third argument remain fully compatible — the `location` parameter is additive.
 
 ---
 
-## 15. Runtime Responsibilities (Normative)
+## 16. Runtime Responsibilities (Normative)
 
 A conforming runtime MUST:
 
-1. Implement Section 13 lifecycle semantics.
+1. Implement Section 14 lifecycle semantics.
 2. Validate `$src`, `inject`, `animate`, and `bind` conflicts at `define()` time with descriptive errors.
 3. Validate that `afterRender: true` is not combined with `immediate` or `reset`.
 4. Document its reactive state provider and how it satisfies Section 4.5.
@@ -541,7 +703,7 @@ A conforming runtime MUST:
 
 ---
 
-## 16. `asyncState` Capability
+## 17. `asyncState` Capability
 
 When claimed, the runtime MUST expose on `ctx.state`:
 
@@ -553,13 +715,13 @@ When claimed, the runtime MUST expose on `ctx.state`:
 
 ---
 
-## 17. SSR Capability (`ssr`)
+## 18. SSR Capability (`ssr`)
 
 If claimed, runtime MUST document server/client behavior. `render(ctx)` SHOULD remain side-effect free for SSR compatibility. Components with `shadow: false` cannot use `<slot>`.
 
 ---
 
-## 18. Author Checklist (Guidance)
+## 19. Author Checklist (Guidance)
 
 1. All reactive data declared in `state`.
 2. All service dependencies declared in `inject`.
@@ -567,6 +729,9 @@ If claimed, runtime MUST document server/client behavior. `render(ctx)` SHOULD r
 4. Use `watch.immediate: true` for reactive initialisation on connect.
 5. Use `watch.reset` to declare transient state keys that clear when a driving key changes.
 6. Simple input-to-state wiring uses `bind`.
+  6a. Form fields declared in `form` / `forms` match corresponding `state` keys and `bind` entries.
+  6b. `onSubmit` handles submission logic; domain mutations belong in flow modules.
+  6c. Use `form.setError` to surface server-side validation errors after a failed submission.
 7. Derived values use state getters rather than the deprecated `computed` block.
 8. Post-render DOM operations use `watch` with `afterRender: true`.
 9. When watching an object-valued key and reacting only to identity changes, guard at the top of the handler using `e.val`/`e.oldVal`.
@@ -586,7 +751,7 @@ If claimed, runtime MUST document server/client behavior. `render(ctx)` SHOULD r
 
 ---
 
-## 19. Minimal Example
+## 20. Minimal Example
 
 ```js
 import { repeat } from 'lit/directives/repeat.js';

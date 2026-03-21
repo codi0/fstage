@@ -823,3 +823,30 @@ export function createHooks() {
 		clear() { map.clear(); }
 	};
 }
+
+/**
+ * Focus `el` with scroll suppression. Returns `true` on success.
+ *
+ * @param {Element|null} el
+ * @returns {boolean}
+ */
+export function focusElement(el) {
+	if (!el || typeof el.focus !== 'function') return false;
+	try { el.focus({ preventScroll: true }); return true; }
+	catch (err) {
+		try { el.focus(); return true; } catch (err2) {}
+	}
+	return false;
+}
+
+/**
+ * Blur `el` without throwing. Returns `true` on success.
+ *
+ * @param {Element|null} el
+ * @returns {boolean}
+ */
+export function safeBlur(el) {
+	if (!el || typeof el.blur !== 'function') return false;
+	try { el.blur(); return true; } catch (err) {}
+	return false;
+}

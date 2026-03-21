@@ -107,6 +107,11 @@
 	--safe-bottom: env(safe-area-inset-bottom, 0px);
 	--safe-left:   env(safe-area-inset-left, 0px);
 	--safe-right:  env(safe-area-inset-right, 0px);
+
+	/* @fstage/ui — bridge pwa tokens → generic fs-* tokens */
+	--fs-safe-area-bottom:   env(safe-area-inset-bottom, 0px);
+	--fs-keyboard-height:    var(--keyboard-height, 0px);
+	--fs-sheet-offset-bottom: calc(var(--tab-height, 0px) + var(--safe-bottom, 0px) + 8px);
 }
 
 /* In a normal browser tab (not installed as PWA, not Capacitor/hybrid)

@@ -326,8 +326,39 @@ function policyDefaults() {
  * }}
  *
  * **`getFacts()`** — return a snapshot of detected environment facts:
- * `{ os, deviceClass, hybrid, hybridEngine, standalone, touch, browser, node,
- *    worker, notifications, serviceWorker, host, basePath, userAgent }`.
+ * ```
+ * {
+ *   // Platform
+ *   os:           'ios' | 'android' | 'windows' | 'mac' | ''
+ *   deviceClass:  'mobile' | 'desktop'
+ *
+ *   // Runtime context
+ *   isBrowser:    boolean  — running in a browser tab / WebView
+ *   isNative:     boolean  — running inside a Capacitor native app
+ *   isNode:       boolean  — running in Node.js
+ *   isWorker:     boolean  — running in a Web Worker
+ *
+ *   // Display / install mode
+ *   isStandalone: boolean  — display-mode: standalone OR navigator.standalone
+ *                            (true for both installed PWA and native)
+ *   isPwa:        boolean  — isStandalone && !isNative
+ *                            (installed web app, not a native wrapper)
+ *
+ *   // Capabilities
+ *   touch:         boolean
+ *   notifications: boolean
+ *   serviceWorker: boolean
+ *
+ *   // Location
+ *   host:     string
+ *   basePath: string
+ *
+ *   // Debug / meta
+ *   nativeEngine: 'capacitor' | ''
+ *   preset:       string
+ *   userAgent:    string
+ * }
+ * ```
  *
  * **`registerPolicy(policy, priority?)`** — merge an additional motion/gesture
  * policy layer. `policy` may be a plain object or a `(facts) => object` function.
@@ -337,14 +368,14 @@ function policyDefaults() {
  * by dot-notation path (e.g. `'motion.duration.normalMs'`). Returns the full
  * policy object when `path` is omitted.
  *
- * **`applyToDoc(el?)`** — run once at boot. Sets `data-platform`, `data-hybrid`,
- * `data-standalone` on the document element, wires keyboard-height CSS var,
- * and injects all policy scalars as CSS custom properties (`--motion-duration-normal`, etc.).
+ * **`applyToDoc(el?)`** — run once at boot. Sets `data-platform`, and conditionally
+ * `data-native`, `data-pwa`, `data-standalone` on the document element, wires
+ * keyboard-height CSS var, and injects all policy scalars as CSS custom properties.
  */
 export function getEnv(opts) {
 	opts = opts || {};
 
-	const ua = opts.ua || (globalThis.navigator ? navigator.userAgent : '');
+	const ua     = opts.ua     || (globalThis.navigator ? navigator.userAgent : '');
 	const preset = opts.preset || '';
 	const cacheKey = getCacheKey(ua, preset);
 
@@ -352,63 +383,80 @@ export function getEnv(opts) {
 		return _cache[cacheKey];
 	}
 
-	// FACTS
-	
+	// -------------------------------------------------------------------------
+	// Facts
+	// -------------------------------------------------------------------------
+
 	const parsedUa = parseUa(ua);
 
 	const facts = {
-		preset: preset,
-		userAgent: ua,
-		os: preset || parsedUa.os,
+		// Platform
+		os:          preset || parsedUa.os,
 		deviceClass: parsedUa.deviceClass,
-		hybrid: false,
-		hybridEngine: '',
-		standalone: !!(globalThis.matchMedia && globalThis.matchMedia('(display-mode: standalone)').matches) || (globalThis.navigator && navigator.standalone === true),
-		touch: !!(globalThis.navigator && navigator.maxTouchPoints > 0),
+
+		// Runtime context
+		isBrowser: false,
+		isNative:  false,
+		isNode:    false,
+		isWorker:  false,
+
+		// Display / install mode
+		isStandalone: !!(
+			(globalThis.matchMedia && globalThis.matchMedia('(display-mode: standalone)').matches) ||
+			(globalThis.navigator && navigator.standalone === true)
+		),
+		isPwa: false, // resolved below after isNative is set
+
+		// Capabilities
+		touch:         !!(globalThis.navigator && navigator.maxTouchPoints > 0),
 		notifications: !!('Notification' in globalThis),
-		serviceWorker: !!(globalThis.navigator && ('serviceWorker' in globalThis.navigator)),
-		browser: false,
-		node: false,
-		worker: false,
-		host: globalThis.location ? location.protocol + '//' + location.hostname : '',
-		basePath: globalThis.location ? location.href : ''
+		serviceWorker: !!(globalThis.navigator && 'serviceWorker' in globalThis.navigator),
+
+		// Location
+		host:     globalThis.location ? location.protocol + '//' + location.hostname : '',
+		basePath: globalThis.location ? location.href : '',
+
+		// Debug / meta
+		nativeEngine: '',
+		preset:       preset,
+		userAgent:    ua,
 	};
 
-	//runtime detection
-	if(typeof __filename !== 'undefined') {
-		facts.node = true;
-		facts.basePath = process.cwd().replace(/\\/g, '/');
-	} else if(typeof WorkerGlobalScope !== 'undefined' && typeof self !== 'undefined' && self instanceof WorkerGlobalScope) {
-		facts.worker = true;
-	} else if(typeof window !== 'undefined') {
-		facts.browser = true;
-		facts.basePath = (document.querySelector('base') || {}).href || facts.basePath;
+	// Runtime detection
+	if (typeof __filename !== 'undefined') {
+		facts.isNode    = true;
+		facts.basePath  = process.cwd().replace(/\\/g, '/');
+	} else if (typeof WorkerGlobalScope !== 'undefined' && typeof self !== 'undefined' && self instanceof WorkerGlobalScope) {
+		facts.isWorker  = true;
+	} else if (typeof window !== 'undefined') {
+		facts.isBrowser = true;
+		facts.basePath  = (document.querySelector('base') || {}).href || facts.basePath;
 	}
 
-	//hybrid detection
-	if(globalThis.Capacitor && typeof globalThis.Capacitor.isNativePlatform === 'function' && globalThis.Capacitor.isNativePlatform()) {
-		facts.hybrid = true;
-		facts.hybridEngine = 'capacitor';
-	} else if(globalThis._cordovaNative) {
-		facts.hybrid = true;
-		facts.hybridEngine = 'cordova';
+	// Native detection — Capacitor only
+	if (globalThis.Capacitor && typeof globalThis.Capacitor.isNativePlatform === 'function' && globalThis.Capacitor.isNativePlatform()) {
+		facts.isNative     = true;
+		facts.nativeEngine = 'capacitor';
 	}
 
-	//format base path
+	// isPwa: installed as standalone web app, not inside a native wrapper
+	facts.isPwa = facts.isStandalone && !facts.isNative;
+
+	// Format base path
 	facts.basePath = formatBasePath(facts.basePath);
-	
-	// POLICY
 
-	var applied = false;
-	var policyStack = [];
+	// -------------------------------------------------------------------------
+	// Policy
+	// -------------------------------------------------------------------------
+
+	var applied       = false;
+	var policyStack   = [];
 	var resolvedPolicy = null;
 
 	function resolvePolicy() {
-		if (resolvedPolicy) {
-			return resolvedPolicy;
-		}
+		if (resolvedPolicy) return resolvedPolicy;
 
-		const res = {};
+		const res    = {};
 		const sorted = policyStack.slice().sort(function(a, b) { return a.priority - b.priority; });
 
 		for (var i = 0; i < sorted.length; i++) {
@@ -420,28 +468,29 @@ export function getEnv(opts) {
 		resolvedPolicy = res;
 		return res;
 	}
-	
-	//default policy
-	const priority = 0;
+
+	// Base platform policy (priority 0)
 	const policies = policyDefaults();
-	const policy = Object.assign({}, policies.default);
-	
-	//extend policy?
+	const policy   = Object.assign({}, policies.default);
+
 	if (facts.os && policies[facts.os]) {
 		merge(policy, policies[facts.os]);
 	}
-	
-	//register default policy
-	policyStack.push({ policy, priority });
 
-	//cache object
+	policyStack.push({ policy, priority: 0 });
+
+	// -------------------------------------------------------------------------
+	// Public API
+	// -------------------------------------------------------------------------
+
 	_cache[cacheKey] = {
+
 		getFacts: function() {
 			return Object.assign({}, facts);
 		},
 
-		registerPolicy: function(policy, priority = 50) {
-			policyStack.push({ policy, priority });
+		registerPolicy: function(policy, priority) {
+			policyStack.push({ policy, priority: (typeof priority === 'number') ? priority : 50 });
 			resolvedPolicy = null;
 		},
 
@@ -449,7 +498,7 @@ export function getEnv(opts) {
 			var p = resolvePolicy();
 			if (!path) return p;
 
-			var val = p;
+			var val   = p;
 			var parts = path.split('.');
 			for (var i = 0; i < parts.length; i++) {
 				if (val && typeof val === 'object' && parts[i] in val) {
@@ -468,8 +517,9 @@ export function getEnv(opts) {
 			el = el || document.documentElement;
 
 			el.setAttribute('data-platform', facts.os || 'web');
-			if (facts.hybrid)     el.setAttribute('data-hybrid', '');
-			if (facts.standalone) el.setAttribute('data-standalone', '');
+			if (facts.isNative)     el.setAttribute('data-native', '');
+			if (facts.isPwa)        el.setAttribute('data-pwa', '');
+			if (facts.isStandalone) el.setAttribute('data-standalone', '');
 
 			if (globalThis.visualViewport) {
 				function sync() {
@@ -482,14 +532,14 @@ export function getEnv(opts) {
 			}
 
 			// Serialise policy scalars as CSS custom properties.
-			// WAAPI keyframe properties are excluded to prevent them appearing as vars.
-			const vars = policyToCssArr(resolvePolicy(), [ 'from', 'to', 'easing', 'composite', 'offset', 'keyframes' ]);
+			// WAAPI keyframe properties are excluded.
+			const vars  = policyToCssArr(resolvePolicy(), ['from', 'to', 'easing', 'composite', 'offset', 'keyframes']);
 			const style = document.createElement('style');
-			style.textContent = ":root {\n" + vars.join("\n") + "\n}";
+			style.textContent = ':root {\n' + vars.join('\n') + '\n}';
 			el.querySelector('head, body').appendChild(style);
 		}
+
 	};
 
-	//return
-	return _cache[cacheKey]
+	return _cache[cacheKey];
 }

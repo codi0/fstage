@@ -7,13 +7,16 @@ export default {
 	mockRemote: true, // set false to use real API
 
 	api: {
+		// In production this should be an absolute URL so it works in both
+		// PWA and native (Capacitor) contexts. The mock path below is
+		// relative and only used when debug + mockRemote are both true.
 		tasks: 'api/tasks.json',
 	},
 
 	importMap: {
-		'lit': 'https://cdn.jsdelivr.net/npm/lit-element@4/+esm',
-		'lit/': 'https://cdn.jsdelivr.net/npm/lit-html/',
-		'@capacitor/': 'https://cdn.jsdelivr.net/npm/@capacitor/'
+		'lit':         'https://cdn.jsdelivr.net/npm/lit-element@4/+esm',
+		'lit/':        'https://cdn.jsdelivr.net/npm/lit-html/',
+		'@capacitor/': 'https://cdn.jsdelivr.net/npm/@capacitor/',
 	},
 
 	loadAssets: {
@@ -32,6 +35,7 @@ export default {
 			'@fstage/gestures',
 			'@fstage/transitions',
 			'@fstage/interactions',
+			'@fstage/form',
 		],
 		app: [
 			//data: sync
@@ -43,8 +47,8 @@ export default {
 			//components: controls
 			'js/components/controls/due-date-picker.mjs',
 			'js/components/controls/priority-picker.mjs',
-			'js/components/controls/action-sheet.mjs',
-			'js/components/controls/bottom-sheet.mjs',
+			'@fstage/ui/action-sheet.mjs',
+			'@fstage/ui/bottom-sheet.mjs',
 			//components: parts
 			'js/components/parts/task-row.mjs',
 			//components: views
@@ -60,7 +64,7 @@ export default {
 			'css/style.css',
 			'manifest.json',
 			'favicon.png',
-		],
+		]
 	},
 
 	router: {
@@ -84,53 +88,25 @@ export default {
 		]
 	},
 
-	sw: {
-		preCache: [
-			'./',
-			'./css/style.css',
-			'./manifest.json',
-			'./favicon.png',
-			'./icons/icon-192.webp',
-			'./icons/icon-512.webp',
-		],
-		apiPrefixes: [
-			'/api/',
-		],
-		cachePrefix: 'tasks',
-		runtimeMaxEntries: 160,
-		cdnMaxEntries: 120,
-		bypassSearchParams: [
-			'token',
-			'auth',
-			'signature',
-			'expires',
-			'x-amz-signature',
-			'x-amz-credential',
-			'x-amz-security-token',
-			'googleaccessid',
-		],
-		cachePolicies: {
-			'https://cdn.jsdelivr.net': 'cors',
-		},
-	},
-
 	policy: function(facts, config) {
-		var enableEdgePan = !!(facts.hybrid || facts.standalone || (config.debug && !!facts.preset));
-
+		var enableEdgePan = !!(facts.isNative || facts.isStandalone || (config.debug && !!facts.preset));
 		return {
 			gestures: {
-				edgePan: {
-					enabled: enableEdgePan
-				}
+				edgePan: { enabled: enableEdgePan }
 			}
 		};
 	},
 
 	beforeLoad: function(e) {
+		// Skip loading @capacitor/* plugins in web/PWA mode — they only work
+		// inside a native Capacitor WebView. In native mode the import map
+		// already resolves them from the CDN; Capacitor.isNativePlatform()
+		// is true so we let them load normally.
 		var registry = e.get('registry.defaultRegistry', []);
 		if (!registry) return;
-		var env = registry.get('env', {});
-		if (e.path.startsWith('@capacitor/') && env.hybrid) {
+		var env = registry.get('env');
+		var facts = env && env.getFacts ? env.getFacts() : {};
+		if (e.path.startsWith('@capacitor/') && !facts.isNative) {
 			e.path = '';
 		}
 	},
@@ -139,7 +115,7 @@ export default {
 		var def = e.exports && e.exports.default;
 		if (def && def.tag) {
 			var registry = e.get('registry.defaultRegistry', []);
-			var runtime = registry.get('componentRuntime');
+			var runtime  = registry.get('componentRuntime');
 			if (runtime) runtime.define(def);
 		}
 	},
@@ -162,20 +138,24 @@ export default {
 		var config = e.get('config') || {};
 		var env    = registry.get('env');
 		var facts  = env.getFacts();
-		
+
 		if (config.policy) {
 			if (typeof config.policy === 'function') {
 				config.policy = config.policy(facts, config);
 			}
 			env.registerPolicy(config.policy, 100);
 		}
-		
+
 		var policy = env.getPolicy();
 		env.applyToDoc();
 
 		config = Object.assign({}, config, {
-			env: facts,
+			env:    facts,
 			policy: policy,
+			// Convenience flag for components that need to behave differently
+			// in a native Capacitor app vs web/PWA.
+			// Usage in any component: ctx.config.native
+			native: facts.isNative,
 		});
 
 		var routerOpts = e.get('config.router');
@@ -186,6 +166,7 @@ export default {
 
 		var store       = e.get('store.createStore', []);
 		var models      = e.get('registry.createRegistry', []);
+		var formManager = e.get('form.createFormManager', []);
 
 		var storage = e.get('sync.createStorage', [{
 			name: 'fstage-tasks',
@@ -203,9 +184,9 @@ export default {
 
 		var remoteHandler = null;
 		if (config.debug && config.mockRemote) {
-			var createHandler    = e.get('sync.createHandler');
-			var createStorage2   = e.get('sync.createStorage');
-			var mockStorage      = createStorage2({
+			var createHandler  = e.get('sync.createHandler');
+			var createStorage2 = e.get('sync.createStorage');
+			var mockStorage    = createStorage2({
 				name: 'fstage-mock-remote',
 				schemas: { tasks: { keyPath: 'id', indexes: { createdAt: { keyPath: 'createdAt' } } } },
 			});
@@ -255,29 +236,29 @@ export default {
 			registry,
 			animator,
 			screenHost,
+			formManager,
 			gestureManager,
 			interactionsManager,
 			baseClass: lit.LitElement,
-			ctx: { html: lit.html, css: lit.css, svg: lit.svg }
+			ctx: { html: lit.html, css: lit.css, svg: lit.svg },
 		}]);
 
-		registry.set('config',               config);
-		registry.set('store',                store);
-		registry.set('models',               models);
-		registry.set('storage', 						 storage);
-		registry.set('syncManager',          syncManager);
-		registry.set('router',               router);
-		registry.set('animator',             animator);
-		registry.set('screenHost',           screenHost);
-		registry.set('transitions',          transitions);
-		registry.set('gestureManager',       gestureManager);
-		registry.set('interactionsManager',  interactionsManager);
-		registry.set('componentRuntime',     componentRuntime);
+		registry.set('config',              config);
+		registry.set('store',               store);
+		registry.set('models',              models);
+		registry.set('storage',             storage);
+		registry.set('syncManager',         syncManager);
+		registry.set('router',              router);
+		registry.set('animator',            animator);
+		registry.set('screenHost',          screenHost);
+		registry.set('transitions',         transitions);
+		registry.set('gestureManager',      gestureManager);
+		registry.set('interactionsManager', interactionsManager);
+		registry.set('formManager',         formManager);
+		registry.set('componentRuntime',    componentRuntime);
 
-		// Devtools — debug only. Reads from registry so no manual wiring needed.
-		// Toggle the panel with Ctrl+Shift+D. Access via fstage.devtools in console.
+		// Devtools — debug only. Toggle panel with Ctrl+`.
 		if (config.debug) {
-			// Dynamically load devtools after all instances are ready.
 			Promise.all([
 				import('@fstage/devtools'),
 				import('@fstage/devtools/panel.mjs'),
@@ -294,18 +275,16 @@ export default {
 	},
 
 	afterLoadApp: function(e) {
-		var registry = e.get('registry.defaultRegistry', []);
-
-		var config = registry.get('config');
-		var store = registry.get('store');
-		var models = registry.get('models');
-		var router = registry.get('router');
-		var screenHost = registry.get('screenHost');
-		var transitions = registry.get('transitions');
+		var registry       = e.get('registry.defaultRegistry', []);
+		var config         = registry.get('config');
+		var store          = registry.get('store');
+		var router         = registry.get('router');
+		var screenHost     = registry.get('screenHost');
+		var transitions    = registry.get('transitions');
 		var gestureManager = registry.get('gestureManager');
 
 		var rootEl = document.querySelector('pwa-main');
-		var appEl = document.querySelector('pwa-app') || rootEl;
+		var appEl  = document.querySelector('pwa-app') || rootEl;
 
 		gestureManager.on('edgePan', {
 			target: appEl,
@@ -320,41 +299,36 @@ export default {
 				var prev = router.peek(-1);
 				if (!prev) return false;
 				e.ctl = await transitions.run(prev, {
-					transition: config.policy.transitions?.edgePan,
-					interactive: true
+					transition:  config.policy.transitions?.edgePan,
+					interactive: true,
 				});
 				if (!e.ctl) return false;
 			},
-			onProgress: function(e) {
-				e.ctl.progress(e.progress);
-			},
-			onCommit: async function(e) {
+			onProgress: function(e) { e.ctl.progress(e.progress); },
+			onCommit:   async function(e) {
 				await e.ctl.commit();
 				transitions.__suppress = true;
 				router.go(-1);
 			},
-			onCancel: function(e) {
-				e.ctl.cancel();
-			}
+			onCancel: function(e) { e.ctl.cancel(); },
 		});
 
-		// Route change transition
 		router.onAfter(function(route) {
-			//run transition
 			if (transitions.__suppress) {
 				delete transitions.__suppress;
 			} else {
 				transitions.run(route, {
-					transition: config.policy.transitions?.pageNavigation
+					transition: config.policy.transitions?.pageNavigation,
 				});
 			}
-			//update store afterwards, or component may re-render prematurely
+			// Update store after transition starts, or components may re-render prematurely.
 			var prev = store.$get('route') || {};
 			delete prev.prev;
 			route.prev = prev;
 			store.$set('route', route);
 		});
 
+		var models = registry.get('models');
 		models.seal();
 		gestureManager.start(appEl);
 		screenHost.start(rootEl);

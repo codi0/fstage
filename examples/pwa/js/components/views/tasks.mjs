@@ -5,25 +5,6 @@ import { addTask } from '../../data/flows/tasks.mjs';
 import { quickDueDates, scrollTo, safeBlur } from '../../utils/shared.mjs';
 
 
-function submitForm(e, { state, models }) {
-	var title = state.newTitle.trim();
-	if (!title) return;
-
-	safeBlur(e && e.matched);
-	safeBlur(document.activeElement);
-
-	hapticMedium();
-	var created = addTask(models, {
-		title: title,
-		dueDate: state.newDate || null,
-		priority: state.newPriority,
-	});
-	if (!created) return;
-
-	state.$set('lastAdded', String(created.$key || created.id || ''));
-	state.$set('sheetOpen', false);
-}
-
 export default {
 
 	tag: 'pwa-tasks',
@@ -34,7 +15,7 @@ export default {
 
 	state: {
 		sheetOpen:   false,
-		newTitle:    '',
+		title:       '',
 		newDate:     '',
 		newPriority: 'medium',
 		lastAdded:   '',
@@ -50,6 +31,12 @@ export default {
 			return { c: c.toFixed(1), off: off.toFixed(1) };
 		},
 		get groups()    { return this.models.get('tasks').grouped(); },
+	},
+
+	// Keep title in sync with the form input so render can react to it
+	// (e.g. the disabled state on the submit button).
+	bind: {
+		'[name="title"]': 'title',
 	},
 
 	style: ({ css }) => [
@@ -170,6 +157,14 @@ export default {
 			.form-input:focus {
 				border-color: var(--color-primary);
 			}
+			.form-input.field-invalid {
+				border-color: var(--color-danger, #e53e3e);
+			}
+			.form-error {
+				font-size: 12px;
+				color: var(--color-danger, #e53e3e);
+				margin-top: -2px;
+			}
 
 			.submit-btn {
 				width: 100%;
@@ -193,10 +188,6 @@ export default {
 		`
 	],
 
-	bind: {
-		'#task-title': 'newTitle',
-	},
-
 	watch: {
 		lastAdded: {
 			handler(e, { state, root }) {
@@ -217,15 +208,38 @@ export default {
 		}
 	},
 
+	// Declarative form — wires to <form name="form"> in the render template.
+	// title lives in state (via bind above) so render can react to it directly,
+	// restoring the reactive disabled button without any special form API.
+	// newDate and newPriority remain in state, managed by custom picker
+	// components, and are read from ctx.state inside onSubmit.
+	form: {
+		fields: {
+			title: { required: true, default: '' },
+		},
+		onSubmit(values, form, ctx) {
+			safeBlur(document.activeElement);
+			hapticMedium();
+
+			var created = addTask(ctx.models, {
+				title:    values.title,
+				dueDate:  ctx.state.newDate || null,
+				priority: ctx.state.newPriority,
+			});
+			if (!created) return;
+
+			ctx.state.$set('lastAdded', String(created.$key || created.id || ''));
+			ctx.state.$set('sheetOpen', false);
+			form.reset();
+		},
+	},
+
 	interactions: {
-		'keydown(#task-title)':              { handler: submitForm, keys: ['Enter'] },
-		'click(.submit-btn)':                (e, ctx) => submitForm(e, ctx),
-		'bottomSheetClosed':                 (e, { state }) => state.$set('sheetOpen', false),
-		'dueDateChange(pwa-due-date-picker)': (e, { state }) => state.$set('newDate',     (e.detail || {}).value || ''),
-		'priorityChange(pwa-priority-picker)': (e, { state }) => state.$set('newPriority', (e.detail || {}).value || 'medium'),
+		'bottomSheetClosed':                   (e, { state }) => state.$set('sheetOpen', false),  // emitted by fs-bottom-sheet
+		'dueDateChange(pwa-due-date-picker)':   (e, { state }) => state.$set('newDate',     (e.detail || {}).value || ''),
+		'priorityChange(pwa-priority-picker)':  (e, { state }) => state.$set('newPriority', (e.detail || {}).value || 'medium'),
 		'addTask(document)': function(e, { state }) {
 			hapticLight();
-			state.$set('newTitle',    '');
 			state.$set('newDate',     quickDueDates().today);
 			state.$set('newPriority', 'medium');
 			state.$set('sheetOpen',   true);
@@ -239,7 +253,7 @@ export default {
 
 	render({ html, state }) {
 		const { groups, total, completed, remaining, ringData,
-		        sheetOpen, newTitle, newDate, newPriority } = state;
+		        sheetOpen, title, newDate, newPriority } = state;
 		var rowIndex = 0;
 
 		return html`
@@ -289,14 +303,14 @@ export default {
 				)}
 			</div>
 
-			<pwa-bottom-sheet .title=${'New Task'} .open=${sheetOpen}>
-				<div class="add-form">
+			<fs-bottom-sheet .title=${'New Task'} .open=${sheetOpen}>
+				<form name="form" class="add-form">
 
 					<div class="form-field">
 						<label class="form-label" for="task-title">Title</label>
-						<input id="task-title" class="form-input" type="text"
+						<input id="task-title" name="title" class="form-input" type="text"
+							.value=${title}
 							placeholder="What needs doing?"
-							.value=${newTitle}
 							autocomplete="off"
 						/>
 					</div>
@@ -311,12 +325,12 @@ export default {
 						<pwa-priority-picker .value=${newPriority}></pwa-priority-picker>
 					</div>
 
-					<button class="submit-btn" ?disabled=${!newTitle.trim()}>
+					<button type="submit" class="submit-btn">
 						Add Task
 					</button>
 
-				</div>
-			</pwa-bottom-sheet>
+				</form>
+			</fs-bottom-sheet>
 		`;
 	},
 

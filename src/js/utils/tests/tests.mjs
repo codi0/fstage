@@ -9,6 +9,7 @@
 import {
 	getType, hasKeys, isEmpty, copy, nestedKey, isEqual,
 	diffValues, hash, schedule, createHooks, memoize, debounce,
+	focusElement, safeBlur,
 } from '../index.mjs';
 
 import { createRunner, assert, assertEqual, flush } from '../../../../tests/runner.mjs';
@@ -393,6 +394,51 @@ export async function runTests() {
 			schedule(fn, 'micro', true);
 			await flush();
 			assertEqual(calls, 2);
+		});
+
+	});
+
+	// -------------------------------------------------------------------------
+	await suite('focusElement', async () => {
+
+		await test('returns false for null', () => {
+			assert(focusElement(null) === false);
+		});
+
+		await test('returns false for non-element', () => {
+			assert(focusElement({}) === false);
+		});
+
+		await test('focuses a real element and returns true', () => {
+			const btn = document.createElement('button');
+			document.body.appendChild(btn);
+			const result = focusElement(btn);
+			assert(result === true);
+			assert(document.activeElement === btn);
+			document.body.removeChild(btn);
+		});
+
+	});
+
+	// -------------------------------------------------------------------------
+	await suite('safeBlur', async () => {
+
+		await test('returns false for null', () => {
+			assert(safeBlur(null) === false);
+		});
+
+		await test('returns false for non-element', () => {
+			assert(safeBlur({}) === false);
+		});
+
+		await test('blurs a focused element and returns true', () => {
+			const btn = document.createElement('button');
+			document.body.appendChild(btn);
+			btn.focus();
+			const result = safeBlur(btn);
+			assert(result === true);
+			assert(document.activeElement !== btn);
+			document.body.removeChild(btn);
 		});
 
 	});

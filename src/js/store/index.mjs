@@ -817,9 +817,9 @@ export function reactivePlugin(ctx) {
 // }
 //
 // Pagination:
-//   Attach a `pagination: { next, hasMore, total? }` property to the fetch
-//   Promise to inform the plugin of continuation state. Call $fetch(path,
-//   { append: true }) to load the next page — results are merged into the store.
+//   Return { data, pagination: { hasMore, next, total? } } from the fetch
+//   Promise to surface continuation state. Call $fetch(path, { append: true })
+//   to load the next page — results are merged into the store.
 // =============================================================================
 
 /**
@@ -906,6 +906,24 @@ export function operationPlugin(ctx) {
     };
   }
 
+  // Detect { data, pagination } return shape from fetch handlers.
+  // Extracts pagination metadata into opMeta and returns the plain data value.
+  // If the shape is not detected the value is returned unchanged.
+  function unwrapPaginated(path, val, merge) {
+    if (val && typeof val === 'object' && 'data' in val && 'pagination' in val) {
+      const pg = normalisePagination(val.pagination);
+      if (pg) {
+        setOpMeta(path, {
+          hasMore:    pg.hasMore,
+          nextParams: pg.next,
+          pageCount:  getOpMeta(path).pageCount + (merge ? 1 : 0),
+        });
+      }
+      return val.data;
+    }
+    return val;
+  }
+
   function resolveSubKey(val, subKey) {
     if (!subKey) return val;
     return subKey.split('.').reduce((o, k) => o?.[k], val);
@@ -930,17 +948,8 @@ export function operationPlugin(ctx) {
       delete fs.pendingVal;
       setOpMeta(path, { loading: false, fetching: false });
 
-      // Capture pagination metadata attached to the promise by the handler.
-      if (promise.pagination) {
-        const pg = normalisePagination(promise.pagination);
-        if (pg) {
-          setOpMeta(path, {
-            hasMore:    pg.hasMore,
-            nextParams: pg.next,
-            pageCount:  getOpMeta(path).pageCount + (merge ? 1 : 0),
-          });
-        }
-      }
+      // Unwrap { data, pagination } return shape from fetch handlers.
+      val = unwrapPaginated(path, val, merge);
 
       ctx.write(path, val, { merge, meta: { src: 'access' } });
 
@@ -1085,7 +1094,7 @@ export function operationPlugin(ctx) {
       } else if (result !== hookCurrentVal) {
         // Synchronous result — defer write to next microtask so the read
         // that triggered this returns first, then notify subscribers.
-        const writeVal = result;
+        const writeVal = unwrapPaginated(hookPath, result, doMerge);
         fs.pendingWrite = true;
         fs.pendingVal   = writeVal;
         queueMicrotask(() => {

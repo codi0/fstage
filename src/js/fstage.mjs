@@ -5,7 +5,7 @@
  *
  * Bootstraps the fstage module system:
  *   1. Reads optional config from `window.FSCONFIG`.
- *   2. Injects an import-map for all built-in fstage modules (`@fstage/<name>`).
+ *   2. Injects an import-map for all built-in fstage modules (`@fstage/<n>`).
  *   3. Loads `config.configPath` (if set) and merges it into the active config.
  *   4. Loads `config.loadAssets` and fires `fstage.ready` when complete.
  *
@@ -31,7 +31,7 @@
 //config vars
 var _name = 'fstage';
 var _confName = 'FSCONFIG';
-var _modules = [ 'animator', 'component', 'devtools', 'env', 'form', 'gestures', 'history', 'hls', 'http', 'interactions', 'ipfs', 'observe', 'registry', 'router', 'storage', 'store', 'sync', 'transitions', 'utils', 'webpush', 'websocket' ];
+var _modules = [ 'animator', 'component', 'devtools', 'env', 'form', 'gestures', 'history', 'hls', 'http', 'interactions', 'ipfs', 'observe', 'registry', 'router', 'ssr', 'storage', 'store', 'sync', 'transitions', 'ui', 'utils', 'webpush', 'websocket' ];
 
 //misc vars
 var _global = {};
@@ -187,7 +187,7 @@ var get = function(path, args=null) {
  *   - **string** — a single asset.  Special values:
  *       - `'@all'`  loads every built-in fstage module.
  *       - A bare module name (`'store'`, `'router'`, …) resolves via the
- *         import-map to `@fstage/<name>/index.mjs`.
+ *         import-map to `@fstage/<n>/index.mjs`.
  *       - Any string ending in `.mjs`, `.js`, `+esm`, or matching a bare
  *         package-scope pattern is treated as an ES module (`import()`).
  *       - Strings ending in `.css` (or similar) are injected as `<link>` tags.

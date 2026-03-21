@@ -54,7 +54,8 @@ schedule(fn, 'sync');     // immediate (no deferral)
 ### DOM
 
 ```js
-import { parseHTML, parseSVG, stripHTML, esc, decode, adoptStyleSheet } from '@fstage/utils';
+import { parseHTML, parseSVG, stripHTML, esc, decode, adoptStyleSheet,
+         focusElement, safeBlur } from '@fstage/utils';
 
 parseHTML('<div>hi</div>');          // NodeList
 parseHTML('<div>hi</div>', true);    // first node
@@ -65,6 +66,12 @@ esc.attr(value);  // attribute-safe escape
 esc.js(value);    // JS string escape
 
 adoptStyleSheet(document, cssResults, tagName);
+
+// Focus an element with scroll suppression. Returns true on success.
+focusElement(el);
+
+// Blur an element without throwing. Returns true on success.
+safeBlur(el);
 ```
 
 ### Hooks

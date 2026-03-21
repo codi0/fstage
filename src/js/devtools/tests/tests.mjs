@@ -2,8 +2,9 @@
  * @fstage/devtools — test suite
  *
  * Tests createDevtools() hub: event recording, connect methods, time-travel,
- * pause/resume, clear, and subscriber notification. No DOM required — panel.mjs
- * is not tested here (it requires a document).
+ * pause/resume, clear, subscriber notification, render performance tracking,
+ * and snapshot shape (including isLive and perfStats). No DOM required —
+ * panel.mjs is not tested here (it requires a document).
  */
 
 import { createDevtools } from '../index.mjs';
@@ -32,6 +33,56 @@ function makeSync(local) {
 	});
 }
 
+// Minimal fake runtime — mirrors the shape of createRuntime() output just enough
+// for connectRuntime() to instrument. define() registers a stub custom element
+// class whose prototype exposes performUpdate and updated for patching.
+function makeRuntime() {
+	const components = {};
+
+	return {
+		define(def) {
+			const tag = def.tag;
+
+			// Minimal class with the lifecycle methods the runtime wraps.
+			class Stub {
+				performUpdate() {}
+				updated(changedProperties) {}
+			}
+
+			// Register with customElements if not already defined (tests may run
+			// multiple times; guard with a suffix to avoid DOMException on re-define).
+			const safeName = tag + '-' + Math.random().toString(36).slice(2, 7);
+			customElements.define(safeName, class extends HTMLElement {});
+
+			// Store the prototype under the original tag for connectRuntime to find.
+			// We expose it via a custom lookup since JSDOM may not support full CE.
+			components[tag] = Stub;
+		},
+
+		// connectRuntime uses customElements.get(tag) — override for test env.
+		_get(tag) { return components[tag]; },
+	};
+}
+
+// Patch customElements.get to fall back to runtime._get for test-registered tags.
+// This avoids JSDOM limitations while keeping connectRuntime's code untouched.
+function patchCustomElements(runtime) {
+	const origGet = customElements.get.bind(customElements);
+	customElements.get = (tag) => origGet(tag) || runtime._get(tag);
+	return () => { customElements.get = origGet; };
+}
+
+// Simulate a component render cycle: call performUpdate then updated.
+function simulateRender(Constructor, changedProps = new Map()) {
+	const instance = Object.create(Constructor.prototype);
+	instance.performUpdate();
+	// Small artificial delay so duration > 0.
+	const end = Date.now() + 2;
+	while (Date.now() < end) {}
+	instance.updated(changedProps);
+	return instance;
+}
+
 // =============================================================================
 // Core hub
 // =============================================================================
@@ -51,7 +102,7 @@ async function runHubSuite(suite, test) {
 			const dt = createDevtools();
 			let calls = 0;
 			const unsub = dt.subscribe(() => calls++);
-			calls = 0; // reset after initial call
+			calls = 0;
 			assert(typeof unsub === 'function');
 			unsub();
 		});
@@ -69,6 +120,20 @@ async function runHubSuite(suite, test) {
 		await test('events is empty initially', () => {
 			const dt = createDevtools();
 			assertEqual(dt.events.length, 0);
+		});
+
+		await test('initial snapshot includes isLive: true', () => {
+			const dt = createDevtools();
+			let snap;
+			dt.subscribe(s => { snap = s; });
+			assert(snap.isLive === true);
+		});
+
+		await test('initial snapshot includes perfStats object', () => {
+			const dt = createDevtools();
+			let snap;
+			dt.subscribe(s => { snap = s; });
+			assert(snap.perfStats !== null && typeof snap.perfStats === 'object');
 		});
 
 		await test('pause() stops events being recorded', () => {
@@ -101,6 +166,22 @@ async function runHubSuite(suite, test) {
 			assertEqual(dt.events.length, 0);
 		});
 
+		await test('clear() resets perfStats counters', () => {
+			const dt      = createDevtools();
+			const runtime = makeRuntime();
+			const unpatch = patchCustomElements(runtime);
+			dt.connectRuntime(runtime);
+			runtime.define({ tag: 'x-clear-reset' });
+			const Ctor = runtime._get('x-clear-reset');
+			simulateRender(Ctor);
+			assert(dt.events.some(e => e.layer === 'render'));
+			dt.clear();
+			let snap;
+			dt.subscribe(s => { snap = s; });
+			assertEqual(Object.values(snap.perfStats).reduce((a, s) => a + s.renders, 0), 0);
+			unpatch();
+		});
+
 		await test('maxEvents cap enforced', () => {
 			const dt = createDevtools({ maxEvents: 3 });
 			const store = makeStore({ x: 0 });
@@ -110,13 +191,13 @@ async function runHubSuite(suite, test) {
 		});
 
 		await test('eventsByLayer filters correctly', () => {
-			const dt = createDevtools();
+			const dt      = createDevtools();
 			const store   = makeStore({ x: 1 });
 			const storage = makeStorage();
 			dt.connectStore(store);
 			dt.connectStorage(storage);
 			store.$set('x', 2);
-			storage.write('key', 'val'); // async but fires synchronously in memory
+			storage.write('key', 'val');
 			const storeEvts = dt.eventsByLayer('store');
 			assert(storeEvts.length >= 1);
 			assert(storeEvts.every(e => e.layer === 'store'));
@@ -187,7 +268,7 @@ async function runStoreConnectionSuite(suite, test) {
 			dt.connectStore(store);
 			let notified = false;
 			dt.subscribe(() => { notified = true; });
-			notified = false; // reset after initial call
+			notified = false;
 			store.$set('x', 2);
 			assert(notified);
 		});
@@ -234,7 +315,6 @@ async function runTimeTravelSuite(suite, test) {
 			dt.connectStore(store);
 			store.$set('x', 2);
 			store.$set('x', 3);
-			// back() from live goes to most recent snapshot (x=3), then again to (x=2)
 			dt.back();
 			dt.back();
 			assertEqual(store.$get('x'), 2);
@@ -249,6 +329,27 @@ async function runTimeTravelSuite(suite, test) {
 			assert(dt.isLive === false);
 		});
 
+		await test('snap.isLive false while travelling', () => {
+			const dt    = createDevtools();
+			const store = makeStore({ x: 1 });
+			dt.connectStore(store);
+			store.$set('x', 2);
+			dt.back();
+			let snap;
+			dt.subscribe(s => { snap = s; });
+			assert(snap.isLive === false);
+		});
+
+		await test('snap.isLive true when live', () => {
+			const dt    = createDevtools();
+			const store = makeStore({ x: 1 });
+			dt.connectStore(store);
+			store.$set('x', 2);
+			let snap;
+			dt.subscribe(s => { snap = s; });
+			assert(snap.isLive === true);
+		});
+
 		await test('toLive() returns to live state', () => {
 			const dt    = createDevtools();
 			const store = makeStore({ x: 1 });
@@ -256,7 +357,7 @@ async function runTimeTravelSuite(suite, test) {
 			store.$set('x', 2);
 			dt.back();
 			dt.toLive();
-			assertEqual(store.$get('x'), 2); // live state restored
+			assertEqual(store.$get('x'), 2);
 			assert(dt.isLive === true);
 		});
 
@@ -266,9 +367,9 @@ async function runTimeTravelSuite(suite, test) {
 			dt.connectStore(store);
 			store.$set('x', 2);
 			store.$set('x', 3);
-			dt.back(); // goes to snapshot[1] = {x:3}
-			dt.back(); // goes to snapshot[0] = {x:2}
-			dt.forward(); // goes to snapshot[1] = {x:3}
+			dt.back();
+			dt.back();
+			dt.forward();
 			assertEqual(store.$get('x'), 3);
 		});
 
@@ -338,10 +439,169 @@ async function runStorageConnectionSuite(suite, test) {
 			const storage = makeStorage();
 			dt.connectStorage(storage);
 			const wrappedRead = storage.read;
-			// Reconnect to get a fresh origRead reference, then destroy
 			dt.destroy();
-			// After destroy the read fn should differ from the wrapped version
 			assert(storage.read !== wrappedRead);
+		});
+
+	});
+
+}
+
+// =============================================================================
+// connectRuntime
+// =============================================================================
+
+async function runRuntimeConnectionSuite(suite, test) {
+
+	await suite('devtools — connectRuntime()', async () => {
+
+		await test('render event emitted after component render', () => {
+			const dt      = createDevtools();
+			const runtime = makeRuntime();
+			const unpatch = patchCustomElements(runtime);
+			dt.connectRuntime(runtime);
+			runtime.define({ tag: 'x-rt-basic' });
+			const Ctor = runtime._get('x-rt-basic');
+			simulateRender(Ctor);
+			const evts = dt.eventsByLayer('render');
+			assert(evts.length === 1);
+			assertEqual(evts[0].tag, 'x-rt-basic');
+			assertEqual(evts[0].type, 'render');
+			unpatch();
+		});
+
+		await test('render event has duration >= 0', () => {
+			const dt      = createDevtools();
+			const runtime = makeRuntime();
+			const unpatch = patchCustomElements(runtime);
+			dt.connectRuntime(runtime);
+			runtime.define({ tag: 'x-rt-duration' });
+			const Ctor = runtime._get('x-rt-duration');
+			simulateRender(Ctor);
+			const e = dt.eventsByLayer('render')[0];
+			assert(typeof e.duration === 'number' && e.duration >= 0);
+			unpatch();
+		});
+
+		await test('renderCount increments with each render', () => {
+			const dt      = createDevtools();
+			const runtime = makeRuntime();
+			const unpatch = patchCustomElements(runtime);
+			dt.connectRuntime(runtime);
+			runtime.define({ tag: 'x-rt-count' });
+			const Ctor = runtime._get('x-rt-count');
+			simulateRender(Ctor);
+			simulateRender(Ctor);
+			simulateRender(Ctor);
+			const evts = dt.eventsByLayer('render');
+			assertEqual(evts[0].renderCount, 1);
+			assertEqual(evts[1].renderCount, 2);
+			assertEqual(evts[2].renderCount, 3);
+			unpatch();
+		});
+
+		await test('perfStats accumulated in snapshot', () => {
+			const dt      = createDevtools();
+			const runtime = makeRuntime();
+			const unpatch = patchCustomElements(runtime);
+			dt.connectRuntime(runtime);
+			runtime.define({ tag: 'x-rt-stats' });
+			const Ctor = runtime._get('x-rt-stats');
+			simulateRender(Ctor);
+			simulateRender(Ctor);
+			let snap;
+			dt.subscribe(s => { snap = s; });
+			const stats = snap.perfStats['x-rt-stats'];
+			assert(stats !== undefined);
+			assertEqual(stats.renders, 2);
+			assert(typeof stats.avgMs === 'number');
+			assert(typeof stats.maxMs === 'number');
+			assert(typeof stats.totalMs === 'number');
+			assert(typeof stats.slowCount === 'number');
+			unpatch();
+		});
+
+		await test('slow flag set when duration >= slowThreshold', () => {
+			const dt      = createDevtools({ });
+			const runtime = makeRuntime();
+			const unpatch = patchCustomElements(runtime);
+			// Set threshold to 0 so every render is "slow".
+			dt.connectRuntime(runtime, { slowThreshold: 0 });
+			runtime.define({ tag: 'x-rt-slow' });
+			const Ctor = runtime._get('x-rt-slow');
+			simulateRender(Ctor);
+			const e = dt.eventsByLayer('render')[0];
+			assert(e.slow === true);
+			unpatch();
+		});
+
+		await test('slowThreshold update takes effect immediately for patched components', () => {
+			const dt      = createDevtools();
+			const runtime = makeRuntime();
+			const unpatch = patchCustomElements(runtime);
+			dt.connectRuntime(runtime, { slowThreshold: 99999 });
+			runtime.define({ tag: 'x-rt-threshold' });
+			const Ctor = runtime._get('x-rt-threshold');
+			simulateRender(Ctor);
+			const e1 = dt.eventsByLayer('render')[0];
+			assert(e1.slow === false);
+			// Now re-connect with threshold 0 — should affect same prototype immediately.
+			dt.connectRuntime(runtime, { slowThreshold: 0 });
+			simulateRender(Ctor);
+			const e2 = dt.eventsByLayer('render')[1];
+			assert(e2.slow === true);
+			unpatch();
+		});
+
+		await test('double-patching guard: defining same tag twice does not double-count', () => {
+			const dt      = createDevtools();
+			const runtime = makeRuntime();
+			const unpatch = patchCustomElements(runtime);
+			dt.connectRuntime(runtime);
+			runtime.define({ tag: 'x-rt-guard' });
+			// Calling define again simulates a hot-reload edge case.
+			runtime.define({ tag: 'x-rt-guard' });
+			const Ctor = runtime._get('x-rt-guard');
+			simulateRender(Ctor);
+			let snap;
+			dt.subscribe(s => { snap = s; });
+			assertEqual(snap.perfStats['x-rt-guard'].renders, 1);
+			unpatch();
+		});
+
+		await test('render events appear in unified event log', () => {
+			const dt      = createDevtools();
+			const runtime = makeRuntime();
+			const unpatch = patchCustomElements(runtime);
+			dt.connectRuntime(runtime);
+			runtime.define({ tag: 'x-rt-log' });
+			const Ctor = runtime._get('x-rt-log');
+			simulateRender(Ctor);
+			assert(dt.events.some(e => e.layer === 'render'));
+			unpatch();
+		});
+
+		await test('unhook restores runtime.define', () => {
+			const dt      = createDevtools();
+			const runtime = makeRuntime();
+			const unpatch = patchCustomElements(runtime);
+			const origDefine = runtime.define;
+			const unhook = dt.connectRuntime(runtime);
+			assert(runtime.define !== origDefine);
+			unhook();
+			assert(runtime.define === origDefine);
+			unpatch();
+		});
+
+		await test('destroy() calls runtimeUnhook', () => {
+			const dt      = createDevtools();
+			const runtime = makeRuntime();
+			const unpatch = patchCustomElements(runtime);
+			const origDefine = runtime.define;
+			dt.connectRuntime(runtime);
+			dt.destroy();
+			assert(runtime.define === origDefine);
+			unpatch();
 		});
 
 	});
@@ -360,6 +620,7 @@ export async function runTests() {
 	await runStoreConnectionSuite(suite, test);
 	await runTimeTravelSuite(suite, test);
 	await runStorageConnectionSuite(suite, test);
+	await runRuntimeConnectionSuite(suite, test);
 
 	return summary();
 }

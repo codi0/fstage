@@ -1,0 +1,39 @@
+{
+  "$schema": "https://unpkg.com/@capacitor/cli/dist/config.schema.json",
+
+  "appId":   "com.example.fstagetasks",
+  "appName": "Fstage Tasks",
+
+  "webDir": ".",
+
+  "server": {
+    "androidScheme": "http"
+  },
+
+  "plugins": {
+
+    "SplashScreen": {
+      "launchShowDuration": 0,
+      "autoHide": false,
+      "backgroundColor": "#F7F4EF",
+      "androidSplashResourceName": "splash",
+      "iosSplashResourceName": "Splash"
+    },
+
+    "StatusBar": {
+      "style": "DEFAULT",
+      "overlaysWebView": true
+    },
+
+    "Keyboard": {
+      "resize": "none",
+      "scrollAssist": false,
+      "resizeOnFullScreen": false
+    },
+
+    "PushNotifications": {
+      "presentationOptions": ["badge", "sound", "alert"]
+    }
+
+  }
+}

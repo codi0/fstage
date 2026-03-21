@@ -74,6 +74,23 @@
 //       vars:    { '--row-index': (ctx) => ctx.state.index },
 //     }
 //
+//   form / forms — declarative form lifecycle block (requires formManager).
+//     Singular `form` is shorthand for a single form named 'form'.
+//     `forms` supports multiple named forms, each wired to <form name="{key}">.
+//     form: {
+//       fields: { email: { required: true, type: 'email' }, ... },
+//       onSubmit(values, form) { ... },
+//       onError(errors, form)  { ... },
+//     }
+//     forms: {
+//       login:   { fields: { ... }, onSubmit(...) { ... } },
+//       profile: { fields: { ... }, onSubmit(...) { ... } },
+//     }
+//     Accessible as ctx.form (singular) and ctx.forms (map of all controllers).
+//     mount() is called after every render; it is idempotent and only re-wires
+//     when the underlying <form> element reference has changed.
+//     unmount() is registered via ctx.cleanup and runs on disconnect.
+//
 //   animate — declarative animation block (requires animation capability):
 //     enter  — host entry, fires once on first render
 //     exit   — host exit, fires when skipAttr is set on host
@@ -419,8 +436,8 @@ function scopePlugin() {
  *
  * Direct assignment to the proxy throws; use `ctx.state.$set(key, val)`.
  *
- * @param {Object} component   - The LitElement component instance.
- * @param {Object} store       - The global reactive store.
+ * @param {Object} component    - The LitElement component instance.
+ * @param {Object} store        - The global reactive store.
  * @param {Object} stateGetters - Map of getter key → getter function (from `formatDefMap`).
  * @returns {Proxy}
  */
@@ -430,16 +447,9 @@ function createStateProxy(component, store, stateGetters) {
 			if (typeof key === 'symbol') return store[key];
 			// State getters — call with ctx as 'this', inside $withScope for reactivity.
 			if (stateGetters && stateGetters[key]) {
-				try {
-					return store.$withScope(component, function() {
-						return stateGetters[key].call(component.__ctx);
-					});
-				} catch (err) {
-					const def = component.__internal && component.__internal.def;
-					if (def && def.onError) def.onError(err, component.__ctx);
-					else console.error('[fstage/component] state getter .' + key + ' error:', err);
-					return undefined;
-				}
+				return store.$withScope(component, function() {
+					return stateGetters[key].call(component.__ctx);
+				});
 			}
 			const val = store[key];
 			if (key[0] === '$' && typeof val === 'function') {
@@ -493,6 +503,12 @@ function createStateProxy(component, store, stateGetters) {
  * @param {Object}   [config.screenHost]       - Screen host for `activated`/`deactivated` hooks.
  * @param {Object}   [config.interactionsManager] - Interactions manager for event wiring.
  * @param {string}   [config.skipAttr='data-leaving'] - Attribute that signals host exit.
+ * @param {Function} [config.onError]          - Runtime-level error handler:
+ *   `(err, ctx, location) => void`. Called when any component throws and the
+ *   component does not define its own `def.onError`. `location` is a string
+ *   identifying the throw site, e.g. `'render'`, `'watch.taskId'`,
+ *   `'state.getter.groups'`, `'host.attrs["data-empty"]'`.
+ *   Component-level `def.onError` always takes precedence.
  *
  * @returns {{ define(def: Object): void }}
  */
@@ -523,6 +539,7 @@ export function createRuntime(config) {
 				watch:        {},
 				computed:     {},
 				animate:      {},
+				forms:        {},
 				inject:       {},
 				interactions: {},
 				host:         {}
@@ -531,11 +548,26 @@ export function createRuntime(config) {
 				if (def[i] === undefined) def[i] = defaults[i];
 			}
 
+			// Normalise singular `form` shorthand into `forms` before formatDefMap.
+			if (def.form && !def.forms) def.forms = { form: def.form };
+			else if (def.form)          Object.assign(def.forms, { form: def.form });
+			delete def.form;
+
 			formatDefMap(def);
 
 			if (!baseClass) throw new Error('[fstage/component] baseClass required');
 			if (!def.tag || def.tag.indexOf('-') === -1) throw new Error('[fstage/component] Invalid tag: ' + def.tag);
 			if (customElements.get(def.tag)) throw new Error('[fstage/component] Already defined: ' + def.tag);
+
+			// Unified error handler — resolves the precedence chain:
+			//   1. def.onError    — component-level override
+			//   2. config.onError — runtime-level fallback
+			//   3. console.error  — last resort
+			function handleError(err, ctx, location) {
+				if (def.onError)    return def.onError(err, ctx, location);
+				if (config.onError) return config.onError(err, ctx, location);
+				console.error('[fstage/component] ' + location + ' error in ' + def.tag + ':', err);
+			}
 
 			class Component extends baseClass {
 
@@ -610,8 +642,7 @@ export function createRuntime(config) {
 										try {
 											return fn(ctx);
 										} catch (err) {
-											if (def.onError) def.onError(err, ctx);
-											else console.error('[fstage/component] computed.' + k + ' error in ' + def.tag + ':', err);
+											handleError(err, ctx, 'computed.' + k);
 										}
 									},
 									enumerable: true
@@ -632,6 +663,18 @@ export function createRuntime(config) {
 					// Private instance bag — mutable by design; ctx itself is frozen after createRenderRoot.
 					// Declare all imperative instance state here in constructed() so it is visible at a glance.
 					ctx._ = {};
+
+					// Wire form controllers (requires formManager capability).
+					// ctx.forms — map of name → controller for all declared forms.
+					// ctx.form  — direct reference to the first controller (single-form convenience).
+					if (config.formManager && Object.keys(def.forms).length) {
+						ctx.forms = {};
+						for (var formName in def.forms) {
+							ctx.forms[formName] = config.formManager.create(def.forms[formName], ctx);
+						}
+						var formKeys = Object.keys(ctx.forms);
+						if (formKeys.length === 1) ctx.form = ctx.forms[formKeys[0]];
+					}
 
 					if (def.constructed) def.constructed(ctx);
 				}
@@ -688,8 +731,7 @@ export function createRuntime(config) {
 									}
 									if (descriptor.handler) descriptor.handler(e, ctx);
 								} catch (err) {
-									if (def.onError) def.onError(err, ctx);
-									else console.error('[fstage/component] watch.' + key + ' error in ' + def.tag + ':', err);
+									handleError(err, ctx, 'watch.' + key);
 								}
 							}
 
@@ -731,6 +773,15 @@ export function createRuntime(config) {
 						});
 						observer.observe(this, { attributes: true, attributeFilter: [ skipAttr ] });
 						ctx.cleanup(() => observer.disconnect());
+					}
+
+					// Register form unmount via ctx.cleanup so forms tear down on disconnect.
+					if (ctx.forms) {
+						for (var fName in ctx.forms) {
+							(function(controller) {
+								ctx.cleanup(function() { controller.unmount(); });
+							})(ctx.forms[fName]);
+						}
 					}
 
 					if (def.connected) def.connected(ctx);
@@ -789,8 +840,7 @@ export function createRuntime(config) {
 					try {
 						return def.render(ctx);
 					} catch (err) {
-						if (def.onError) def.onError(err, ctx);
-						else console.error('[fstage/component] render error in ' + def.tag + ':', err);
+						handleError(err, ctx, 'render');
 						return ctx.html``;
 					}
 				}
@@ -823,6 +873,14 @@ export function createRuntime(config) {
 					if (isFirst) {
 						const bindCleanup = wireBind(def, ctx);
 						if (bindCleanup) ctx.cleanup(bindCleanup);
+					}
+
+					// Mount form controllers after every render — idempotent, only re-wires
+					// if the underlying <form> element reference has changed.
+					if (ctx.forms) {
+						for (var mName in ctx.forms) {
+							ctx.forms[mName].mount(ctx.root, mName);
+						}
 					}
 
 					// Entry animation — host only, first render.
@@ -873,8 +931,7 @@ export function createRuntime(config) {
 							try {
 								descriptor.handler({ path: watchKey, val: currentVal, oldVal: oldVal }, ctx);
 							} catch (err) {
-								if (def.onError) def.onError(err, ctx);
-								else console.error('[fstage/component] watch.' + watchKey + ' (afterRender) error in ' + def.tag + ':', err);
+								handleError(err, ctx, 'watch.' + watchKey);
 							}
 						}
 					}
@@ -886,8 +943,7 @@ export function createRuntime(config) {
 							if (attrVal == null) ctx.host.removeAttribute(attrName);
 							else ctx.host.setAttribute(attrName, attrVal);
 						} catch (err) {
-							if (def.onError) def.onError(err, ctx);
-							else console.error('[fstage/component] host.attrs["' + attrName + '"] error in ' + def.tag + ':', err);
+							handleError(err, ctx, 'host.attrs["' + attrName + '"]');
 						}
 					}
 
@@ -897,8 +953,7 @@ export function createRuntime(config) {
 							const varVal = def.host.vars[varName](ctx);
 							ctx.host.style.setProperty(varName, String(varVal));
 						} catch (err) {
-							if (def.onError) def.onError(err, ctx);
-							else console.error('[fstage/component] host.vars["' + varName + '"] error in ' + def.tag + ':', err);
+							handleError(err, ctx, 'host.vars["' + varName + '"]');
 						}
 					}
 

@@ -3,7 +3,7 @@
  *
  * Self-contained devtools panel UI. Mounts a floating overlay onto the
  * document body. Consumes the createDevtools() subscribe API — no other
- * dependencies. Toggle with Ctrl+Shift+D (or Cmd+Shift+D on Mac).
+ * dependencies. Toggle with Ctrl+` (or Cmd+` on Mac).
  *
  * Usage:
  *   import { mountDevtoolsPanel } from '@fstage/devtools/panel';
@@ -12,7 +12,7 @@
  *     position: 'bottom',                  // 'bottom' (default) | 'right'
  *     height:   360,                       // panel height in px (bottom mode)
  *     width:    420,                       // panel width in px (right mode)
- *     shortcut: 'ctrl+shift+d',
+ *     shortcut: 'ctrl+`',
  *   });
  *
  * Returns an unmount function.
@@ -30,8 +30,8 @@ export function mountDevtoolsPanel(devtools, opts) {
 	// -------------------------------------------------------------------------
 
 	let visible     = false;
-	let activeTab   = 'events';  // 'events' | 'store' | 'sync' | 'storage'
-	let filterLayer = 'all';     // 'all' | 'store' | 'sync' | 'storage'
+	let activeTab   = 'events';  // 'events' | 'store' | 'sync' | 'storage' | 'perf'
+	let filterLayer = 'all';     // 'all' | 'store' | 'sync' | 'storage' | 'render'
 	let selectedIdx = null;      // selected event index for detail pane
 	let snapshot    = null;      // latest snapshot from devtools.subscribe
 	let currentH    = panelH;    // live panel height, updated on drag
@@ -62,7 +62,6 @@ export function mountDevtoolsPanel(devtools, opts) {
 	// Keyboard shortcut
 	// -------------------------------------------------------------------------
 
-	// Parse shortcut once
 	const _shortcutParts = shortcut.split('+');
 	const _shortcutKey   = _shortcutParts[_shortcutParts.length - 1];
 	const _needCtrl      = _shortcutParts.includes('ctrl');
@@ -111,11 +110,10 @@ export function mountDevtoolsPanel(devtools, opts) {
 			? `<span class="fdt-badge fdt-warn">travelling · #${snap.cursor}</span>`
 			: '';
 
-		// Filter events — annotate _idx (position in original array) at render
-		// time so data-idx always maps back to snap.events correctly.
+		// Filter events — annotate _idx at render time.
 		const allEvents = snap.events.map(function(e, i) {
 			return Object.assign({}, e, { _idx: i });
-		}).reverse(); // newest first
+		}).reverse();
 		const filtered  = filterLayer === 'all'
 			? allEvents
 			: allEvents.filter(function(e) { return e.layer === filterLayer; });
@@ -152,6 +150,12 @@ export function mountDevtoolsPanel(devtools, opts) {
 			}).join('')
 			: '<div class="fdt-empty">Queue empty</div>';
 
+		// Perf stats table
+		const perfHTML = buildPerfTab(snap.perfStats || {});
+
+		// Count render events for the Perf tab badge
+		const renderCount = snap.events.filter(function(e) { return e.layer === 'render'; }).length;
+
 		return `
 		<div class="fdt-resize-handle"></div>
 		<div class="fdt-panel">
@@ -173,13 +177,14 @@ export function mountDevtoolsPanel(devtools, opts) {
 				<button class="fdt-tab${activeTab==='events'  ? ' fdt-active' : ''}" data-tab="events">Events <span class="fdt-count">${snap.events.length}</span></button>
 				<button class="fdt-tab${activeTab==='store'   ? ' fdt-active' : ''}" data-tab="store">State</button>
 				<button class="fdt-tab${activeTab==='sync'    ? ' fdt-active' : ''}" data-tab="sync">Queue <span class="fdt-count">${(snap.syncQueue||[]).length}</span></button>
+				<button class="fdt-tab${activeTab==='perf'    ? ' fdt-active' : ''}" data-tab="perf">Perf <span class="fdt-count">${renderCount}</span></button>
 			</div>
 
 			<div class="fdt-body">
 
 				<div class="fdt-pane${activeTab==='events' ? ' fdt-pane-active' : ''}" data-pane="events">
 					<div class="fdt-filters">
-						${['all','store','sync','storage'].map(function(l) {
+						${['all','store','sync','storage','render'].map(function(l) {
 							return `<button class="fdt-filter${filterLayer===l?' fdt-active':''}" data-filter="${l}">${l}</button>`;
 						}).join('')}
 					</div>
@@ -197,13 +202,60 @@ export function mountDevtoolsPanel(devtools, opts) {
 					<div class="fdt-list">${queueRows}</div>
 				</div>
 
+				<div class="fdt-pane${activeTab==='perf' ? ' fdt-pane-active' : ''}" data-pane="perf">
+					${perfHTML}
+				</div>
+
 			</div>
 		</div>`;
 	}
 
+	// -------------------------------------------------------------------------
+	// Perf tab
+	// -------------------------------------------------------------------------
+
+	function buildPerfTab(stats) {
+		const tags = Object.keys(stats);
+
+		if (!tags.length) {
+			return '<div class="fdt-empty">No render data yet — call connectRuntime() to enable.</div>';
+		}
+
+		// Sort by total render time descending (busiest components first).
+		tags.sort(function(a, b) { return stats[b].totalMs - stats[a].totalMs; });
+
+		const rows = tags.map(function(tag) {
+			const s = stats[tag];
+			const hasSlow = s.slowCount > 0;
+			return `<div class="fdt-perf-row${hasSlow ? ' fdt-perf-slow' : ''}">
+				<span class="fdt-perf-tag" title="${tag}">${tag}</span>
+				<span class="fdt-perf-cell fdt-perf-renders">${s.renders}</span>
+				<span class="fdt-perf-cell">${s.avgMs}ms</span>
+				<span class="fdt-perf-cell">${s.maxMs}ms</span>
+				<span class="fdt-perf-cell fdt-perf-slow-count${hasSlow ? ' fdt-err' : ' fdt-muted'}">${s.slowCount}</span>
+			</div>`;
+		}).join('');
+
+		return `<div class="fdt-perf-table">
+			<div class="fdt-perf-header">
+				<span class="fdt-perf-tag">component</span>
+				<span class="fdt-perf-cell">renders</span>
+				<span class="fdt-perf-cell">avg</span>
+				<span class="fdt-perf-cell">max</span>
+				<span class="fdt-perf-cell">slow</span>
+			</div>
+			${rows}
+		</div>`;
+	}
+
+	// -------------------------------------------------------------------------
+	// Row helpers
+	// -------------------------------------------------------------------------
+
 	function rowLabel(e) {
-		if (e.layer === 'store') return `<strong>${e.label}</strong>`;
-		if (e.layer === 'sync')  return `<strong>${e.type}</strong> ${e.key || ''}`;
+		if (e.layer === 'store')   return `<strong>${e.label}</strong>`;
+		if (e.layer === 'render')  return `<strong>${e.tag}</strong>`;
+		if (e.layer === 'sync')    return `<strong>${e.type}</strong> ${e.key || ''}`;
 		if (e.layer === 'storage') {
 			if (e.type === 'query') return `<strong>query</strong> ${e.namespace || ''}`;
 			return `<strong>${e.type}</strong> ${e.key || ''}`;
@@ -213,6 +265,13 @@ export function mountDevtoolsPanel(devtools, opts) {
 
 	function rowMeta(e) {
 		const parts = [];
+		if (e.layer === 'render') {
+			if (e.slow) parts.push('<span class="fdt-badge fdt-err">slow</span>');
+			parts.push(`${e.duration}ms`);
+			parts.push(`#${e.renderCount}`);
+			parts.push(fmtTime(e.timestamp));
+			return parts.join(' ');
+		}
 		if (e.status) {
 			const cls = e.status === 'ok' || e.status === 'local' || e.status === 'remote'
 				? 'fdt-ok' : e.status === 'error' ? 'fdt-err' : 'fdt-warn';
@@ -227,6 +286,20 @@ export function mountDevtoolsPanel(devtools, opts) {
 
 	function buildDetail(e) {
 		const rows = [];
+
+		if (e.layer === 'render') {
+			rows.push(`<div class="fdt-detail-section"><strong>${e.tag}</strong></div>`);
+			rows.push(`<div class="fdt-diff-row">
+				<span class="fdt-diff-path">duration</span>
+				<span class="fdt-diff-val">${e.duration}ms${e.slow ? ' ⚠ slow' : ''}</span>
+			</div>`);
+			rows.push(`<div class="fdt-diff-row">
+				<span class="fdt-diff-path">render #</span>
+				<span class="fdt-diff-val">${e.renderCount}</span>
+			</div>`);
+			return rows.join('');
+		}
+
 		if (e.diff && e.diff.length) {
 			rows.push('<div class="fdt-detail-section"><strong>Diff</strong></div>');
 			e.diff.forEach(function(d) {
@@ -320,19 +393,17 @@ export function mountDevtoolsPanel(devtools, opts) {
 		return json
 			.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 			.replace(/("(\\u[\dA-Fa-f]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function(match) {
-				let cls = 'fdt-jn'; // number
+				let cls = 'fdt-jn';
 				if (/^"/.test(match)) {
-					cls = /:$/.test(match) ? 'fdt-jk' : 'fdt-js'; // key or string
+					cls = /:$/.test(match) ? 'fdt-jk' : 'fdt-js';
 				} else if (/true|false/.test(match)) {
-					cls = 'fdt-jb'; // boolean
+					cls = 'fdt-jb';
 				} else if (/null/.test(match)) {
 					cls = 'fdt-jnull';
 				}
 				return `<span class="${cls}">${match}</span>`;
 			});
 	}
-
-	
 
 	// -------------------------------------------------------------------------
 	// CSS
@@ -528,9 +599,10 @@ export function mountDevtoolsPanel(devtools, opts) {
 			white-space: nowrap;
 			flex-shrink: 0;
 		}
-		.fdt-layer-store   { background: rgba(61,158,106,0.2); color: #6dbf95; }
+		.fdt-layer-store   { background: rgba(61,158,106,0.2);  color: #6dbf95; }
 		.fdt-layer-sync    { background: rgba(100,130,220,0.2); color: #8aaae8; }
 		.fdt-layer-storage { background: rgba(180,120,60,0.2);  color: #d4904a; }
+		.fdt-layer-render  { background: rgba(160,100,220,0.2); color: #c08ae8; }
 
 		/* Empty state */
 		.fdt-empty { padding: 16px 12px; color: #5a5652; font-style: italic; }
@@ -586,6 +658,46 @@ export function mountDevtoolsPanel(devtools, opts) {
 		.fdt-jb    { color: #e07070; }
 		.fdt-jnull { color: #7a7672; }
 		.fdt-muted { color: #5a5652; font-style: italic; }
+
+		/* Perf tab */
+		.fdt-perf-table {
+			display: flex;
+			flex-direction: column;
+			flex: 1;
+			overflow-y: auto;
+		}
+		.fdt-perf-header,
+		.fdt-perf-row {
+			display: grid;
+			grid-template-columns: 1fr 60px 60px 60px 48px;
+			align-items: center;
+			gap: 6px;
+			padding: 5px 10px;
+			border-bottom: 1px solid rgba(58,56,53,0.5);
+		}
+		.fdt-perf-header {
+			background: #141312;
+			color: #5a5652;
+			font-size: 10px;
+			font-weight: 600;
+			letter-spacing: 0.04em;
+			text-transform: uppercase;
+			flex-shrink: 0;
+			position: sticky;
+			top: 0;
+		}
+		.fdt-perf-row { color: #c8c4bc; font-size: 10.5px; }
+		.fdt-perf-row.fdt-perf-slow { background: rgba(184,50,50,0.06); }
+		.fdt-perf-tag {
+			overflow: hidden;
+			text-overflow: ellipsis;
+			white-space: nowrap;
+			color: #e8e6e0;
+			font-weight: 500;
+		}
+		.fdt-perf-cell { text-align: right; color: #9a9690; }
+		.fdt-perf-renders { color: #c8c4bc; }
+		.fdt-perf-slow-count.fdt-err { color: #e07070; font-weight: 600; }
 
 		/* Scrollbars inside panel */
 		#fstage-devtools ::-webkit-scrollbar { width: 4px; height: 4px; }

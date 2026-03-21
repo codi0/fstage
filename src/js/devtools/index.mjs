@@ -1,10 +1,9 @@
 /**
  * @fstage/devtools
  *
- * Unified devtools hub for store, sync, and storage layers.
- * Entirely opt-in — zero cost when not connected. No devtools
- * imports exist in store/sync/storage; each layer is instrumented
- * externally via connect methods.
+ * Unified devtools hub for store, sync, storage, and component render layers.
+ * Entirely opt-in — zero cost when not connected. No devtools imports exist in
+ * store/sync/storage/component; each layer is instrumented externally via connect methods.
  *
  * Usage:
  *   import { createDevtools } from '@fstage/devtools';
@@ -13,6 +12,7 @@
  *   devtools.connectStore(store);
  *   devtools.connectSync(syncManager);
  *   devtools.connectStorage(storage);
+ *   devtools.connectRuntime(runtime, { slowThreshold: 16 });
  *
  *   // Subscribe to all events
  *   const unsub = devtools.subscribe(snapshot => render(snapshot));
@@ -38,13 +38,29 @@
  *     { layer:'storage', type:'write',     key, driver, duration, timestamp }
  *     { layer:'storage', type:'query',     namespace, opts, count, driver, duration, timestamp }
  *
+ *   Render:
+ *     { layer:'render', type:'render',     tag, duration, slow, renderCount, timestamp }
+ *
  * Snapshot shape (passed to subscribers):
  *   {
  *     events:    Event[],       — unified log, newest last
  *     cursor:    number,        — current time-travel position (-1 = live)
+ *     isLive:    boolean,       — true when not time-travelling (cursor === -1)
  *     storeState: object,       — current store state (deep copy)
  *     syncQueue: array,         — current write queue entries
  *     online:    boolean,       — last known online state
+ *     perfStats: object,        — per-tag render performance stats
+ *   }
+ *
+ * perfStats shape:
+ *   {
+ *     [tag]: {
+ *       renders:   number,   — total render count
+ *       totalMs:   number,   — cumulative render time
+ *       avgMs:     number,   — average render duration
+ *       maxMs:     number,   — slowest single render
+ *       slowCount: number,   — renders exceeding slowThreshold
+ *     }
  *   }
  */
 
@@ -54,7 +70,7 @@
 
 /**
  * Create a devtools hub for inspecting and time-travelling the store, sync,
- * and storage layers. Entirely opt-in — zero cost when not connected.
+ * storage, and component render layers. Entirely opt-in — zero cost when not connected.
  *
  * @param {Object} [opts]
  * @param {number} [opts.maxEvents=500] - Maximum events to keep in the log.
@@ -63,6 +79,7 @@
  *   connectStore(store: Object): void,
  *   connectSync(syncManager: Object): void,
  *   connectStorage(storage: Object): void,
+ *   connectRuntime(runtime: Object, opts?: { slowThreshold?: number }): Function,
  *   subscribe(cb: Function): Function,
  *   travel(idx: number): void,
  *   toLive(): void,
@@ -91,10 +108,23 @@
  * **`connectStorage(storage)`** — wrap `storage.read`, `.write`, and `.query`
  * with timing shims.
  *
+ * **`connectRuntime(runtime, opts?)`** — wrap `runtime.define` to instrument
+ * each component's render lifecycle. Tracks per-tag render count, avg/max
+ * duration, and slow renders (configurable threshold). Returns an unhook function.
+ * Options:
+ *   - `slowThreshold` {number} — ms above which a render is considered slow (default: 16).
+ *     Updating this by calling connectRuntime again takes effect immediately for all
+ *     already-patched components, since all patches read from a shared mutable ref.
+ * Notes:
+ *   - Components defined before connectRuntime() is called are not instrumented.
+ *   - Prototype patches applied to already-defined components persist after unhook,
+ *     but are zero-cost once runtimeUnhook restores runtime.define (no new patches
+ *     are applied). This is an intentional devtools trade-off.
+ *
  * **`subscribe(cb)`** — subscribe to snapshot updates. `cb` is called
  * immediately with the current snapshot, and after every subsequent event.
  * Returns an unsubscribe function. Snapshot shape:
- * `{ events, cursor, storeState, syncQueue, online }`.
+ * `{ events, cursor, isLive, storeState, syncQueue, online, perfStats }`.
  *
  * **`travel(idx)`** — restore store state to the snapshot at event index `idx`.
  * Requires `connectStore()`. Only store-write events carry snapshots.
@@ -105,6 +135,9 @@
 export function createDevtools(opts) {
 	opts = opts || {};
 	const maxEvents = opts.maxEvents || 500;
+
+	// Resolved once — true if the Performance API is available.
+	const hasPerfAPI = typeof performance !== 'undefined';
 
 	// -------------------------------------------------------------------------
 	// State
@@ -120,7 +153,13 @@ export function createDevtools(opts) {
 	let syncQueue   = [];         // last known sync write queue
 	let syncUnhook  = null;       // cleanup fn for sync instrumentation
 	let storageUnhook = null;     // cleanup fn for storage instrumentation
+	let runtimeUnhook = null;     // cleanup fn for runtime instrumentation
 	let online      = typeof navigator !== 'undefined' ? navigator.onLine : true;
+
+	// Shared mutable slow-render threshold. All component prototype patches read
+	// from this ref, so calling connectRuntime again with a new slowThreshold
+	// takes effect immediately for all already-patched components.
+	let _slowThreshold = 16;
 
 	// Time-travel cursor. -1 = live (not travelling).
 	let cursor      = -1;
@@ -129,12 +168,20 @@ export function createDevtools(opts) {
 	// Only store-layer write events carry snapshots.
 	const snapshots = [];
 
+	// Per-tag render performance stats.
+	// { [tag]: { renders, totalMs, avgMs, maxMs, slowCount } }
+	const perfStats = {};
+
 	// -------------------------------------------------------------------------
 	// Internal helpers
 	// -------------------------------------------------------------------------
 
 	function clone(val) {
 		try { return JSON.parse(JSON.stringify(val)); } catch (_) { return val; }
+	}
+
+	function now() {
+		return hasPerfAPI ? performance.now() : Date.now();
 	}
 
 	function pushEvent(event) {
@@ -153,14 +200,17 @@ export function createDevtools(opts) {
 	}
 
 	function buildSnapshot() {
+		const isLive = cursor === -1;
 		return {
 			events:     events.slice(),
 			cursor,
-			storeState: cursor === -1
+			isLive,
+			storeState: isLive
 				? (storeState ? clone(storeState) : null)
 				: (snapshots[cursor] ? clone(snapshots[cursor]) : null),
 			syncQueue:  syncQueue.slice(),
 			online,
+			perfStats:  clone(perfStats),
 		};
 	}
 
@@ -419,6 +469,119 @@ export function createDevtools(opts) {
 	}
 
 	// -------------------------------------------------------------------------
+	// connectRuntime(runtime, opts?)
+	//
+	// Wraps runtime.define to instrument each component's render lifecycle.
+	// Patches the component class prototype after define() returns, hooking
+	// performUpdate (start timer) and updated (stop timer, record stats).
+	//
+	// Per-tag stats are accumulated in perfStats and included in every snapshot.
+	// Render events are also pushed to the unified event log so they appear in
+	// the Events tab and can be correlated with store/sync/storage activity.
+	//
+	// All prototype patches read slowThreshold from the shared _slowThreshold ref,
+	// so calling connectRuntime again with a new slowThreshold updates behaviour
+	// for all already-patched components immediately.
+	//
+	// origDefine is stored without .bind() so that unhook restores the exact same
+	// function reference the caller held — important for reference-equality checks
+	// and consistent with how connectSync/connectStorage restore their originals.
+	//
+	// Zero impact on components defined before connectRuntime() is called.
+	// Returns an unhook function that restores runtime.define.
+	// -------------------------------------------------------------------------
+
+	/**
+	 * Instrument a component runtime for render performance tracking.
+	 *
+	 * @param {Object} runtime              - Object returned by `createRuntime()`.
+	 * @param {Object} [connectOpts]
+	 * @param {number} [connectOpts.slowThreshold=16] - Render duration (ms) above
+	 *   which a render is flagged as slow (default: 16ms ≈ one 60 fps frame).
+	 * @returns {Function} Unhook function — restores `runtime.define`.
+	 */
+	function connectRuntime(runtime, connectOpts) {
+		if (runtimeUnhook) runtimeUnhook();
+
+		connectOpts = connectOpts || {};
+		_slowThreshold = typeof connectOpts.slowThreshold === 'number'
+			? connectOpts.slowThreshold
+			: 16;
+
+		// Store the original reference without binding so unhook restores the
+		// exact same function reference the caller held. Call via .call(runtime)
+		// inside the wrapper to preserve the correct `this` context.
+		const origDefine = runtime.define;
+
+		runtime.define = function(def) {
+			// Call the original define — registers the custom element.
+			origDefine.call(runtime, def);
+
+			// Retrieve the registered constructor to patch its prototype.
+			const tag = def && def.tag;
+			if (!tag) return;
+
+			const Constructor = customElements.get(tag);
+			if (!Constructor) return;
+
+			const proto = Constructor.prototype;
+
+			// Guard against double-patching (e.g. hot reload calling define again).
+			if (proto.__devtoolsPatched) return;
+			proto.__devtoolsPatched = true;
+
+			// Initialise per-tag stats entry.
+			if (!perfStats[tag]) {
+				perfStats[tag] = { renders: 0, totalMs: 0, avgMs: 0, maxMs: 0, slowCount: 0 };
+			}
+
+			// Wrap performUpdate — stamp a high-resolution start time on the instance.
+			const origPerformUpdate = proto.performUpdate;
+			proto.performUpdate = function() {
+				this.__renderStart = now();
+				origPerformUpdate.call(this);
+			};
+
+			// Wrap updated — compute duration, update stats, push event.
+			// Reads _slowThreshold from the shared ref so threshold changes take
+			// effect immediately without re-patching prototypes.
+			const origUpdated = proto.updated;
+			proto.updated = function(changedProperties) {
+				origUpdated.call(this, changedProperties);
+
+				if (this.__renderStart === undefined) return;
+
+				const duration = Math.round((now() - this.__renderStart) * 100) / 100;
+				this.__renderStart = undefined;
+
+				const stats = perfStats[tag];
+				stats.renders++;
+				stats.totalMs  = Math.round((stats.totalMs + duration) * 100) / 100;
+				stats.avgMs    = Math.round((stats.totalMs / stats.renders) * 100) / 100;
+				if (duration > stats.maxMs) stats.maxMs = duration;
+				const slow = duration >= _slowThreshold;
+				if (slow) stats.slowCount++;
+
+				pushEvent({
+					layer:       'render',
+					type:        'render',
+					tag,
+					duration,
+					slow,
+					renderCount: stats.renders,
+					timestamp:   Date.now(),
+				});
+			};
+		};
+
+		runtimeUnhook = function() {
+			runtime.define = origDefine;
+		};
+
+		return runtimeUnhook;
+	}
+
+	// -------------------------------------------------------------------------
 	// Time-travel
 	//
 	// Restores store state to the snapshot recorded at a given event index.
@@ -476,6 +639,7 @@ export function createDevtools(opts) {
 		connectStore,
 		connectSync,
 		connectStorage,
+		connectRuntime,
 
 		// Subscribe to snapshot updates. cb called immediately with current snapshot.
 		// Returns unsubscribe function.
@@ -512,11 +676,14 @@ export function createDevtools(opts) {
 		resume() { _paused = false; },
 		get paused() { return _paused; },
 
-		// Clear all recorded events and snapshots.
+		// Clear all recorded events, snapshots, and perf stats.
 		clear() {
-			events.length   = 0;
+			events.length    = 0;
 			snapshots.length = 0;
 			cursor = -1;
+			for (const tag in perfStats) {
+				perfStats[tag] = { renders: 0, totalMs: 0, avgMs: 0, maxMs: 0, slowCount: 0 };
+			}
 			notify();
 		},
 
@@ -525,6 +692,7 @@ export function createDevtools(opts) {
 			if (storeUnhook)   storeUnhook();
 			if (syncUnhook)    syncUnhook();
 			if (storageUnhook) storageUnhook();
+			if (runtimeUnhook) runtimeUnhook();
 			subscribers.clear();
 			events.length    = 0;
 			snapshots.length = 0;

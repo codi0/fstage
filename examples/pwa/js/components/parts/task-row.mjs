@@ -83,9 +83,9 @@ function deleteTask(taskData, ctx, opts) {
 }
 
 function getActionSheetHost() {
-	var host = document.querySelector('pwa-action-sheet');
+	var host = document.querySelector('fs-action-sheet');
 	if (host) return host;
-	host = document.createElement('pwa-action-sheet');
+	host = document.createElement('fs-action-sheet');
 	(document.body || document.documentElement).appendChild(host);
 	return host;
 }
