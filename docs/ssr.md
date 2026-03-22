@@ -1,166 +1,367 @@
-# SSR
+# `@fstage/ssr` — Server-Side Rendering
 
-`@fstage/ssr` renders fstage component definitions to HTML strings on the server using [Declarative Shadow DOM](https://developer.chrome.com/docs/css-ui/declarative-shadow-dom) (DSD). The output hydrates on the client with no build step.
+`@fstage/ssr` renders fstage component definitions to HTML strings on the server using [Declarative Shadow DOM (DSD)](https://developer.chrome.com/docs/css-ui/declarative-shadow-dom). The output hydrates automatically in the browser — no client-side JavaScript required for the hydration step itself.
 
-## Quick start
+Designed for Node.js. Works on any runtime that supports ES modules.
 
-```js
-// Node.js server (e.g. Express)
-import { createSsrRuntime }    from '@fstage/ssr';
-import { html, css }           from 'lit';
-import { repeat, classMap }    from 'lit/directives/...';
-import { render }              from '@lit-labs/ssr';
-import { collectResultSync }   from '@lit-labs/ssr/lib/render-result.js';
-import TaskList                from './components/task-list.mjs';
+---
 
-const ssr = createSsrRuntime({
-  ctx:       { html, css, repeat, classMap },
-  serialize: (r) => collectResultSync(render(r)),
-});
+## How it works
 
-const fragment = ssr.renderToString(TaskList, { tasks: myTasks });
-// → '<task-list><template shadowrootmode="open"><style>…</style>…</template></task-list>'
-```
-
-Inject the fragment into your HTML response:
+`renderToString(def, initialState?)` takes a component definition and returns a self-contained HTML fragment:
 
 ```html
-<body>
-  <main>
-    <!-- SSR shell — hydrates automatically when the client JS loads -->
-    ${fragment}
-  </main>
-</body>
+<!-- shadow: true (default) -->
+<my-component>
+  <template shadowrootmode="open">
+    <style>:host { display: block; }</style>
+    <h1>Hello, Alice</h1>
+  </template>
+</my-component>
+
+<!-- shadow: false -->
+<my-component>
+  <h1>Hello, Alice</h1>
+</my-component>
 ```
 
-## Peer dependency
+DSD is natively supported in all modern browsers. The `<template shadowrootmode="open">` is parsed during HTML parsing, before any JavaScript runs — the component renders immediately without a flash of unstyled content.
 
-`@lit-labs/ssr` is required for components that use lit-html templates (the common case). It is not bundled — install it separately:
+---
 
-```
+## Setup
+
+Install the peer dependency:
+
+```sh
 npm install @lit-labs/ssr
 ```
 
-For simple components or testing, any function that accepts the return value of `def.render(ctx)` and returns a string can be passed as `config.serialize`.
+`@lit-labs/ssr` provides the serialiser that converts lit-html `TemplateResult` objects to strings. It must be the same version as the `lit` package used in your components.
 
-## createSsrRuntime(config)
+Create the SSR runtime once, then call `renderToString` per request:
 
 ```js
+import { createSsrRuntime }    from '@fstage/ssr';
+import { html, css }           from 'lit';
+import { render }              from '@lit-labs/ssr';
+import { collectResultSync }   from '@lit-labs/ssr/lib/render-result.js';
+import { repeat, classMap }    from 'lit/directives/...';
+
 const ssr = createSsrRuntime({
-  ctx:       { html, css, svg, repeat, classMap }, // render helpers — same as createRuntime
-  serialize: fn,     // (templateResult) => string — required when components have render
-  config:    {},     // app config, exposed as ctx.config in render
-  onError:   fn,     // (err, ctx, location) => void — runtime-level error handler
+  // Render context — pass the same helpers your components use
+  ctx: { html, css, repeat, classMap },
+
+  // Serialiser — converts a TemplateResult to a string
+  serialize: (result) => collectResultSync(render(result)),
+
+  // Optional: app config object exposed as ctx.config in render functions
+  config: { name: 'My App', version: '1.0' },
+
+  // Optional: runtime-level error handler (falls back to console.error)
+  onError: (err, ctx, location) => {
+    console.error('[ssr]', location, 'in', ctx.tag, err);
+  },
 });
 ```
 
-Returns `{ renderToString }`.
+---
 
-## renderToString(def, initialState?, opts?)
+## `renderToString(def, initialState?, opts?)`
+
+Render a single component definition to an HTML string.
 
 ```js
-const fragment = ssr.renderToString(
-  def,            // component definition (same object passed to runtime.define)
-  { tasks: [] },  // initial state — merged over declared defaults
-  {
-    attrs:   { 'data-ssr': '', 'aria-busy': 'false' }, // host element attributes
-    onError: (err, ctx, location) => { /* per-call error handler */ },
-  }
+const html = ssr.renderToString(def, initialState, opts);
+```
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `def` | `ComponentDefinition` | The component definition object. Same format as passed to `runtime.define()` on the client. |
+| `initialState` | `Object` | State values merged over declared defaults. See [Supplying state](#supplying-state). |
+| `opts` | `Object` | Per-call options (see below). |
+
+**`opts`:**
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `attrs` | `Object` | Attributes to stamp on the host element tag. `''` or `true` renders as a boolean attribute. |
+| `onError` | `Function` | Per-call error handler — overrides `config.onError`. Receives `(err, ctx, location)`. |
+
+**Returns:** An HTML string. Never throws — errors call `onError` and return an empty shell.
+
+---
+
+## Supplying state
+
+On the server, only `render()` is called. There is no reactive store, no watchers, no `connected()` hook. State is a plain object built from:
+
+1. Declared defaults in `def.state`
+2. `initialState` overrides
+
+For components with external state (`$ext`) or props (`$prop`), pass the actual values in `initialState`:
+
+```js
+// Component definition
+const TaskList = {
+  tag: 'task-list',
+  state: {
+    tasks:  { $ext: 'tasks',  default: [] },   // external store key
+    filter: { $prop: 'all' },                  // element property
+    get pending() {
+      return this.state.tasks.filter(t => !t.completed);
+    },
+  },
+  render({ html, state }) {
+    return html`
+      <p>${state.pending.length} tasks remaining</p>
+      ${state.tasks.map(t => html`<li>${t.title}</li>`)}
+    `;
+  },
+};
+
+// Server render — pass the real data
+const fragment = ssr.renderToString(TaskList, {
+  tasks:  await db.getTasks(),    // supplies the $ext 'tasks' value
+  filter: 'all',                  // supplies the $prop 'filter' value
+});
+```
+
+State getters are evaluated server-side. In the example above, `state.pending` correctly filters the `tasks` array passed in `initialState`.
+
+---
+
+## Composing components
+
+Render a full page by nesting component fragments:
+
+```js
+import Layout  from './components/layout/app.mjs';
+import TaskList from './components/views/tasks.mjs';
+
+const tasks = await db.getTasks();
+
+// Render inner components first
+const listFragment = ssr.renderToString(TaskList, { tasks });
+
+// Stamp host attributes for immediate CSS (e.g. data-platform, theme)
+const appFragment = ssr.renderToString(Layout, {}, {
+  attrs: { 'data-platform': 'web', 'data-theme': 'light' },
+});
+
+const page = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Tasks</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  ${appFragment.replace('</app-main>', listFragment + '</app-main>')}
+  <script type="module" src="/js/fstage.mjs"></script>
+</body>
+</html>`;
+```
+
+---
+
+## Node.js integration
+
+### Express
+
+```js
+import express from 'express';
+import { createSsrRuntime }  from '@fstage/ssr';
+import { html, css }         from 'lit';
+import { render }            from '@lit-labs/ssr';
+import { collectResultSync } from '@lit-labs/ssr/lib/render-result.js';
+import TaskList              from './components/views/tasks.mjs';
+
+const ssr = createSsrRuntime({
+  ctx: { html, css },
+  serialize: (r) => collectResultSync(render(r)),
+});
+
+const app = express();
+
+app.get('/', async (req, res) => {
+  const tasks    = await db.getTasks();
+  const fragment = ssr.renderToString(TaskList, { tasks });
+
+  res.send(`<!DOCTYPE html><html><body>${fragment}</body></html>`);
+});
+```
+
+### Hono (edge-compatible)
+
+```js
+import { Hono }              from 'hono';
+import { createSsrRuntime }  from '@fstage/ssr';
+import { html, css }         from 'lit';
+import { render }            from '@lit-labs/ssr';
+import { collectResultSync } from '@lit-labs/ssr/lib/render-result.js';
+import TaskList              from './components/views/tasks.mjs';
+
+const ssr = createSsrRuntime({
+  ctx: { html, css },
+  serialize: (r) => collectResultSync(render(r)),
+});
+
+const app = new Hono();
+
+app.get('/', async (c) => {
+  const tasks    = await db.getTasks();
+  const fragment = ssr.renderToString(TaskList, { tasks });
+  return c.html(`<!DOCTYPE html><html><body>${fragment}</body></html>`);
+});
+```
+
+---
+
+## Client hydration
+
+No special hydration step is required. When the fstage client boots:
+
+1. The browser has already parsed the DSD templates — shadow roots exist immediately.
+2. `customElements.define()` upgrades all matching host elements in place.
+3. The component's `connected()` hook fires and wires interactions, watches, etc.
+
+The component's first client-side render will match the server-rendered output if `initialState` on the server matches what the store has on the client. To avoid a flash of different content, seed the store with the same data that was used for SSR:
+
+```js
+// In config.mjs or afterLoadApp
+// Seed from data embedded in the HTML (common pattern)
+const serverData = JSON.parse(
+  document.getElementById('ssr-data').textContent
 );
+store.$reset(serverData, { silent: true });
 ```
 
-Returns an HTML string: a custom element tag wrapping a DSD `<template>` containing the inlined `<style>` and rendered shadow content. For `shadow: false` components, returns the content directly inside the host tag with no template wrapper.
+---
 
-### initialState
+## Isomorphic authoring guide
 
-State keys are resolved in this order:
+Components that render on both server and client need to avoid calling browser-only APIs inside `render()`. The server ctx is intentionally minimal.
 
-1. **Declared defaults** — bare values, `{ $prop }`, `{ $ext }` `default`, or `{ $src }` `default` from `def.state`.
-2. **`initialState`** — caller-supplied values, merged over defaults.
+### What is available server-side
 
-Pass external state values (declared with `$ext`) explicitly in `initialState` so the server render reflects real data:
+| `ctx` property | Available | Notes |
+|----------------|-----------|-------|
+| `state` | ✅ | Plain object with defaults + `initialState`. Store methods (`$set`, `$watch`, etc.) are no-ops — calls in `render()` are safe but have no effect. |
+| `config` | ✅ | App config passed to `createSsrRuntime`. |
+| `html`, `css`, `svg` | ✅ | Same helpers as client. |
+| `repeat`, `classMap`, etc. | ✅ | If passed in `config.ctx`. |
+| `_` | ✅ (empty `{}`) | Available but `constructed()` is not called — do not rely on values set there. |
+| `host` | ❌ | Not present. |
+| `root` | ❌ | Not present. |
+| `emit` | ❌ | Not present. |
+| `cleanup` | ❌ | Not present. |
+| `animate` | ❌ | Not present. |
+| `form` / `forms` | ❌ | Not present. |
+| Injected services | ❌ | `inject` is not wired — keys from `inject` are not on `ctx`. |
+
+### Lifecycle hooks not called server-side
+
+`constructed`, `connected`, `rendered`, `disconnected` — none fire during SSR. `watch`, `bind`, `interactions`, and `animate` blocks are not wired.
+
+### Guarding DOM access
 
 ```js
-ssr.renderToString(TaskList, {
-  tasks: await db.getTasks(),
-  user:  req.session.user,
+render({ html, state }) {
+  // ❌ Throws on server — document doesn't exist
+  const el = document.querySelector('.something');
+
+  // ✅ Guard with typeof check
+  const el = typeof document !== 'undefined'
+    ? document.querySelector('.something')
+    : null;
+
+  return html`...`;
+}
+```
+
+### Guarding injected services
+
+```js
+const MyComponent = {
+  tag: 'my-view',
+
+  inject: { router: 'router' },
+
+  render({ html, state, router }) {
+    // ❌ router is undefined on server — crashes
+    const current = router.match('/');
+
+    // ✅ Guard against null
+    const current = router ? router.match('/') : null;
+
+    return html`...`;
+  },
+};
+```
+
+### Pattern: separate data-fetching from rendering
+
+The cleanest approach is to keep `render()` a pure function of `state` — no service calls, no DOM access. Push all data fetching and side effects into lifecycle hooks, which are client-only:
+
+```js
+const MyComponent = {
+  tag: 'my-list',
+
+  inject: { models: 'models' },
+
+  state: {
+    // External store key — server receives value via initialState
+    items: { $ext: 'items', default: [] },
+  },
+
+  // connected() only runs on the client — safe to call services
+  connected({ models, cleanup }) {
+    // Trigger a fetch/refresh on mount
+    models.get('items').fetch();
+  },
+
+  // render() is called on both server and client — keep it pure
+  render({ html, state }) {
+    return html`
+      <ul>
+        ${state.items.map(item => html`<li>${item.title}</li>`)}
+      </ul>
+    `;
+  },
+};
+
+// Server: pass items directly
+const fragment = ssr.renderToString(MyComponent, {
+  items: await db.getItems(),
 });
 ```
 
-Keys not declared in `def.state` are also accessible on `ctx.state` in render — useful for passing ad-hoc server-only data.
+---
 
-### opts.attrs
+## `opts.attrs` — server-only attributes
 
-Attributes to stamp on the host element's opening tag. An empty string or `true` value renders as a boolean attribute:
+Use `opts.attrs` to stamp attributes on the host element that should be present from the first paint — useful for theme, platform, or hydration hints:
 
 ```js
-{ attrs: { 'data-ssr': '', id: 'task-list', 'aria-label': 'Tasks' } }
-// → <task-list data-ssr id="task-list" aria-label="Tasks">…</task-list>
+ssr.renderToString(AppRoot, {}, {
+  attrs: {
+    'data-platform': detectPlatform(req),  // 'ios' | 'android' | 'web'
+    'data-theme':    userTheme,             // 'light' | 'dark'
+    'data-ssr':      '',                   // boolean attribute (marks as server-rendered)
+  },
+});
 ```
 
-## Server ctx
-
-`def.render(ctx)` receives a minimal server context. Not all client ctx properties are present:
-
-| Property | Available | Notes |
-|----------|-----------|-------|
-| `ctx.state` | ✅ | Plain object with defaults + getters. Store methods (`$set`, `$watch`, etc.) are no-ops. |
-| `ctx.config` | ✅ | From `config.config`. |
-| `ctx.html/css/svg` | ✅ | From `config.ctx`. |
-| `ctx.repeat/classMap` | ✅ | From `config.ctx`. |
-| `ctx._` | ✅ | Empty private bag. |
-| `ctx.host/root` | ❌ | No DOM on the server. |
-| `ctx.emit/cleanup/animate` | ❌ | Not wired. |
-| `ctx.<injected>` | ❌ | No registry on the server; injected services are absent. |
-
-**Lifecycle hooks not called:** `constructed`, `connected`, `rendered`, `disconnected`.
+---
 
 ## Limitations
 
-**DOM access in render** — components that query `document` or `window` directly in their `render` function will throw. Guard with:
-
-```js
-render({ html }) {
-  if (typeof document === 'undefined') return html`<slot></slot>`;
-  // ... DOM-dependent content
-}
-```
-
-**Injected services** — `inject` keys are not available in the server ctx. Components that read from services (e.g. `ctx.models`) in `render` will throw if those properties are accessed. Consider passing the data directly via `initialState` instead.
-
-**Reactive getters that use services** — getters that call `this.models.get(…)` or similar will fail server-side for the same reason. Use `initialState` to supply pre-computed values:
-
-```js
-state: {
-  tasks: { $ext: 'tasks', default: [] },
-  // Instead of: get groups() { return this.models.get('tasks').grouped(); }
-  // Pass groups directly:
-  groups: { $ext: 'groups', default: [] },
-}
-
-// Server:
-ssr.renderToString(def, {
-  tasks:  rawTasks,
-  groups: groupTasks(rawTasks),
-});
-```
-
-**`shadow: false` components** — rendered without a DSD `<template>`. Styles are not inlined (they are adopted on the document at runtime on the client).
-
-## Error handling
-
-Errors in `render` or `serialize` are caught and reported without crashing the server. The component renders as an empty shell:
-
-```js
-// Per-call handler
-ssr.renderToString(def, state, {
-  onError(err, ctx, location) {
-    logger.error({ tag: def.tag, location, err });
-  }
-});
-
-// Runtime-level fallback (applies when opts.onError is not set)
-createSsrRuntime({ onError: (err, ctx, location) => logger.error(err) });
-```
-
-`location` is `'render'` or `'serialize'`. If no handler is provided, falls back to `console.error`.
+- `def.constructed`, `connected`, `rendered`, `disconnected` are not called.
+- `inject` services are not available on the server ctx.
+- Reactive watchers, `bind`, `interactions`, and `animate` blocks are not wired.
+- Components that read `document`, `window`, or other browser globals inside `render()` will throw — guard with `typeof document !== 'undefined'`.
+- `ctx.emit`, `ctx.cleanup`, `ctx.animate`, `ctx.host`, `ctx.root`, and `ctx.form` are not present.
+- Streaming (`renderToStream`) is not yet implemented. Use `renderToString` and flush the full HTML string. For streaming, use a framework-level solution such as Hono's `streamText` or Node.js `stream.Readable`.

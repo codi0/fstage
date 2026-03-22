@@ -38,6 +38,9 @@
  *     { layer:'storage', type:'write',     key, driver, duration, timestamp }
  *     { layer:'storage', type:'query',     namespace, opts, count, driver, duration, timestamp }
  *
+ *   Router:
+ *     { layer:'router', type:'navigate',   path, params, direction, duration, timestamp }
+ *
  *   Render:
  *     { layer:'render', type:'render',     tag, duration, slow, renderCount, timestamp }
  *
@@ -79,6 +82,7 @@
  *   connectStore(store: Object): void,
  *   connectSync(syncManager: Object): void,
  *   connectStorage(storage: Object): void,
+ *   connectRouter(router: Object): Function,
  *   connectRuntime(runtime: Object, opts?: { slowThreshold?: number }): Function,
  *   subscribe(cb: Function): Function,
  *   travel(idx: number): void,
@@ -112,6 +116,9 @@
  * each component's render lifecycle. Tracks per-tag render count, avg/max
  * duration, and slow renders (configurable threshold). Returns an unhook function.
  * Options:
+ * **`connectRouter(router)`** — wrap `router.onAfter` to record every navigation
+ * with path, params, direction, and transition duration.
+ *
  *   - `slowThreshold` {number} — ms above which a render is considered slow (default: 16).
  *     Updating this by calling connectRuntime again takes effect immediately for all
  *     already-patched components, since all patches read from a shared mutable ref.
@@ -154,6 +161,7 @@ export function createDevtools(opts) {
 	let syncUnhook  = null;       // cleanup fn for sync instrumentation
 	let storageUnhook = null;     // cleanup fn for storage instrumentation
 	let runtimeUnhook = null;     // cleanup fn for runtime instrumentation
+	let routerUnhook  = null;     // cleanup fn for router instrumentation
 	let online      = typeof navigator !== 'undefined' ? navigator.onLine : true;
 
 	// Shared mutable slow-render threshold. All component prototype patches read
@@ -469,6 +477,40 @@ export function createDevtools(opts) {
 	}
 
 	// -------------------------------------------------------------------------
+	// connectRouter(router)
+	//
+	// Wraps router.onAfter to record every completed navigation.
+	// -------------------------------------------------------------------------
+
+	function connectRouter(router) {
+		if (routerUnhook) routerUnhook();
+
+		if (!router || typeof router.onAfter !== 'function') {
+			console.warn('[devtools] connectRouter: router.onAfter not available');
+			return;
+		}
+
+		var t0 = Date.now();
+
+		var off = router.onAfter(function(route) {
+			var now = Date.now();
+			pushEvent({
+				layer:     'router',
+				type:      'navigate',
+				path:      route.path      || '',
+				params:    route.params    || {},
+				direction: route.direction || 'replace',
+				duration:  now - t0,
+				timestamp: now,
+			});
+			t0 = now;
+		});
+
+		routerUnhook = typeof off === 'function' ? off : null;
+		return routerUnhook;
+	}
+
+	// -------------------------------------------------------------------------
 	// connectRuntime(runtime, opts?)
 	//
 	// Wraps runtime.define to instrument each component's render lifecycle.
@@ -639,6 +681,7 @@ export function createDevtools(opts) {
 		connectStore,
 		connectSync,
 		connectStorage,
+		connectRouter,
 		connectRuntime,
 
 		// Subscribe to snapshot updates. cb called immediately with current snapshot.
@@ -692,6 +735,7 @@ export function createDevtools(opts) {
 			if (storeUnhook)   storeUnhook();
 			if (syncUnhook)    syncUnhook();
 			if (storageUnhook) storageUnhook();
+			if (routerUnhook)  routerUnhook();
 			if (runtimeUnhook) runtimeUnhook();
 			subscribers.clear();
 			events.length    = 0;

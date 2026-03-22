@@ -1,0 +1,18 @@
+{
+  "id": "/",
+  "dir": "ltr",
+  "lang": "en",
+  "name": "My App",
+  "short_name": "My App",
+  "description": "A fstage progressive web app",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "theme_color": "#F5F5F3",
+  "background_color": "#F5F5F3",
+  "icons": [
+    { "src": "icons/icon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "any" },
+    { "src": "icons/icon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "maskable" }
+  ]
+}

@@ -1,0 +1,165 @@
+/* style.css — fstage app starter styles
+ *
+ * A minimal design token foundation. Build your design system here.
+ * Tokens use CSS custom properties so they automatically cascade to
+ * components (whether shadow DOM or not) and are easy to theme.
+ *
+ * The PWA example (examples/pwa/css/style.css) has a fuller design
+ * system you can draw from for a production app.
+ */
+
+
+/* ============================================================================
+   Tokens — light mode
+   ============================================================================ */
+
+:root {
+	/* Brand — replace with your accent colour */
+	--color-primary:        #2D7A52;
+	--color-primary-dark:   #1E4D35;
+	--color-primary-subtle: rgba(45, 122, 82, 0.12);
+
+	/* Semantic */
+	--color-danger:         #B83232;
+	--color-danger-subtle:  rgba(184, 50, 50, 0.10);
+	--color-warning:        #B86820;
+
+	/* Backgrounds */
+	--bg-base:      #FFFFFF;
+	--bg-secondary: #F5F5F3;
+	--bg-tertiary:  #EBEBEA;
+
+	/* Text */
+	--text-primary:   #1A1A18;
+	--text-secondary: #4A4A46;
+	--text-tertiary:  #808078;
+
+	/* Borders / separators */
+	--separator:       rgba(0, 0, 0, 0.07);
+	--separator-heavy: rgba(0, 0, 0, 0.13);
+
+	/* Radii */
+	--radius-sm: 6px;
+	--radius-md: 12px;
+	--radius-lg: 18px;
+
+	/* Motion */
+	--easing-standard: cubic-bezier(0.2, 0, 0, 1);
+
+	/* Safe areas (set by device) */
+	--safe-top:    env(safe-area-inset-top,    0px);
+	--safe-bottom: env(safe-area-inset-bottom, 0px);
+	--safe-left:   env(safe-area-inset-left,   0px);
+	--safe-right:  env(safe-area-inset-right,  0px);
+
+	/* Keyboard height — updated live by @fstage/env */
+	--keyboard-height: 0px;
+
+	/* fstage/ui bridge tokens */
+	--fs-safe-area-bottom:    env(safe-area-inset-bottom, 0px);
+	--fs-keyboard-height:     var(--keyboard-height, 0px);
+	--fs-sheet-offset-bottom: 8px;
+}
+
+/* In a standard browser tab (not installed/native) safe-area insets can be
+   non-zero on some devices. Force to zero unless actually needed. */
+html:not([data-standalone]):not([data-native]) {
+	--safe-top:    0px;
+	--safe-bottom: 0px;
+	--safe-left:   0px;
+	--safe-right:  0px;
+}
+
+
+/* ============================================================================
+   Tokens — dark mode
+   ============================================================================ */
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--color-primary:        #3D9E6A;
+		--color-primary-dark:   #2D7A52;
+		--color-primary-subtle: rgba(61, 158, 106, 0.15);
+		--color-danger:         #D05050;
+		--color-danger-subtle:  rgba(208, 80, 80, 0.15);
+
+		--bg-base:      #1C1C1A;
+		--bg-secondary: #111110;
+		--bg-tertiary:  #242422;
+
+		--text-primary:   #F0EDE8;
+		--text-secondary: #C0BDB8;
+		--text-tertiary:  #888580;
+
+		--separator:       rgba(255, 255, 255, 0.07);
+		--separator-heavy: rgba(255, 255, 255, 0.13);
+	}
+}
+
+
+/* ============================================================================
+   Reset
+   ============================================================================ */
+
+*, *::before, *::after {
+	box-sizing: border-box;
+	-webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+	width: 100%;
+	height: 100%;
+	margin: 0;
+	padding: 0;
+	background: var(--bg-secondary);
+	color: var(--text-primary);
+	font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+	             'Helvetica Neue', Arial, sans-serif;
+	-webkit-font-smoothing: antialiased;
+	-webkit-text-size-adjust: 100%;
+	text-size-adjust: 100%;
+}
+
+body {
+	min-width: 320px;
+	overscroll-behavior: none;
+}
+
+p, h1, h2, h3, h4 { margin: 0; }
+button { font-family: inherit; }
+input, textarea, select { font-family: inherit; color: var(--text-primary); }
+a { color: var(--color-primary); text-decoration: none; }
+
+:focus-visible {
+	outline: 2px solid var(--color-primary);
+	outline-offset: 2px;
+}
+
+
+/* ============================================================================
+   Motion — respect reduced motion preference
+   ============================================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+	*, *::before, *::after {
+		transition-duration: 0.01ms !important;
+		animation-duration:  0.01ms !important;
+	}
+}
+
+
+/* ============================================================================
+   Scrollbars
+   ============================================================================ */
+
+@media (pointer: coarse) {
+	::-webkit-scrollbar { display: none; }
+	* { scrollbar-width: none; }
+}
+
+@media (pointer: fine) {
+	::-webkit-scrollbar { width: 6px; height: 6px; }
+	::-webkit-scrollbar-track { background: transparent; }
+	::-webkit-scrollbar-thumb { background: var(--separator-heavy); border-radius: 3px; }
+	* { scrollbar-width: thin; scrollbar-color: var(--separator-heavy) transparent; }
+}

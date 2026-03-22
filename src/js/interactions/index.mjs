@@ -129,6 +129,43 @@ function activateDomEvent(root, isShadow, eventName, selector, handler) {
 }
 
 // Interactions Manager export
+// ---------------------------------------------------------------------------
+// ComponentCtx typedef
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-instance component context object. Passed as the second argument to all
+ * lifecycle hooks (`connected`, `disconnected`, `rendered`, `constructed`) and
+ * as the second argument to all interaction handlers.
+ *
+ * `ctx` is frozen after `createRenderRoot()` — no new properties may be added
+ * after setup. Use `ctx._` for imperative per-instance state.
+ *
+ * @typedef {Object} ComponentCtx
+ * @property {Object}   state    - Reactive state proxy. Read any declared state key;
+ *   write via `state.$set(key, val)`, `state.$merge(key, val)`, `state.$del(key)`.
+ *   Getters declared in the `state` block are accessible here too.
+ * @property {Element}  host     - The custom element host node.
+ * @property {Element|ShadowRoot} root - Render root (shadow root, or host when `shadow: false`).
+ * @property {Object}   config   - App config object (from `createRuntime` config).
+ * @property {Object}   _        - Private mutable bag for imperative per-instance state.
+ *   Declare all instance-local fields in `constructed({ _ })` for clarity.
+ * @property {Function} cleanup  - `cleanup(fn)` — register a teardown function that
+ *   runs when the component disconnects.
+ * @property {Function} emit     - `emit(type, detail?, opts?)` — dispatch a CustomEvent
+ *   from the host element (`bubbles: true, composed: true` by default).
+ * @property {Function} [animate] - `animate(el, preset, opts?)` — run a named WAAPI
+ *   preset on `el`. Present only when `config.animator` is wired.
+ * @property {Function} html     - lit-html `html` tag for templates.
+ * @property {Function} css      - lit `css` tag for styles.
+ * @property {Function} svg      - lit-html `svg` tag.
+ * @property {Function} [repeat] - lit-html `repeat` directive.
+ * @property {Object}   [form]   - Form controller for single-form components
+ *   (shorthand; equivalent to `ctx.forms.form`). Present when `form:` is declared.
+ * @property {Object}   [forms]  - Map of `name → FormController` for all declared forms.
+ *   Present when `forms:` is declared.
+ */
+
 /**
  * Create an interactions manager that wires a component's declarative
  * `interactions` block to DOM events and registered extension groups.

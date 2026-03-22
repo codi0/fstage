@@ -1,11 +1,54 @@
 //cache
 var cache = null;
 
+// ---------------------------------------------------------------------------
+// Registry typedef
+// ---------------------------------------------------------------------------
+
+/**
+ * Service registry / dependency-injection container.
+ *
+ * @template {Record<string, *>} [T=Record<string, *>]
+ * @typedef {Object} Registry
+ * @property {function(string): boolean} has
+ *   Return `true` if `key` is registered.
+ * @property {function<K extends keyof T>(K, T[K]=): T[K]} get
+ *   Retrieve a registered value. If the value was registered as a factory
+ *   it is instantiated on first call and cached. Warns to the console if the
+ *   key is missing and no default was supplied.
+ * @property {function(string, *, boolean=): void} set
+ *   Register a plain value or lazy factory function.
+ *   Pass `isFactory = true` (or use `setFactory`) to mark it as a factory.
+ * @property {function(string, Function): void} setFactory
+ *   Shorthand for `set(key, fn, true)`.
+ * @property {function(string): void} del
+ *   Remove a key. Throws if the registry is sealed.
+ * @property {function(): void} seal
+ *   Prevent further `set` / `del` calls on already-registered keys.
+ */
+
+// ---------------------------------------------------------------------------
+// Registry generics pattern (1.6)
+// ---------------------------------------------------------------------------
+//
+// To get typed returns from `registry.get()` in your IDE, declare a typed
+// Registry variable with a map of key → value types:
+//
+//   /** @type {Registry<{ store: ReturnType<typeof createStore>, router: ReturnType<typeof createRouter> }>} */
+//   const registry = defaultRegistry();
+//
+//   const store  = registry.get('store');   // typed as ReturnType<typeof createStore>
+//   const router = registry.get('router');  // typed as ReturnType<typeof createRouter>
+//
+// This is a JSDoc-only convention — no runtime cost, no build step.
+// See docs/coding-standard.md for the recommended approach.
+
 /**
  * Return the process-level default registry singleton.
  * Created on first call; subsequent calls return the same instance.
  *
- * @returns {Registry}
+ * @template {Record<string, *>} [T=Record<string, *>]
+ * @returns {Registry<T>}
  */
 export function defaultRegistry() {
 	if (cache === null) {
@@ -15,21 +58,12 @@ export function defaultRegistry() {
 }
 
 /**
- * @typedef {Object} Registry
- * @property {function(string): boolean} has - Return `true` if `key` is registered.
- * @property {function(string, *=): *} get - Retrieve a value (or factory result). Warns if key missing and no default supplied.
- * @property {function(string, *, boolean=): void} set - Register a value or factory function.
- * @property {function(string, *): void} setFactory - Shorthand for `set(key, fn, true)`.
- * @property {function(string): void} del - Remove a key.
- * @property {function(): void} seal - Prevent further `set`/`del` on existing keys.
- */
-
-/**
  * Create a new service registry.
  * Supports plain values and lazy factory functions (instantiated on first `get`).
  * Call `seal()` to make the registry immutable after initial setup.
  *
- * @returns {Registry}
+ * @template {Record<string, *>} [T=Record<string, *>]
+ * @returns {Registry<T>}
  */
 export function createRegistry() {
 	//set vars

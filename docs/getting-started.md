@@ -2,14 +2,14 @@
 
 This guide walks through bootstrapping a fstage app from scratch — loader, config structure, load phases, and how services get wired together.
 
-## Running the example
+## Running the templates
 
-Before building your own app, the quickest way to understand fstage is to run the included PWA example. Serve the repo root with any static file server (the loader uses ES modules, so opening `index.html` directly via `file://` will not work):
+The quickest way to understand fstage is to run one of the included templates. Serve the repo root with any static file server (ES modules require a server — `file://` will not work):
 
 ```bash
-# any static server works, e.g.:
 npx serve .
-# then open http://localhost:3000/examples/pwa/
+# Starter (minimal):  http://localhost:3000/templates/starter/
+# Tasks (full stack): http://localhost:3000/templates/tasks/
 ```
 
 ---
@@ -24,9 +24,7 @@ The simplest possible fstage app — two files, no build step, just the store:
 <html>
 <head>
   <script>
-    window.FSCONFIG = {
-      configPath: 'config.mjs',
-    };
+    window.FSCONFIG = { configPath: 'config.mjs' };
   </script>
   <script type="module"
     src="https://cdn.jsdelivr.net/gh/codi0/fstage@latest/src/js/fstage.min.mjs">
@@ -62,7 +60,7 @@ export default {
 };
 ```
 
-`@fstage/store` (and all other `@fstage/*` module names) resolve automatically via the loader's built-in import map — no CDN URL or manual mapping needed.
+`@fstage/*` module names resolve automatically via the loader's built-in import map — no CDN URL or manual mapping needed.
 
 ---
 
@@ -103,8 +101,9 @@ export default {
 
   loadAssets: { /* see below */ },
 
-  afterLoadLibs: function(e) { /* instantiate and wire services */ },
-  afterLoadApp:  function(e) { /* start the app               */ },
+  afterLoadPreload: function(e) { /* env / registry init   */ },
+  afterLoadLibs:   function(e) { /* wire services         */ },
+  afterLoadApp:    function(e) { /* start the app         */ },
 };
 ```
 
@@ -120,11 +119,13 @@ loadAssets: {
   preload: [
     '@fstage/env',
     '@fstage/registry',
+    '@fstage/stack',        // default wiring helpers
   ],
 
   // Libraries and fstage modules
   libs: [
     'lit',
+    '@fstage/component',
     '@fstage/store',
     '@fstage/sync',
     '@fstage/history',
@@ -133,43 +134,91 @@ loadAssets: {
     '@fstage/gestures',
     '@fstage/transitions',
     '@fstage/interactions',
-    '@fstage/component',
+    '@fstage/form',
   ],
 
   // App data layer, components, and assets
   app: [
-    'js/data/sync/tasks.mjs',
-    'js/data/models/tasks.mjs',
-    'js/components/views/tasks.mjs',
+    'js/components/views/home.mjs',
     'js/components/layout/app.mjs',
     'css/style.css',
     'manifest.json',
-    'favicon.png',
+    'favicon.svg',
   ],
 },
 ```
 
 Phase names are arbitrary — add as many as needed.
 
-## 4. Phase hooks
+## 4. Wiring services with @fstage/stack
+
+For a standard app, `@fstage/stack` provides three helpers that replace the manual wiring entirely. Because `@fstage/stack` loads in `preload`, its exports are available via `e.get()` in all later hooks — no import statements needed in `config.mjs`:
+
+```js
+afterLoadPreload(e) { e.get('stack.wirePreload', [ e ]); },
+afterLoadLibs(e)    { e.get('stack.wireStack',   [ e ]); },
+afterLoadApp(e)     { e.get('stack.startStack',  [ e ]); },
+```
+
+Services are configured via top-level keys in `config.mjs` that `wireStack` reads automatically:
+
+```js
+router: {
+  urlScheme: 'hash',
+  routes: [
+    { path: '/', meta: { component: 'my-home', title: 'Home' } },
+  ],
+},
+
+storage: {
+  name: 'myapp',
+  schemas: {
+    items: { keyPath: 'id' },
+  },
+},
+```
+
+`wireStack` also patches `afterLoad` so any module whose default export has a `tag` is automatically registered with the component runtime — no manual `runtime.define(def)` calls needed.
+
+See the [stack documentation](stack.md) for the full options reference.
+
+## 5. Phase hooks
 
 After each phase, a matching `afterLoad<PhaseName>` hook fires (if defined). The hook receives an `e` object with a `get()` helper for accessing loaded module exports and config values.
 
+A generic `afterLoad` hook fires after every individual file load.
+
+## 6. The e.get() helper
+
+`e.get(path, args?)` walks a dot-path across loaded modules and config:
+
 ```js
-// Called after 'preload' phase
+e.get('config')                        // full config object
+e.get('config.debug')                  // config.debug value
+e.get('store.createStore', [])         // calls createStore(), returns result
+e.get('registry.defaultRegistry', []) // calls defaultRegistry(), returns result
+e.get('stack.wireStack', [ e ])        // calls wireStack(e), returns registry
+```
+
+When `args` is an array the resolved function is called with those arguments — letting you instantiate services without any direct imports in config.
+
+## 7. Manual wiring
+
+For apps that need full control, services can be wired explicitly without `@fstage/stack`. This is the approach used before `@fstage/stack` was available and remains fully supported:
+
+```js
 afterLoadPreload: function(e) {
   var registry = e.get('registry.defaultRegistry', []);
   var env      = e.get('env.getEnv', [{}]);
   registry.set('env', env);
 },
 
-// Called after 'libs' phase — main wiring point
 afterLoadLibs: function(e) {
   var registry = e.get('registry.defaultRegistry', []);
   var config   = e.get('config');
 
   var store   = e.get('store.createStore', []);
-  var storage = e.get('sync.createStorage', [{ name: 'myapp' }]);
+  var storage = e.get('sync.createStorage', [{ name: 'myapp', schemas: { items: { keyPath: 'id' } } }]);
   var sync    = e.get('sync.createSyncManager', [{ localHandler: storage }]);
 
   var routerOpts     = Object.assign({}, e.get('config.router'));
@@ -189,48 +238,16 @@ afterLoadLibs: function(e) {
   registry.set('componentRuntime', componentRuntime);
 },
 
-// Called after 'app' phase — start the app
 afterLoadApp: function(e) {
   var registry = e.get('registry.defaultRegistry', []);
-  var router   = registry.get('router');
-  registry.lock();
-  router.start(document.querySelector('my-app'));
+  registry.get('router').start(document.querySelector('my-app'));
+  registry.seal();
 },
 ```
 
-A generic `afterLoad` hook fires after every individual file load — useful for auto-registration (see below).
+`@fstage/stack` and manual wiring can also be mixed — call `wireStack` for the common services and wire custom services individually afterwards.
 
-## 5. The e.get() helper
-
-`e.get(path, args?)` walks a dot-path across loaded modules and config:
-
-```js
-e.get('config')                        // full config object
-e.get('config.debug')                  // config.debug value
-e.get('store.createStore', [])         // calls createStore(), returns result
-e.get('registry.defaultRegistry', []) // calls defaultRegistry(), returns result
-```
-
-When `args` is an array the resolved function is called with those arguments — letting you instantiate services without any direct imports in config.
-
-## 6. Auto-defining components
-
-Wire `afterLoad` to register any loaded module that exports a `default` with a `tag`:
-
-```js
-afterLoad: function(e) {
-  var def = e.exports && e.exports.default;
-  if (def && def.tag) {
-    var registry = e.get('registry.defaultRegistry', []);
-    var runtime  = registry.get('componentRuntime');
-    if (runtime) runtime.define(def);
-  }
-},
-```
-
-Every component file in the `app` phase is then registered automatically with no manual `define()` calls needed.
-
-## 7. Loader config options
+## 8. Loader config options
 
 | Key | Description |
 |-----|-------------|
@@ -238,12 +255,15 @@ Every component file in the `app` phase is then registered automatically with no
 | `swPath` | Path to a service worker to register before loading |
 | `rootEl` | CSS selector for the app's root element |
 | `loadScreen` | Splash style: `'spinner'` \| `'logo'` \| `'text'` |
+| `onLoadError(e)` | Called when an asset fails to load. `e`: `{ error, path, get }`. Return `false` to abort boot; return anything else to skip the asset and continue. Useful for making non-critical assets (e.g. devtools, analytics) survivable. |
 
-See [`examples/pwa/index.html`](../examples/pwa/index.html) for a complete HTML shell covering splash screen, service worker lifecycle, online/offline handling, and unsupported browser detection.
+See [`templates/starter/index.html`](../templates/starter/index.html) for a complete HTML shell covering splash screen, service worker lifecycle, online/offline handling, and unsupported browser detection. The `CUSTOMISE` block at the top is the only section that needs changing per app.
 
-## 8. Devtools
+## 9. Devtools
 
-Load the debug panel conditionally when `config.debug` is true:
+When using `@fstage/stack`, the devtools panel is enabled automatically when `config.debug` is true. Toggle with **Ctrl+Shift+D**.
+
+When wiring manually, load the panel explicitly:
 
 ```js
 if (config.debug) {
@@ -260,31 +280,30 @@ if (config.debug) {
 }
 ```
 
-Toggle the panel with **Ctrl+Shift+D**.
-
 ---
 
 ## Troubleshooting
 
 **`fstage.failed` fired / app won't load**
-Open the browser console — the loader logs module load errors there. Common causes: a missing or misconfigured import map entry for a third-party library; a syntax error in `config.mjs`; running from `file://` instead of a local server.
+Open the browser console — the loader logs module load errors there. The event's `detail.path` identifies which asset failed; `detail.error` has the underlying error. Common causes: a missing or misconfigured import map entry for a third-party library; a syntax error in `config.mjs`; running from `file://` instead of a local server.
 
 **`@fstage/*` bare specifier not resolving**
 These are pre-mapped by the loader. If you're seeing resolution errors it usually means the loader script itself failed to load — check the CDN URL and your network connection.
 
 **Import map not supported**
-Import maps require Safari 16.4+ and Chrome 96+. Earlier browsers will fail silently. The PWA example shell (`examples/pwa/index.html`) shows how to detect this and show a user-friendly message.
+Import maps require Safari 16.4+ and Chrome 96+. Earlier browsers will fail silently. The PWA example shell shows how to detect this and display a user-friendly message.
 
 **IDB upgrade not triggering after schema change**
-The IDB version is derived automatically from a hash of your schema definition. In rare cases (hash collision) the version may not change. Log `schemaVersion` before and after your change to verify. See the warning in the `storage` source for details.
+The IDB version is derived automatically from a hash of your schema definition. Log the schema version before and after your change to verify it changed.
 
 **`fstage.ready` never fires**
-Check that `config.mjs` is reachable and doesn't throw. Any uncaught error in a load hook will cause `fstage.failed` to fire instead. Wrap hook bodies in try/catch during development.
+Check that `config.mjs` is reachable and doesn't throw. Any uncaught error in a load hook fires `fstage.failed` instead. Wrap hook bodies in try/catch during development.
 
 ---
 
 ## Next steps
 
+- [Stack — default wiring](stack.md) — wirePreload, wireStack, startStack options
 - [Store](store.md) — reactive state, operations, data lifecycle
 - [Data layer](data.md) — storage, sync, HTTP
 - [Routing](routing.md) — router and history

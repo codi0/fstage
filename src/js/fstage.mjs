@@ -22,6 +22,9 @@
  *   - `beforeLoad(e)` — hook called before each asset load; mutate `e.path` to redirect.
  *   - `afterLoad(e)`  — hook called after each successful module load.
  *   - `afterLoad<Group>(e)` — called after each named boot-phase group finishes.
+ *   - `onLoadError(e)` — called when an asset in a parallel group fails to load.
+ *     `e`: `{ error, path, get }`. Return `false` (or throw) to abort boot;
+ *     return anything else to skip the failed asset and continue loading.
  *
  * Events dispatched on `globalThis`:
  *   - `fstage.ready`  — all boot assets loaded successfully.
@@ -31,7 +34,7 @@
 //config vars
 var _name = 'fstage';
 var _confName = 'FSCONFIG';
-var _modules = [ 'animator', 'component', 'devtools', 'env', 'form', 'gestures', 'history', 'hls', 'http', 'interactions', 'ipfs', 'observe', 'registry', 'router', 'ssr', 'storage', 'store', 'sync', 'transitions', 'ui', 'utils', 'webpush', 'websocket' ];
+var _modules = [ 'animator', 'component', 'devtools', 'env', 'form', 'gestures', 'history', 'http', 'interactions', 'observe', 'registry', 'router', 'ssr', 'stack', 'storage', 'store', 'sync', 'transitions', 'ui', 'utils', 'webpush', 'websocket' ];
 
 //misc vars
 var _global = {};
@@ -95,9 +98,23 @@ var _merge = function(target, source) {
   return target;
 };
 
-//build import map helper
-var _buildMap = function(paths) {
-	//use map?
+//query import map helper
+var _queryMap = function() {
+	//set vars
+	var res = {};
+	var importMaps = document.querySelectorAll('[type="importmap"]');
+	//loop through maps
+	importMaps.forEach(function(s) {
+		var m = JSON.parse(s.textContent);
+		Object.assign(res, m.imports || {});
+	});
+	//return
+	return res;
+};
+
+//create import map
+var map = function(paths) {
+	//valid paths?
 	if(!paths || !Object.keys(paths).length) {
 		return;
 	}
@@ -114,20 +131,6 @@ var _buildMap = function(paths) {
 	}
 	//add to document
 	document.documentElement.firstChild.appendChild(map);
-};
-
-//query import map helper
-var _queryMap = function() {
-	//set vars
-	var res = {};
-	var importMaps = document.querySelectorAll('[type="importmap"]');
-	//loop through maps
-	importMaps.forEach(function(s) {
-		var m = JSON.parse(s.textContent);
-		Object.assign(res, m.imports || {});
-	});
-	//return
-	return res;
 };
 
 /**
@@ -283,8 +286,19 @@ var load = function(path, type='') {
 			//add to array
 			proms.push(load(path[i]));
 		}
-		//wait for load
-		return Promise.all(proms);
+		//wait for load — wrap each promise so a single failure can be
+		//recovered via onLoadError rather than aborting the whole group
+		var wrapped = proms.map(function(p, idx) {
+			return p.catch(function(err) {
+				if(_config.onLoadError) {
+					var e2 = { error: err, path: (err && err.path) || '', get: get };
+					var result = _cb(_config.onLoadError, [ e2 ]);
+					if(result !== false) return undefined;
+				}
+				throw err;
+			});
+		});
+		return Promise.all(wrapped);
 	}
 	//create promise
 	return new Promise(function(resolve, reject) {
@@ -360,7 +374,10 @@ var load = function(path, type='') {
 				//resolve
 				resolve(e.exports);
 			}).catch(function(err) {
-				reject(err);
+				//attach path so callers can identify which asset failed
+				var loadErr = (err instanceof Error) ? err : new Error(String(err));
+				if(!loadErr.path) loadErr.path = e.path;
+				reject(loadErr);
 			});
 		}
 		//update existing link?
@@ -386,7 +403,11 @@ var load = function(path, type='') {
 		if(isScript || el.rel === 'stylesheet') {
 			el.setAttribute('crossorigin', 'anonymous');
 			el.addEventListener('load', resolve);
-			el.addEventListener('error', reject);
+			el.addEventListener('error', function() {
+				var loadErr = new Error('Failed to load: ' + e.path);
+				loadErr.path = e.path;
+				reject(loadErr);
+			});
 		} else {
 			resolve();
 		}
@@ -415,12 +436,16 @@ for(var i=0; i < _modules.length; i++) {
 	_config.importMap['@' + _name + '/' + _modules[i]] = _config.scriptDir + _modules[i] + '/index.mjs';
 }
 
+//primary import map
+map(_config.importMap);
+
 //load config
 load(_config.configPath).then(function(m) {
-	//merge config
-	_config = _merge(_config, (m && m.default) || {});
-	//import map
-	_buildMap(_config.importMap);
+	//merge config?
+	if(m && m.default) {
+		_config = _merge(_config, m.default);
+		map(m.default.importMap);
+	}
 	//find all import maps
 	_config.importMap = _queryMap();
 	//set base
@@ -429,7 +454,7 @@ load(_config.configPath).then(function(m) {
 	load(_config.loadAssets).then(function() {
 		_event('ready');
 	}).catch(function(error) {
-		_event('failed', { error });
+		_event('failed', { error: error, path: (error && error.path) || '' });
 	});
 }).catch(function(error) {
 	_event('failed', { error });
@@ -439,7 +464,7 @@ load(_config.configPath).then(function(m) {
 /* EXPORTS */
 
 //public API
-_global = { get: get, load: load };
+_global = { get: get, load: load, map: map };
 
 //set globals
 globalThis[_name] = _global;

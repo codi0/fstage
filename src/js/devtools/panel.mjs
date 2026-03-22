@@ -30,8 +30,8 @@ export function mountDevtoolsPanel(devtools, opts) {
 	// -------------------------------------------------------------------------
 
 	let visible     = false;
-	let activeTab   = 'events';  // 'events' | 'store' | 'sync' | 'storage' | 'perf'
-	let filterLayer = 'all';     // 'all' | 'store' | 'sync' | 'storage' | 'render'
+	let activeTab   = 'events';  // 'events' | 'store' | 'sync' | 'router' | 'perf'
+	let filterLayer = 'all';     // 'all' | 'store' | 'sync' | 'storage' | 'router' | 'render'
 	let selectedIdx = null;      // selected event index for detail pane
 	let snapshot    = null;      // latest snapshot from devtools.subscribe
 	let currentH    = panelH;    // live panel height, updated on drag
@@ -153,8 +153,9 @@ export function mountDevtoolsPanel(devtools, opts) {
 		// Perf stats table
 		const perfHTML = buildPerfTab(snap.perfStats || {});
 
-		// Count render events for the Perf tab badge
+		// Count render/router events for tab badges
 		const renderCount = snap.events.filter(function(e) { return e.layer === 'render'; }).length;
+		const routerCount = snap.events.filter(function(e) { return e.layer === 'router'; }).length;
 
 		return `
 		<div class="fdt-resize-handle"></div>
@@ -177,6 +178,7 @@ export function mountDevtoolsPanel(devtools, opts) {
 				<button class="fdt-tab${activeTab==='events'  ? ' fdt-active' : ''}" data-tab="events">Events <span class="fdt-count">${snap.events.length}</span></button>
 				<button class="fdt-tab${activeTab==='store'   ? ' fdt-active' : ''}" data-tab="store">State</button>
 				<button class="fdt-tab${activeTab==='sync'    ? ' fdt-active' : ''}" data-tab="sync">Queue <span class="fdt-count">${(snap.syncQueue||[]).length}</span></button>
+				<button class="fdt-tab${activeTab==='router'  ? ' fdt-active' : ''}" data-tab="router">Router <span class="fdt-count">${routerCount}</span></button>
 				<button class="fdt-tab${activeTab==='perf'    ? ' fdt-active' : ''}" data-tab="perf">Perf <span class="fdt-count">${renderCount}</span></button>
 			</div>
 
@@ -184,7 +186,7 @@ export function mountDevtoolsPanel(devtools, opts) {
 
 				<div class="fdt-pane${activeTab==='events' ? ' fdt-pane-active' : ''}" data-pane="events">
 					<div class="fdt-filters">
-						${['all','store','sync','storage','render'].map(function(l) {
+						${['all','store','sync','storage','router','render'].map(function(l) {
 							return `<button class="fdt-filter${filterLayer===l?' fdt-active':''}" data-filter="${l}">${l}</button>`;
 						}).join('')}
 					</div>
@@ -202,12 +204,63 @@ export function mountDevtoolsPanel(devtools, opts) {
 					<div class="fdt-list">${queueRows}</div>
 				</div>
 
+				<div class="fdt-pane${activeTab==='router' ? ' fdt-pane-active' : ''}" data-pane="router">
+					${buildRouterTab(snap)}
+				</div>
+
 				<div class="fdt-pane${activeTab==='perf' ? ' fdt-pane-active' : ''}" data-pane="perf">
 					${perfHTML}
 				</div>
 
 			</div>
 		</div>`;
+	}
+
+	// -------------------------------------------------------------------------
+	// Router tab
+	// -------------------------------------------------------------------------
+
+	function buildRouterTab(snap) {
+		var navEvents = snap.events
+			.map(function(e, i) { return Object.assign({}, e, { _idx: i }); })
+			.filter(function(e) { return e.layer === 'router'; })
+			.reverse();
+
+		if (!navEvents.length) {
+			return '<div class="fdt-empty">No navigations yet — call connectRouter() to enable.</div>';
+		}
+
+		var rows = navEvents.map(function(e) {
+			var isSelected = selectedIdx === e._idx;
+			var hasParams  = e.params && Object.keys(e.params).length > 0;
+			var dirCls     = e.direction === 'back'    ? 'fdt-warn'
+			               : e.direction === 'forward' ? 'fdt-ok' : 'fdt-badge-neutral';
+			return `<div class="fdt-row fdt-router-row${isSelected ? ' fdt-selected' : ''}" data-idx="${e._idx}">
+				<span class="fdt-badge ${dirCls}">${escHTML(e.direction)}</span>
+				<span class="fdt-router-path">${escHTML(e.path)}</span>
+				${hasParams ? `<span class="fdt-router-params">${escHTML(JSON.stringify(e.params))}</span>` : ''}
+				<span class="fdt-row-meta">${e.duration}ms &nbsp;${fmtTime(e.timestamp)}</span>
+			</div>`;
+		}).join('');
+
+		var detail = '';
+		if (selectedIdx !== null) {
+			var sel = snap.events[selectedIdx];
+			if (sel && sel.layer === 'router') detail = buildRouterDetail(sel);
+		}
+
+		return `<div class="fdt-list">${rows}</div>${detail ? `<div class="fdt-detail">${detail}</div>` : ''}`;
+	}
+
+	function buildRouterDetail(e) {
+		var rows = [];
+		rows.push(`<div class="fdt-detail-section"><strong>${escHTML(e.path)}</strong></div>`);
+		rows.push(`<div class="fdt-diff-row"><span class="fdt-diff-path">direction</span><span class="fdt-diff-val">${escHTML(e.direction)}</span></div>`);
+		rows.push(`<div class="fdt-diff-row"><span class="fdt-diff-path">duration</span><span class="fdt-diff-val">${e.duration}ms</span></div>`);
+		if (e.params && Object.keys(e.params).length) {
+			rows.push(`<div class="fdt-diff-row"><span class="fdt-diff-path">params</span><span class="fdt-diff-val">${escHTML(JSON.stringify(e.params))}</span></div>`);
+		}
+		return rows.join('');
 	}
 
 	// -------------------------------------------------------------------------
@@ -252,9 +305,15 @@ export function mountDevtoolsPanel(devtools, opts) {
 	// Row helpers
 	// -------------------------------------------------------------------------
 
+	function escHTML(str) {
+		return String(str || '')
+			.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+	}
+
 	function rowLabel(e) {
 		if (e.layer === 'store')   return `<strong>${e.label}</strong>`;
 		if (e.layer === 'render')  return `<strong>${e.tag}</strong>`;
+		if (e.layer === 'router')  return `<strong>${escHTML(e.path)}</strong>`;
 		if (e.layer === 'sync')    return `<strong>${e.type}</strong> ${e.key || ''}`;
 		if (e.layer === 'storage') {
 			if (e.type === 'query') return `<strong>query</strong> ${e.namespace || ''}`;
@@ -269,6 +328,14 @@ export function mountDevtoolsPanel(devtools, opts) {
 			if (e.slow) parts.push('<span class="fdt-badge fdt-err">slow</span>');
 			parts.push(`${e.duration}ms`);
 			parts.push(`#${e.renderCount}`);
+			parts.push(fmtTime(e.timestamp));
+			return parts.join(' ');
+		}
+		if (e.layer === 'router') {
+			const dirCls = e.direction === 'back'    ? 'fdt-warn'
+			             : e.direction === 'forward' ? 'fdt-ok' : 'fdt-badge-neutral';
+			parts.push(`<span class="fdt-badge ${dirCls}">${escHTML(e.direction)}</span>`);
+			parts.push(`${e.duration}ms`);
 			parts.push(fmtTime(e.timestamp));
 			return parts.join(' ');
 		}
@@ -603,6 +670,10 @@ export function mountDevtoolsPanel(devtools, opts) {
 		.fdt-layer-sync    { background: rgba(100,130,220,0.2); color: #8aaae8; }
 		.fdt-layer-storage { background: rgba(180,120,60,0.2);  color: #d4904a; }
 		.fdt-layer-render  { background: rgba(160,100,220,0.2); color: #c08ae8; }
+		.fdt-layer-router  { background: rgba(60,160,220,0.2);  color: #6ab8e8; }
+		.fdt-badge-neutral { background: rgba(90,86,82,0.3); color: #9a9690; }
+		.fdt-router-path   { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #e8e6e0; font-weight: 500; }
+		.fdt-router-params { color: #7a7672; font-size: 10px; white-space: nowrap; max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
 
 		/* Empty state */
 		.fdt-empty { padding: 16px 12px; color: #5a5652; font-style: italic; }

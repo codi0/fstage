@@ -55,6 +55,19 @@ Wraps `storage.read`, `.write`, and `.query` with timing shims.
 devtools.connectStorage(storage);
 ```
 
+### connectRouter(router)
+
+Wraps `router.onAfter` to record every completed navigation with path, params, direction, and duration.
+
+```js
+devtools.connectRouter(router);
+```
+
+Emits events of shape:
+```js
+{ layer:'router', type:'navigate', path, params, direction:'forward'|'back'|'replace', duration, timestamp }
+```
+
 ### connectRuntime(runtime, opts?)
 
 Wraps `runtime.define` to instrument each component's render lifecycle after it is registered. Tracks per-tag render count, average/max duration, and slow renders.
@@ -117,6 +130,9 @@ unsub(); // unsubscribe
 { layer:'storage', type:'read',   key, driver, duration, timestamp }
 { layer:'storage', type:'write',  key, driver, duration, timestamp }
 { layer:'storage', type:'query',  namespace, opts, count, driver, duration, timestamp }
+
+// Router
+{ layer:'router',  type:'navigate', path, params, direction, duration, timestamp }
 
 // Render
 { layer:'render',  type:'render', tag, duration, slow, renderCount, timestamp }
@@ -184,7 +200,7 @@ const unmount = mountDevtoolsPanel(devtools, {
   position: 'bottom',     // 'bottom' (default) | 'right'
   height:   360,          // panel height in px for bottom mode (default: 360)
   width:    420,          // panel width in px for right mode (default: 420)
-  shortcut: 'ctrl+`',     // keyboard toggle (default: 'ctrl+`')
+  shortcut: 'ctrl+`',     // keyboard toggle (default: 'ctrl+`' / 'cmd+`' on Mac)
 });
 
 unmount(); // remove panel and unsubscribe
@@ -192,9 +208,10 @@ unmount(); // remove panel and unsubscribe
 
 The panel has four tabs:
 
-- **Events** — unified event log with layer filter buttons (all / store / sync / storage / render). Click any row to expand its detail pane.
+- **Events** — unified event log with layer filter buttons (all / store / sync / storage / router / render). Click any row to expand its detail pane.
 - **State** — live JSON view of the current store state (or the time-travelled snapshot).
 - **Queue** — current sync write queue entries with retry counts.
+- **Router** — navigation history with direction badges, params, and duration. Requires `connectRouter()`.
 - **Perf** — per-component render stats table (renders / avg / max / slow), sorted by total render time. Rows with slow renders are highlighted. Requires `connectRuntime()`.
 
 The panel supports drag-to-resize (bottom mode) and time-travel controls (◀ ▶ ⬤ live) in the header.

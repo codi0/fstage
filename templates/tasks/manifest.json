@@ -1,0 +1,18 @@
+{
+  "id": "/",
+  "dir": "ltr",
+  "lang": "en",
+  "name": "Fstage Tasks",
+  "short_name": "Tasks",
+  "description": "Native-feel task manager built with Fstage",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "theme_color": "#1E4D35",
+  "background_color": "#F7F4EF",
+  "icons": [
+    { "src": "icons/icon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "any" },
+    { "src": "icons/icon.svg", "type": "image/svg+xml", "sizes": "any", "purpose": "maskable" }
+  ]
+}

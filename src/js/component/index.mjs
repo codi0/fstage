@@ -104,6 +104,80 @@
 
 import { getType, adoptStyleSheet } from '../utils/index.mjs';
 
+// ---------------------------------------------------------------------------
+// ComponentCtx typedef
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-instance component context object. Passed as the second argument to all
+ * lifecycle hooks and as the second argument to all interaction handlers.
+ *
+ * Frozen after `createRenderRoot()` — no new properties may be added after setup.
+ * All imperative instance state should live in `ctx._` (declared in `constructed`).
+ *
+ * @typedef {Object} ComponentCtx
+ * @property {Object}   state    - Reactive state proxy. Read any declared state key;
+ *   write via `state.$set(key, val)`, `state.$merge(key, val)`, `state.$del(key)`.
+ *   Getters declared in the `state` block are also accessible here.
+ * @property {Element}  host     - The custom element host node.
+ * @property {Element|ShadowRoot} root - Render root (shadow root, or host when `shadow: false`).
+ * @property {Object}   config   - App config object (from `createRuntime` config).
+ * @property {Object}   _        - Private mutable bag for per-instance state.
+ *   Declare all instance-local fields in `constructed({ _ })` for clarity.
+ * @property {Function} cleanup  - `cleanup(fn)` — register a teardown function that
+ *   runs when the component disconnects.
+ * @property {Function} emit     - `emit(type, detail?, opts?)` — dispatch a `CustomEvent`
+ *   from the host (`bubbles: true, composed: true` by default).
+ * @property {Function} [animate] - `animate(el, preset, opts?)` — run a named WAAPI
+ *   preset. Present only when `config.animator` is wired.
+ * @property {Function} html     - lit-html `html` tag.
+ * @property {Function} css      - lit `css` tag.
+ * @property {Function} svg      - lit-html `svg` tag.
+ * @property {Function} [repeat] - lit-html `repeat` directive.
+ * @property {Object}   [form]   - Form controller (shorthand for single-form components;
+ *   equivalent to `ctx.forms.form`). Present when `form:` is declared.
+ * @property {Object}   [forms]  - Map of `name → FormController`. Present when `forms:` is declared.
+ * @property {Object}   [models] - Models registry, if injected via `inject: { models: 'models' }`.
+ * @property {Object}   [router] - Router instance, if injected via `inject: { router: 'router' }`.
+ * @property {Object}   [store]  - Store instance, if injected via `inject: { store: 'store' }`.
+ */
+
+// ---------------------------------------------------------------------------
+// ComponentDefinition typedef
+// ---------------------------------------------------------------------------
+
+/**
+ * Component definition object passed to `runtime.define(def)`.
+ *
+ * @typedef {Object} ComponentDefinition
+ * @property {string}   tag         - Custom element tag name (must contain a hyphen).
+ * @property {boolean}  [shadow=true] - Use shadow DOM. Set `false` for light DOM.
+ * @property {Object}   [state]     - Reactive state declarations. Shorthand forms:
+ *   bare value → local state; `{ $ext: 'key' }` → external store key;
+ *   `{ $prop: default }` → element property/attribute.
+ * @property {Object}   [inject]    - Services to inject from the registry onto `ctx`:
+ *   `{ [ctxKey]: registryKey }`.
+ * @property {Object}   [bind]      - Two-way DOM bindings: `{ [cssSelector]: stateKey }`.
+ * @property {Object}   [watch]     - Reactive subscriptions. Pre-render (default) or
+ *   post-render (`afterRender: true`).
+ * @property {Object}   [interactions] - Declarative event handlers keyed by
+ *   `'event(selector)'` or `'group.action(selector)'`.
+ * @property {Object}   [host]      - Host element config: `{ methods, attrs, vars }`.
+ * @property {Object}   [animate]   - Declarative animation block: `{ enter, exit,
+ *   'toggle(selector)': { state, show, hide } }`.
+ * @property {Object}   [form]      - Single-form declaration (shorthand for `forms.form`).
+ * @property {Object}   [forms]     - Named form declarations.
+ * @property {Function} [style]     - `(ctx) => CSSResult | CSSResult[]` — component styles.
+ * @property {Function} [render]    - `(ctx) => TemplateResult` — render function.
+ * @property {Function} [constructed] - `(ctx)` — called in constructor.
+ * @property {Function} [connected]   - `(ctx)` — called in `connectedCallback`.
+ * @property {Function} [disconnected] - `(ctx)` — called in `disconnectedCallback`.
+ * @property {Function} [rendered]  - `(ctx, isFirst)` — called after each render commit.
+ * @property {Function} [activated]   - `(ctx)` — called when screen is activated.
+ * @property {Function} [deactivated] - `(ctx)` — called when screen is deactivated.
+ * @property {Function} [onError]   - `(err, ctx, location)` — component-level error handler.
+ */
+
 
 // =============================================================================
 // formatDefMap

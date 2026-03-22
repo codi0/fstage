@@ -155,7 +155,8 @@ export function createBrowserHistory(options) {
 			listeners.push(fn);
 
 			return function() {
-				this.off(fn);
+				var idx = listeners.indexOf(fn);
+				if (idx >= 0) listeners.splice(idx, 1);
 			};
 		},
 		

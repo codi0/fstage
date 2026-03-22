@@ -29,7 +29,7 @@ Fstage is a platform layer: it provides a loader, import map resolution, and a s
 <script type="module" src="https://cdn.jsdelivr.net/gh/codi0/fstage@latest/src/js/fstage.min.mjs"></script>
 ```
 
-2. Create `js/config.mjs` — this is where you declare your import map, load phases, and wire up services. See the [PWA example config](examples/pwa/js/config.mjs) for a complete, annotated reference.
+2. Create `js/config.mjs` — this is where you declare your import map, load phases, and wire up services. See the [tasks template config](templates/tasks/js/config.mjs) for a complete reference, or the [starter template config](templates/starter/js/config.mjs) for an annotated walkthrough.
 
 fstage dispatches `fstage.ready` on `window` when the app is loaded, and `fstage.failed` on error.
 
@@ -43,43 +43,63 @@ export default {
     'lit': 'https://cdn.jsdelivr.net/npm/lit-element@4/+esm',
   },
   loadAssets: {
-    preload: [ '@fstage/env', '@fstage/registry' ],
-    libs:    [ 'lit', '@fstage/store', '@fstage/router', /* ... */ ],
-    app:     [ 'js/data/sync.mjs', 'js/components/app.mjs', 'css/style.css' ],
+    preload: [ '@fstage/env', '@fstage/registry', '@fstage/stack' ],
+    libs:    [ 'lit', '@fstage/component', '@fstage/store', '@fstage/sync',
+               '@fstage/history', '@fstage/router', '@fstage/animator',
+               '@fstage/gestures', '@fstage/transitions',
+               '@fstage/interactions', '@fstage/form' ],
+    app:     [ 'js/components/app.mjs', 'css/style.css' ],
   },
-  afterLoadLibs: function(e) {
-    // instantiate and wire services here
-    var store = e.get('store.createStore', []);
-    // ...
+  router: {
+    urlScheme: 'hash',
+    routes: [ { path: '/', meta: { component: 'my-home', title: 'Home' } } ],
   },
+  storage: { name: 'myapp', schemas: { items: { keyPath: 'id' } } },
+  afterLoadPreload(e) { e.get('stack.wirePreload', [ e ]); },
+  afterLoadLibs(e)    { e.get('stack.wireStack',   [ e ]); },
+  afterLoadApp(e)     { e.get('stack.startStack',  [ e ]); },
 };
 ```
 
-Each phase completes before the next starts. `afterLoad`, `afterLoadPreload`, `afterLoadLibs`, and `afterLoadApp` hooks fire at the end of each phase and are where services are instantiated and registered. The **registry** is the central service locator — modules register instances there and components inject what they need.
+Each phase completes before the next starts. `afterLoad`, `afterLoadPreload`, `afterLoadLibs`, and `afterLoadApp` hooks fire at the end of each phase. The **registry** is the central service locator — modules register instances there and components inject what they need.
 
-Hooks receive an `e` object with a `get(path, args?)` helper that resolves dot-paths across loaded module exports and config. When `args` is provided, the resolved value is called as a function with those arguments — this is how services are instantiated without any direct imports in config:
+[`@fstage/stack`](src/js/stack/) provides `wirePreload`, `wireStack`, and `startStack` helpers that handle all standard service wiring from config keys alone. Hooks receive an `e` object with a `get(path, args?)` helper:
 
 ```js
-e.get('config')                        // full config object
-e.get('config.debug')                  // nested config value
-e.get('store.createStore', [])         // calls createStore(), returns instance
-e.get('registry.defaultRegistry', []) // calls defaultRegistry(), returns instance
+e.get('config')                          // full config object
+e.get('config.debug')                    // nested config value
+e.get('stack.wireStack', [ e ])          // calls wireStack(e)
+e.get('store.createStore', [])           // calls createStore(), returns instance
 ```
 
 See the [getting started guide](docs/getting-started.md) for a full walkthrough.
 
+## Templates
+
+| Template | Description |
+|----------|-------------|
+| [`templates/starter`](templates/starter/) | Minimal annotated shell — single route, counter demo, start here |
+| [`templates/tasks`](templates/tasks/) | Complete To-Do PWA — sync, offline, animations, gestures, Capacitor |
+
+```sh
+cp -r templates/starter my-app && cd my-app && npx serve .
+```
+
+See [`templates/README.md`](templates/README.md) for details.
+
 ## Example
 
-[`examples/pwa`](examples/pwa) is a working To-Do PWA using the full stack:
+[`templates/tasks`](templates/tasks) is a complete To-Do PWA using the full stack:
 
 - **fstage modules** for state, storage, sync, routing, and transitions
 - **LitElement** for web components
-- **Capacitor** for native APIs (TO-DO)
+- **Capacitor** for native app deployment (iOS / Android)
 
 ## Modules
 
 | Module | Description |
 |--------|-------------|
+| [`stack`](src/js/stack/) | Default service wiring — `wirePreload`, `wireStack`, `startStack` helpers that replace ~80 lines of `afterLoadLibs`/`afterLoadApp` boilerplate with a single call |
 | [`store`](src/js/store/) | Reactive store — get/set/watch, computed, effects, and a full data-lifecycle system (fetch, cache, TTL, optimistic updates, pagination) |
 | [`sync`](src/js/sync/) | Offline-first sync — local-first reads/writes, remote handler abstraction, write queue with exponential backoff retry. **Also re-exports `storage` and `http`** — import from here unless you need those modules standalone |
 | [`storage`](src/js/storage/) | Two-tier IndexedDB — simple key/value blob store or schema-based rows with SQL-like querying. Re-exported by `sync` |
@@ -93,9 +113,10 @@ See the [getting started guide](docs/getting-started.md) for a full walkthrough.
 | [`transitions`](src/js/transitions/) | View transition engine and screen host for page-level animations |
 | [`interactions`](src/js/interactions/) | Delegated event handling with debounce/throttle and gesture/transition extensions |
 | [`gestures`](src/js/gestures/) | Touch/pointer gesture detection — swipe, edge pan, long press, tap |
+| [`ui`](src/js/ui/) | Reusable, accessible UI primitives — `fs-action-sheet` (imperative iOS-style sheet), `fs-bottom-sheet` (swipe-dismissable modal), `fs-dialog` (centered modal), `fs-disclosure` (animated show/hide), `fs-listbox` (keyboard-navigable select with typeahead). All unstyled, CSS-custom-property driven |
 | [`observe`](src/js/observe/) | Deep reactive proxy — emits get/set/delete events on plain objects |
-| [`pubsub`](src/js/pubsub/) | Token-based pub/sub with filter pipelines and async support |
 | [`form`](src/js/form/) | Form utilities |
+| [`ssr`](src/js/ssr/) | Server-side rendering via Declarative Shadow DOM — `createSsrRuntime` + `renderToString`. Supports state defaults, reactive getters, all `$src` shorthands, host attribute stamping, and per-call error handling. Requires `@lit-labs/ssr` as a peer dep |
 | [`devtools`](src/js/devtools/) | Debug panel — store event log, sync queue inspector, storage browser |
 | [`webpush`](src/js/webpush/) | Web Push subscription management |
 | [`websocket`](src/js/websocket/) | WebSocket wrapper |
@@ -106,12 +127,15 @@ See the [getting started guide](docs/getting-started.md) for a full walkthrough.
 ## Documentation
 
 - [Getting started](docs/getting-started.md)
+- [Stack — default wiring](docs/stack.md)
+- [UI primitives](docs/ui.md)
+- [SSR — server-side rendering](docs/ssr.md)
 - [Store](docs/store.md)
 - [Data layer — storage, sync, http](docs/data.md)
 - [Routing — router, history](docs/routing.md)
 - [Components](docs/components.md)
 - [Platform — env, animator, transitions, gestures, interactions](docs/platform.md)
-- [Utilities — utils, observe, pubsub, registry](docs/utilities.md)
+- [Utilities — utils, observe, registry](docs/utilities.md)
 
 ## Policies
 

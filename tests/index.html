@@ -33,6 +33,10 @@
 
 	<div class="modules">
 		<button class="run-all" data-run="all">▶ Run all</button>
+		<button data-run="env">env</button>
+		<button data-run="history">history</button>
+		<button data-run="interactions">interactions</button>
+		<button data-run="form">form</button>
 		<button data-run="store">store</button>
 		<button data-run="storage">storage</button>
 		<button data-run="sync">sync</button>
@@ -51,6 +55,10 @@
 	<div id="output"></div>
 
 	<script type="module">
+		import { runTests as env          } from '../src/js/env/tests/tests.mjs';
+		import { runTests as history      } from '../src/js/history/tests/tests.mjs';
+		import { runTests as interactions } from '../src/js/interactions/tests/tests.mjs';
+		import { runTests as form         } from '../src/js/form/tests/tests.mjs';
 		import { runTests as store    } from '../src/js/store/tests/tests.mjs';
 		import { runTests as storage  } from '../src/js/storage/tests/tests.mjs';
 		import { runTests as sync     } from '../src/js/sync/tests/tests.mjs';
@@ -62,7 +70,7 @@
 		import { runTests as router    } from '../src/js/router/tests/tests.mjs';
 		import { runTests as component } from '../src/js/component/tests/tests.mjs';
 
-		const MODULES = { store, storage, sync, devtools, utils, registry, http, observe, router, component };
+		const MODULES = { env, history, interactions, form, store, storage, sync, devtools, utils, registry, http, observe, router, component };
 
 		let verbose = false;
 		window.FSTAGE_TESTS_VERBOSE = false;
