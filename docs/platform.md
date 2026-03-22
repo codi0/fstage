@@ -23,17 +23,22 @@ Returns a snapshot of detected environment facts:
 ```js
 const facts = env.getFacts();
 // {
-//   os:           'ios' | 'android' | 'windows' | 'mac' | '',
-//   deviceClass:  'mobile' | 'desktop',
-//   hybrid:       bool,       // Capacitor or Cordova detected
-//   hybridEngine: 'capacitor' | 'cordova' | '',
-//   standalone:   bool,       // installed PWA
-//   touch:        bool,
+//   os:            'ios' | 'android' | 'windows' | 'mac' | '',
+//   deviceClass:   'mobile' | 'desktop',
+//   isBrowser:     bool,
+//   isNative:      bool,      // Capacitor native app
+//   isNode:        bool,
+//   isWorker:      bool,
+//   isStandalone:  bool,      // display-mode: standalone or navigator.standalone
+//   isPwa:         bool,      // isStandalone && !isNative
+//   touch:         bool,
 //   notifications: bool,
 //   serviceWorker: bool,
-//   browser:      bool,
-//   host:         string,     // protocol + hostname
-//   basePath:     string,
+//   host:          string,    // protocol + hostname
+//   basePath:      string,
+//   nativeEngine:  'capacitor' | '',
+//   preset:        string,
+//   userAgent:     string,
 // }
 ```
 
@@ -218,7 +223,7 @@ gestureManager.on('edgePan', {
 });
 ```
 
-**Supported gesture types:** `swipeLeft`, `swipeRight`, `swipeUp`, `swipeDown`, `longPress`, `tap`, `edgePan`.
+**Supported gesture types:** `swipe` (with `directions` option), `longPress`, `tap`, `edgePan`.
 
 ### gestureInteraction
 

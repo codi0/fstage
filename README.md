@@ -9,9 +9,9 @@ Fstage is a platform layer: it provides a loader, import map resolution, and a s
 ## Design philosophy
 
 - **No build step** — native ES modules and import maps only
-- **Platform stability** — conservative ES2020 baseline, explicit control flow, minimal dependencies (see [coding standard](policies/coding-standard.md))
+- **Platform stability** — conservative ES2020 baseline, explicit control flow, minimal dependencies (see [CONTRIBUTING.md](CONTRIBUTING.md))
 - **Composable** — use only the modules you need; wire them together via the registry
-- **No component lock-in** — the component model is defined by a [versioned open standard](policies/component-standard.md) that any runtime can implement
+- **No component lock-in** — the component model is defined by a [versioned open standard](specs/component-standard.md) that any runtime can implement
 
 ## Requirements
 
@@ -29,7 +29,7 @@ Fstage is a platform layer: it provides a loader, import map resolution, and a s
 <script type="module" src="https://cdn.jsdelivr.net/gh/codi0/fstage@latest/src/js/fstage.min.mjs"></script>
 ```
 
-2. Create `js/config.mjs` — this is where you declare your import map, load phases, and wire up services. See the [tasks template config](templates/tasks/js/config.mjs) for a complete reference, or the [starter template config](templates/starter/js/config.mjs) for an annotated walkthrough.
+2. Create `js/config.mjs` — this is where you declare your import map, load phases, and wire up services. See the [tasks example config](examples/tasks/js/config.mjs) for a complete reference, or the [starter example config](examples/starter/js/config.mjs) for an annotated walkthrough.
 
 fstage dispatches `fstage.ready` on `window` when the app is loaded, and `fstage.failed` on error.
 
@@ -74,26 +74,18 @@ e.get('store.createStore', [])           // calls createStore(), returns instanc
 
 See the [getting started guide](docs/getting-started.md) for a full walkthrough.
 
-## Templates
+## Examples
 
-| Template | Description |
-|----------|-------------|
-| [`templates/starter`](templates/starter/) | Minimal annotated shell — single route, counter demo, start here |
-| [`templates/tasks`](templates/tasks/) | Complete To-Do PWA — sync, offline, animations, gestures, Capacitor |
+| Example | Description |
+|---------|-------------|
+| [`examples/starter`](examples/starter/) | Minimal annotated shell — single route, counter demo, start here |
+| [`examples/tasks`](examples/tasks/) | Complete To-Do PWA — sync, offline, animations, gestures, Capacitor |
 
 ```sh
-cp -r templates/starter my-app && cd my-app && npx serve .
+cd examples/starter && npx serve .
 ```
 
-See [`templates/README.md`](templates/README.md) for details.
-
-## Example
-
-[`templates/tasks`](templates/tasks) is a complete To-Do PWA using the full stack:
-
-- **fstage modules** for state, storage, sync, routing, and transitions
-- **LitElement** for web components
-- **Capacitor** for native app deployment (iOS / Android)
+See [`examples/README.md`](examples/README.md) for details.
 
 ## Modules
 
@@ -106,7 +98,7 @@ See [`templates/README.md`](templates/README.md) for details.
 | [`http`](src/js/http/) | Thin fetch wrapper with timeout, form/JSON body helpers, and response parsing. Re-exported by `sync` |
 | [`router`](src/js/router/) | Client-side router — deterministic matching, param extraction, navigation handler, scroll state |
 | [`history`](src/js/history/) | Browser history abstraction — hash, query string, or path URL schemes |
-| [`component`](src/js/component/) | Web component runtime implementing the [Universal Component Definition Standard](policies/component-standard.md) — declarative state, bindings, watches, computed, animations, interactions |
+| [`component`](src/js/component/) | Web component runtime implementing the [Universal Component Definition Standard](specs/component-standard.md) — declarative state, bindings, watches, computed, animations, interactions |
 | [`registry`](src/js/registry/) | Service registry / DI container — the glue between modules |
 | [`env`](src/js/env/) | Platform detection, capability facts, and a layered policy system with CSS variable output |
 | [`animator`](src/js/animator/) | WAAPI animation engine — named presets, toggle controllers, flip, stagger, collapse |
@@ -114,7 +106,6 @@ See [`templates/README.md`](templates/README.md) for details.
 | [`interactions`](src/js/interactions/) | Delegated event handling with debounce/throttle and gesture/transition extensions |
 | [`gestures`](src/js/gestures/) | Touch/pointer gesture detection — swipe, edge pan, long press, tap |
 | [`ui`](src/js/ui/) | Reusable, accessible UI primitives — `fs-action-sheet` (imperative iOS-style sheet), `fs-bottom-sheet` (swipe-dismissable modal), `fs-dialog` (centered modal), `fs-disclosure` (animated show/hide), `fs-listbox` (keyboard-navigable select with typeahead). All unstyled, CSS-custom-property driven |
-| [`observe`](src/js/observe/) | Deep reactive proxy — emits get/set/delete events on plain objects |
 | [`form`](src/js/form/) | Form utilities |
 | [`ssr`](src/js/ssr/) | Server-side rendering via Declarative Shadow DOM — `createSsrRuntime` + `renderToString`. Supports state defaults, reactive getters, all `$src` shorthands, host attribute stamping, and per-call error handling. Requires `@lit-labs/ssr` as a peer dep |
 | [`devtools`](src/js/devtools/) | Debug panel — store event log, sync queue inspector, storage browser |
@@ -135,12 +126,12 @@ See [`templates/README.md`](templates/README.md) for details.
 - [Routing — router, history](docs/routing.md)
 - [Components](docs/components.md)
 - [Platform — env, animator, transitions, gestures, interactions](docs/platform.md)
-- [Utilities — utils, observe, registry](docs/utilities.md)
+- [Utilities — utils, registry](docs/utilities.md)
+- [Component Definition Standard](specs/component-standard.md)
 
-## Policies
+## Contributing
 
-- [Coding standard](policies/coding-standard.md)
-- [Universal Component Definition Standard](policies/component-standard.md)
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the coding standard, syntax baseline, and source style guide.
 
 ## License
 

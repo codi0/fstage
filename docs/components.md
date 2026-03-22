@@ -1,6 +1,6 @@
 # Components
 
-`@fstage/component` is a web component runtime built on LitElement. It implements the [Universal Component Definition Standard](../policies/component-standard.md) (v1.9) — a framework-agnostic specification for declarative component definitions.
+`@fstage/component` is a web component runtime built on LitElement. It implements the [Universal Component Definition Standard](../specs/component-standard.md) — a framework-agnostic specification for declarative component definitions.
 
 ## Runtime setup
 
@@ -120,7 +120,7 @@ export default {
   connected:    function(ctx) { /* connected, DOM exists    */ },
   rendered:     function(ctx, isFirst) { /* after render    */ },
   disconnected: function(ctx) { /* after cleanup            */ },
-  onError:      function(err, ctx) { console.error(err); },
+  onError:      function(err, ctx, location) { console.error(location, err); },
 };
 ```
 
@@ -229,4 +229,4 @@ ctx.models.getTasks();                   // usage in any handler
 
 ## Full standard
 
-The complete normative specification is in [policies/component-standard.md](../policies/component-standard.md).
+The complete normative specification is in [specs/component-standard.md](../specs/component-standard.md).

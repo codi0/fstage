@@ -2,14 +2,14 @@
 
 This guide walks through bootstrapping a fstage app from scratch — loader, config structure, load phases, and how services get wired together.
 
-## Running the templates
+## Running the examples
 
-The quickest way to understand fstage is to run one of the included templates. Serve the repo root with any static file server (ES modules require a server — `file://` will not work):
+The quickest way to understand fstage is to run one of the included examples. Serve the example directory with any static file server (ES modules require a server — `file://` will not work):
 
 ```bash
-npx serve .
-# Starter (minimal):  http://localhost:3000/templates/starter/
-# Tasks (full stack): http://localhost:3000/templates/tasks/
+npx serve examples/starter
+# or
+npx serve examples/tasks
 ```
 
 ---
@@ -257,11 +257,11 @@ afterLoadApp: function(e) {
 | `loadScreen` | Splash style: `'spinner'` \| `'logo'` \| `'text'` |
 | `onLoadError(e)` | Called when an asset fails to load. `e`: `{ error, path, get }`. Return `false` to abort boot; return anything else to skip the asset and continue. Useful for making non-critical assets (e.g. devtools, analytics) survivable. |
 
-See [`templates/starter/index.html`](../templates/starter/index.html) for a complete HTML shell covering splash screen, service worker lifecycle, online/offline handling, and unsupported browser detection. The `CUSTOMISE` block at the top is the only section that needs changing per app.
+See [`examples/starter/index.html`](../examples/starter/index.html) for a complete HTML shell covering splash screen, service worker lifecycle, online/offline handling, and unsupported browser detection. The `CUSTOMISE` block at the top is the only section that needs changing per app.
 
 ## 9. Devtools
 
-When using `@fstage/stack`, the devtools panel is enabled automatically when `config.debug` is true. Toggle with **Ctrl+Shift+D**.
+When using `@fstage/stack`, the devtools panel is enabled automatically when `config.debug` is true. Toggle with **Ctrl+&#96;** (or **Cmd+&#96;** on Mac).
 
 When wiring manually, load the panel explicitly:
 
@@ -309,4 +309,4 @@ Check that `config.mjs` is reachable and doesn't throw. Any uncaught error in a 
 - [Routing](routing.md) — router and history
 - [Components](components.md) — web component runtime
 - [Platform](platform.md) — env, animator, transitions, gestures
-- [Utilities](utilities.md) — utils, observe, registry
+- [Utilities](utilities.md) — utils, registry

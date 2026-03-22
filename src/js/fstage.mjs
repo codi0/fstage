@@ -34,7 +34,7 @@
 //config vars
 var _name = 'fstage';
 var _confName = 'FSCONFIG';
-var _modules = [ 'animator', 'component', 'devtools', 'env', 'form', 'gestures', 'history', 'http', 'interactions', 'observe', 'registry', 'router', 'ssr', 'stack', 'storage', 'store', 'sync', 'transitions', 'ui', 'utils', 'webpush', 'websocket' ];
+var _modules = [ 'animator', 'component', 'devtools', 'env', 'form', 'gestures', 'history', 'http', 'interactions', 'registry', 'router', 'ssr', 'stack', 'storage', 'store', 'sync', 'transitions', 'ui', 'utils', 'webpush', 'websocket' ];
 
 //misc vars
 var _global = {};
@@ -112,7 +112,14 @@ var _queryMap = function() {
 	return res;
 };
 
-//create import map
+/**
+ * Inject an `<script type="importmap">` element into the document head.
+ * Silently no-ops when `paths` is empty or falsy. Multiple calls are additive —
+ * later maps layer on top of earlier ones per the browser's own precedence rules.
+ *
+ * @param {Object} paths - Specifier → URL entries, e.g.
+ *   `{ '@fstage/store': 'https://...', '@fstage/': 'https://.../' }`.
+ */
 var map = function(paths) {
 	//valid paths?
 	if(!paths || !Object.keys(paths).length) {

@@ -252,6 +252,18 @@ fetch: function(ctx) {
 
 Call `store.$fetch('path', { append: true })` to load the next page — results are merged into the existing store value.
 
+Check `$opStatus` before appending to avoid fetching past the end:
+
+```js
+function loadMore() {
+  var status = store.$opStatus('tasks');
+  if (!status.hasMore || status.fetching) return;
+  store.$fetch('tasks', { append: true });
+}
+```
+
+Scroll position across page appends is preserved automatically — the router persists `scrollTop` in history state on each navigation and restores it on back/forward. No additional handling is needed for paginated lists that stay on the same route.
+
 ---
 
 ## Low-level primitives

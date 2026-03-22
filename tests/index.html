@@ -44,7 +44,6 @@
 		<button data-run="utils">utils</button>
 		<button data-run="registry">registry</button>
 		<button data-run="http">http</button>
-		<button data-run="observe">observe</button>
 		<button data-run="router">router</button>
 		<button data-run="component">component</button>
 		<button data-run="clear">clear</button>
@@ -66,11 +65,10 @@
 		import { runTests as utils    } from '../src/js/utils/tests/tests.mjs';
 		import { runTests as registry } from '../src/js/registry/tests/tests.mjs';
 		import { runTests as http     } from '../src/js/http/tests/tests.mjs';
-		import { runTests as observe  } from '../src/js/observe/tests/tests.mjs';
 		import { runTests as router    } from '../src/js/router/tests/tests.mjs';
 		import { runTests as component } from '../src/js/component/tests/tests.mjs';
 
-		const MODULES = { env, history, interactions, form, store, storage, sync, devtools, utils, registry, http, observe, router, component };
+		const MODULES = { env, history, interactions, form, store, storage, sync, devtools, utils, registry, http, router, component };
 
 		let verbose = false;
 		window.FSTAGE_TESTS_VERBOSE = false;

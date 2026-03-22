@@ -1,4 +1,4 @@
-# Utilities — utils, observe, registry
+# Utilities — utils, registry
 
 ---
 
@@ -99,42 +99,6 @@ const toggle = createRefCountedToggle(
 );
 toggle(true);  // adds listener when count 0→1
 toggle(false); // removes listener when count 1→0
-```
-
----
-
-## observe
-
-`@fstage/observe` wraps a plain object in a deep reactive Proxy that emits `get`, `set`, and `delete` events.
-
-```js
-import { createObserver } from '@fstage/observe';
-
-const proxy = createObserver({ user: { name: 'Alice' } });
-
-const offSet = proxy.__events.on('set', (e) => {
-  // e: { path, key, value, oldValue, target }
-  console.log('changed:', e.path, e.value);
-});
-
-const offGet = proxy.__events.on('get', (e) => {
-  // e: { path, key, target }
-});
-
-proxy.user.name = 'Bob'; // triggers 'set' on 'user.name'
-
-offSet(); // unsubscribe
-```
-
-Special proxy properties: `__isProxy`, `__target` (raw object), `__path`, `__root`, `__events`, `__raw` (deep copy).
-
-Options:
-
-```js
-createObserver(target, {
-  deep:   true,              // observe nested objects (default true)
-  events: existingEventsObj, // share an events bus across related proxies
-});
 ```
 
 ---

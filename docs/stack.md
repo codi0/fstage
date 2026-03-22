@@ -51,7 +51,7 @@ That's the entire wiring for a standard app. Configuration is driven by the keys
 | Key | Used by | Effect |
 |-----|---------|--------|
 | `name` | `wireStack` | App name passed to `screenHost` and page titles |
-| `debug` | `wireStack` | Enables devtools panel (Ctrl+Shift+D) |
+| `debug` | `wireStack` | Enables devtools panel (Ctrl+&#96; / Cmd+&#96;) |
 | `mockRemote` | `wireStack` | Auto-builds mock remote handler when `debug` is also true |
 | `mockLatency` | `wireStack` | Artificial latency for the mock remote handler (default: 80ms) |
 | `policy` | `wireStack` | App policy — plain object or `(facts, config) => object` |
@@ -270,4 +270,4 @@ export default {
 };
 ```
 
-For the full working reference see [`templates/tasks/js/config.mjs`](../templates/tasks/js/config.mjs).
+For the full working reference see [`examples/tasks/js/config.mjs`](../examples/tasks/js/config.mjs).
