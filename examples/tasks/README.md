@@ -5,7 +5,7 @@ offline support, animations, gestures, and Capacitor native deployment. Use this
 a reference implementation alongside the [starter template](../starter/).
 
 ```sh
-cp -r templates/tasks my-app
+cp -r examples/tasks my-app
 cd my-app
 npx serve .
 # open http://localhost:3000
@@ -21,7 +21,7 @@ tasks/
 ├── sw.js                   # Service worker — caching, offline, push notifications
 ├── manifest.json           # PWA manifest
 ├── capacitor.config.json   # Capacitor native app configuration
-├── favicon.png
+├── favicon.svg
 ├── version.json            # Update trigger — bump to force cache clear + reload
 ├── icons/                  # App icons (48 → 512px webp, any + maskable variants)
 ├── css/

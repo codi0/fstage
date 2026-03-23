@@ -74,7 +74,9 @@ export function formatFormBody(body, form, path='') {
 		//get current path
 		var propPath = path ? path + '[' + prop + ']' : prop;
 		//recursive?
-		if(typeof body[prop] == 'object' && !(body[prop] instanceof File)) {
+		var isFile = (typeof File !== 'undefined') && (body[prop] instanceof File);
+		var isBlob = (typeof Blob !== 'undefined') && (body[prop] instanceof Blob);
+		if(body[prop] && typeof body[prop] == 'object' && !isFile && !isBlob) {
 			formatFormBody(body[prop], form, propPath);
 		} else {
 			form.append(propPath, body[prop]);
@@ -178,7 +180,23 @@ export function fetchHttp(url, opts={}) {
 	return new Promise(function(resolve, reject) {
 		//set vars
 		var tid = null;
-		var controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+		var controller = null;
+		var signal = opts.signal || null;
+		var onAbort = null;
+		//create timeout controller?
+		if(opts.timeout > 0 && typeof AbortController !== 'undefined') {
+			controller = new AbortController();
+			signal = controller.signal;
+			//bridge external signal
+			if(opts.signal) {
+				if(opts.signal.aborted) {
+					controller.abort();
+				} else {
+					onAbort = function() { controller.abort(); };
+					opts.signal.addEventListener('abort', onAbort, { once: true });
+				}
+			}
+		}
 		//create timer?
 		if(opts.timeout > 0) {
 			tid = setTimeout(function() {
@@ -191,9 +209,12 @@ export function fetchHttp(url, opts={}) {
 			method: opts.method,
 			headers: opts.headers,
 			body: opts.body,
-			signal: controller && controller.signal
+			signal: signal || undefined
 		}).finally(function() {
 			tid && clearTimeout(tid);
+			if(onAbort && opts.signal && typeof opts.signal.removeEventListener === 'function') {
+				opts.signal.removeEventListener('abort', onAbort);
+			}
 		}).then(function(response) {
 			//valid response?
 			if(response.ok) {
@@ -202,7 +223,7 @@ export function fetchHttp(url, opts={}) {
 					resolve(res);
 				});
 			} else {
-				reject("HTTP " + response.status + " error: " + response.url);
+				reject(new Error("HTTP " + response.status + " error: " + response.url));
 			}
 		}).catch(function(err) {
 			reject(err);

@@ -159,6 +159,13 @@ export async function runTests() {
 			assertEqual(o.a.b.c, 7);
 		});
 
+		await test('write creates arrays for numeric path segments', () => {
+			const o = {};
+			nestedKey(o, 'items.0.name', { val: 'Task A' });
+			assert(Array.isArray(o.items));
+			assertEqual(o.items[0].name, 'Task A');
+		});
+
 		await test('write undefined deletes key', () => {
 			const o = { a: { b: 1, c: 2 } };
 			nestedKey(o, 'a.b', { val: undefined });

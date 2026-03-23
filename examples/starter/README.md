@@ -4,7 +4,7 @@ A minimal, production-ready starting point for a fstage app. Copy this directory
 serve it with any static file server, and you have a running PWA in under a minute.
 
 ```sh
-cp -r templates/starter my-app
+cp -r examples/starter my-app
 cd my-app
 npx serve .
 # open http://localhost:3000
@@ -22,7 +22,7 @@ starter/
 ├── favicon.svg                       # Placeholder favicon — replace with your own
 ├── version.json                      # Update trigger — bump to force cache clear + reload
 ├── icons/
-│   └── README.md                     # Icon generation instructions
+│   └── icon.svg                      # Placeholder app icon — replace with your own
 ├── css/
 │   └── style.css                     # Design token foundation (light/dark) + reset
 └── js/
@@ -63,8 +63,8 @@ point — it demonstrates `inject`, `state`, `interactions`, `style`, and `rende
 
 **4. Replace the favicon and icons**
 
-See `icons/README.md` for icon generation instructions. Until then the SW will
-log 404s for the icon precache entries — harmless during development.
+Replace `favicon.svg` and `icons/icon.svg` with your own assets. Keep the same
+paths, or update icon references in `manifest.json` and `sw.js`.
 
 **5. Go to production**
 
@@ -92,7 +92,7 @@ log 404s for the icon precache entries — harmless during development.
 
 ## Deploying as a Capacitor native app
 
-See [`templates/tasks/README.md`](../tasks/README.md) for the full native build
-guide — the tasks template includes a complete Capacitor setup with `native.html`,
-`capacitor.config.json`, and step-by-step instructions. The shell structure is
-identical so the same steps apply here.
+See [`tasks/README.md`](../tasks/README.md) for the full native build guide —
+the tasks template includes a complete Capacitor setup with
+`capacitor.config.json` and step-by-step instructions. The shell structure is
+similar, so the same steps apply here.

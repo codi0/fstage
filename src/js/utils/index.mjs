@@ -388,18 +388,20 @@ export function nestedKey(input, key, opts) {
 		//get key part
 		var k = keyArr[i];
 		//has value?
-		if(hasVal) {
-			//next level?
-			if(i < keyArr.length-1) {
-				//get type
-				var t = getType(res[k]);
-				//is iterable?
-				if(t !== 'object' && t !== 'array') {
-					res[k] = Number.isInteger(+k) ? [] : {};
-				}
-				//next level
-				res = res[k];
-			} else {
+			if(hasVal) {
+				//next level?
+				if(i < keyArr.length-1) {
+					//get type
+					var t = getType(res[k]);
+					//is iterable?
+					if(t !== 'object' && t !== 'array') {
+						var nextK = keyArr[i + 1];
+						var isIdx = /^\d+$/.test(nextK);
+						res[k] = isIdx ? [] : {};
+					}
+					//next level
+					res = res[k];
+				} else {
 				//update value
 				if(opts.val === undefined) {
 					//delete value

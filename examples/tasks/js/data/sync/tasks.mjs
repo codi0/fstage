@@ -33,7 +33,23 @@ store.$operation('tasks', {
 		const parts    = ctx.path.split('.');
 		const recordId = parts[1];
 		const recPath  = recordId ? 'tasks.' + recordId : ctx.path;
-		const rec      = store.$get(recPath);
+		const remote   = config.api && config.api.tasks && {
+			key:      'tasks',
+			uri:      config.api.tasks,
+			dataPath: 'record',
+		};
+
+		// Record delete: local record is already gone, so send explicit delete.
+		if (ctx.action === 'remove' && parts.length === 2 && recordId) {
+			return syncManager.write(recPath, undefined, {
+				skipLocal: true,
+				delete:    true,
+				id:        recordId,
+				remote:    remote,
+			});
+		}
+
+		const rec = store.$get(recPath);
 
 		if (!rec) return;
 
@@ -41,11 +57,7 @@ store.$operation('tasks', {
 		// and the re-triggering of mutate that would cause.
 		return syncManager.write(recPath, rec, {
 			skipLocal: true,
-			remote:    config.api && config.api.tasks && {
-				key:      'tasks',
-				uri:      config.api.tasks,
-				dataPath: 'record',
-			},
+			remote:    remote,
 			idPath: 'data.id',
 		});
 	},

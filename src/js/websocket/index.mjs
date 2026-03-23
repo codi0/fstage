@@ -79,23 +79,27 @@ export function createWebsocket(url, opts={}) {
 
 	//run listen queue
 	var runListenQ = function(event, e) {
-		//loop through listeners
-		for(var i=0; i < (listenQ[event] || []).length; i++) {
-			//set vars
-			var json, opts = listenQ[event][i];
-			//raw socket?
-			if(!event || [ 'open', 'message', 'error', 'close' ].includes(event)) {
-				return opts.listener(e);
-			}
-			//parse data?
+		var isRaw = !event || [ 'open', 'message', 'error', 'close' ].includes(event);
+		var json = null;
+		if(!isRaw && e && typeof e.data === 'string') {
 			try {
 				json = JSON.parse(e.data);
 			} catch (Ex) {
 				//do nothing
 			}
+		}
+		//loop through listeners
+		for(var i=0; i < (listenQ[event] || []).length; i++) {
+			//set vars
+			var opts = listenQ[event][i];
+			//raw socket?
+			if(isRaw) {
+				opts.listener(e);
+				continue;
+			}
 			//event matched?
 			if(!json || json.event !== event) {
-				return;
+				continue;
 			}
 			//channel matched?
 			if(!opts.channel || json.channel === opts.channel) {
@@ -113,18 +117,18 @@ export function createWebsocket(url, opts={}) {
 			//create socket?
 			if(!api.ws) {
 				//create socket
-				api.ws = new WebSocket(url, opts.protocols);
-				//open listener
-				api.ws.addEventListener('open', function(e) {
-					//update vars
-					sendQ = [];
-					conn = true;
-					//get queue
-					var q = sendQ;
-					//loop through send queue
-					for(var i=0; i < q.length; i++) {
-						api.send(...q[i]);
-					}
+					api.ws = new WebSocket(url, opts.protocols);
+					//open listener
+					api.ws.addEventListener('open', function(e) {
+						//update vars
+						var q = sendQ.slice();
+						sendQ = [];
+						conn = true;
+						tries = 0;
+						//loop through send queue
+						for(var i=0; i < q.length; i++) {
+							api.send(...q[i]);
+						}
 					//open queue
 					runListenQ('open', e);
 				});
@@ -217,25 +221,40 @@ export function createWebsocket(url, opts={}) {
 			});
 		},
 
-		subscribe: function(channel, listener, remove=false) {
-			//update listener queue
-			updateListenQ(listener, 'publish', channel, remove);
-			//send message to server?
-			if(!subbed[channel]) {
-				//update flag
-				subbed[channel] = true;
-				//send now
-				api.send({
-					event: 'subscribe',
+			subscribe: function(channel, listener, remove=false) {
+				//update listener queue
+				if(typeof listener === 'function') {
+					updateListenQ(listener, 'publish', channel, remove);
+				}
+				//valid channel?
+				if(!channel) {
+					return api;
+				}
+				//send message to server?
+				if(!remove && !subbed[channel]) {
+					//update flag
+					subbed[channel] = true;
+					//send now
+					api.send({
+						event: 'subscribe',
 					channel: channel
-				}, {
-					encode: true,
-					queue: !remove
-				});
-			}
-			//return
-			return api;
-		},
+					}, {
+						encode: true,
+						queue: true
+					});
+				}
+				if(remove && subbed[channel]) {
+					delete subbed[channel];
+					api.send({
+						event: 'unsubscribe',
+						channel: channel
+					}, {
+						encode: true
+					});
+				}
+				//return
+				return api;
+			},
 
 		unsubscribe: function(channel, listener) {
 			return api.subscribe(channel, listener, true);
@@ -259,9 +278,11 @@ export function createWebsocket(url, opts={}) {
 	}
 
 	//close gracefully
-	globalThis.addEventListener('beforeunload', function(e) {
-		api.close();
-	});
+	if(typeof globalThis.addEventListener === 'function') {
+		globalThis.addEventListener('beforeunload', function() {
+			api.close();
+		});
+	}
 
 	//return
 	return api;

@@ -46,6 +46,8 @@
 		<button data-run="http">http</button>
 		<button data-run="router">router</button>
 		<button data-run="component">component</button>
+		<button data-run="webpush">webpush</button>
+		<button data-run="websocket">websocket</button>
 		<button data-run="clear">clear</button>
 		<button data-run="verbose" id="btn-verbose">verbose: off</button>
 	</div>
@@ -67,8 +69,10 @@
 		import { runTests as http     } from '../src/js/http/tests/tests.mjs';
 		import { runTests as router    } from '../src/js/router/tests/tests.mjs';
 		import { runTests as component } from '../src/js/component/tests/tests.mjs';
+		import { runTests as webpush   } from '../src/js/webpush/tests/tests.mjs';
+		import { runTests as websocket } from '../src/js/websocket/tests/tests.mjs';
 
-		const MODULES = { env, history, interactions, form, store, storage, sync, devtools, utils, registry, http, router, component };
+		const MODULES = { env, history, interactions, form, store, storage, sync, devtools, utils, registry, http, router, component, webpush, websocket };
 
 		let verbose = false;
 		window.FSTAGE_TESTS_VERBOSE = false;

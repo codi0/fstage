@@ -71,7 +71,11 @@ function buildUrl(opts, route) {
 		url = u2.toString();
 	} else {
 		basePath = normalizePath(basePath || '/');
-		url = basePath + ((path === defHome) ? '' : path);
+		var suffix = (path === defHome) ? '' : path;
+		if (basePath[basePath.length - 1] === '/' && suffix[0] === '/') {
+			suffix = suffix.slice(1);
+		}
+		url = basePath + suffix;
 	}
 
 	return cleanDoubleSlashes(url);
@@ -99,7 +103,8 @@ function buildUrl(opts, route) {
  *   replace(route: string, state?: Object, opts?: Object): void,
  *   back(opts?: Object): void,
  *   forward(opts?: Object): void,
- *   go(n: number, opts?: Object): void
+ *   go(n: number, opts?: Object): void,
+ *   destroy(): void
  * }}
  *
  * Returned methods:
@@ -109,6 +114,7 @@ function buildUrl(opts, route) {
  *   - `push/replace(route, state?, opts?)` — navigate and optionally emit silently.
  *   - `back/forward/go` — wrap `history.back/forward/go`. Pass `{ silent: true }` to
  *     suppress the next popstate emission.
+ *   - `destroy()` — remove the internal `popstate` listener and clear listeners.
  */
 export function createBrowserHistory(options) {
 	options = options || {};
@@ -138,12 +144,17 @@ export function createBrowserHistory(options) {
 	}
 
 	function onPopstate() {
-		const e = { mode: 'pop', silent: silent };
+		var isSilent = silent;
 		silent = false;
-		emit(e);
+		if (isSilent) return;
+		emit({ mode: 'pop', silent: false });
 	}
 
-	globalThis.addEventListener('popstate', onPopstate);
+	var popAttached = false;
+	if (typeof globalThis.addEventListener === 'function') {
+		globalThis.addEventListener('popstate', onPopstate);
+		popAttached = true;
+	}
 
 	return {
 		location: function() {
@@ -187,9 +198,17 @@ export function createBrowserHistory(options) {
 			history.forward();
 		},
 		
-		go: function(n, opts = {}) {
-			silent = !!opts.silent;
-			history.go(n);
-		}
-	};
+			go: function(n, opts = {}) {
+				silent = !!opts.silent;
+				history.go(n);
+			},
+
+			destroy: function() {
+				listeners = [];
+				if (popAttached && typeof globalThis.removeEventListener === 'function') {
+					globalThis.removeEventListener('popstate', onPopstate);
+					popAttached = false;
+				}
+			}
+		};
 }

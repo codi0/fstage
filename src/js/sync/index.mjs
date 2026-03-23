@@ -130,7 +130,12 @@ export function createHandler(driver, opts) {
 							);
 						}));
 					})
-					.then(function() { _seeded = true; _seedProm = null; });
+					.then(function() { _seeded = true; });
+			}).catch(function(err) {
+				_seeded = false;
+				throw err;
+			}).finally(function() {
+				_seedProm = null;
 			});
 			return _seedProm;
 		}
@@ -300,6 +305,7 @@ export function createHandler(driver, opts) {
  *   - `opts.remote`     — remote key or descriptor (omit to skip remote)
  *   - `opts.skipLocal`  — skip the local write (caller already wrote locally)
  *   - `opts.delete`     — treat as a delete
+ *   - `opts.id`         — record id for delete operations when payload is absent
  *   - `opts.idPath`     — dot-path in remote response for server-assigned id
  *   - `opts.maxRetries` — per-write retry override
  */
@@ -326,6 +332,45 @@ export function createSyncManager(config) {
 	// -------------------------------------------------------------------------
 	var queue    = [];
 	var retryTid = null;
+	var persistKey = 'fstage.sync.' + config.queueKey;
+
+	function serialiseQueue(entries) {
+		return (entries || []).map(function(e) {
+			var o = Object.assign({}, e.opts);
+			delete o._resolve;
+			delete o._reject;
+			return { key: e.key, payload: e.payload, opts: o, attempts: e.attempts, nextRetry: e.nextRetry };
+		});
+	}
+
+	function saveQueue(entries) {
+		var safeEntries = serialiseQueue(entries);
+		// Sync persist for unload/crash reliability.
+		try {
+			if (globalThis.localStorage) {
+				if (safeEntries.length) {
+					globalThis.localStorage.setItem(persistKey, JSON.stringify(safeEntries));
+				} else {
+					globalThis.localStorage.removeItem(persistKey);
+				}
+			}
+		} catch (err) {}
+		// Async persist for storage-driver restore.
+		if (local && typeof local.write === 'function') {
+			local.write(config.queueKey, safeEntries.length ? safeEntries : undefined).catch(function() {});
+		}
+	}
+
+	function readPersistedQueue() {
+		try {
+			if (!globalThis.localStorage) return [];
+			var raw = globalThis.localStorage.getItem(persistKey);
+			var parsed = raw ? JSON.parse(raw) : [];
+			return Array.isArray(parsed) ? parsed : [];
+		} catch (err) {
+			return [];
+		}
+	}
 
 	function scheduleRetry() {
 		if (retryTid) return;
@@ -346,10 +391,12 @@ export function createSyncManager(config) {
 				queue[i].opts      = opts;
 				queue[i].attempts  = attempts || 0;
 				queue[i].nextRetry = nextRetry || Date.now();
+				saveQueue(queue);
 				return;
 			}
 		}
 		queue.push({ key: key, payload: payload, opts: opts, attempts: attempts || 0, nextRetry: nextRetry || Date.now() });
+		saveQueue(queue);
 	}
 
 	// -------------------------------------------------------------------------
@@ -362,7 +409,8 @@ export function createSyncManager(config) {
 		remote: remote,
 
 		isOnline: function() {
-			return !!(globalThis.navigator && ('onLine' in navigator) && navigator.onLine);
+			if (!globalThis.navigator || !('onLine' in navigator)) return true;
+			return !!navigator.onLine;
 		},
 
 		// -------------------------------------------------------------------
@@ -438,6 +486,7 @@ export function createSyncManager(config) {
 		//   skipLocal   — skip the local write (caller already wrote locally).
 		//                 Rollback is a no-op. Payload stored explicitly in queue.
 		//   delete      — treat as a delete (passes delete:true to handler)
+		//   id          — record id for delete operations when payload is absent
 		//   idPath      — dot-path in remote response where server id lives;
 		//                 if present, patches local record with the returned id
 		//   maxRetries  — override config.maxRetries for this write
@@ -490,6 +539,7 @@ export function createSyncManager(config) {
 						uri:      r.uri,
 						dataPath: r.dataPath,
 						delete:   opts.delete,
+						id:       opts.id,
 					})
 					.then(function(response) {
 						// Patch local with server-assigned id if idPath is provided.
@@ -509,10 +559,10 @@ export function createSyncManager(config) {
 
 						attempts++;
 						if (attempts > maxRetries) {
-						throw err;
+							throw err;
 						}
 
-					var delayMs = backoffMs(attempts - 1, config.backoffBase, config.backoffMax);
+						var delayMs = backoffMs(attempts - 1, config.backoffBase, config.backoffMax);
 
 						return new Promise(function(resolve, reject) {
 							enqueue(key, payload, Object.assign({}, opts, {
@@ -540,6 +590,7 @@ export function createSyncManager(config) {
 			var now = Date.now();
 			var due = queue.filter(function(e) { return e.nextRetry <= now; });
 			queue   = queue.filter(function(e) { return e.nextRetry > now; });
+			saveQueue(queue);
 
 			due.forEach(function(entry) {
 				var o        = entry.opts;
@@ -548,6 +599,7 @@ export function createSyncManager(config) {
 
 				if (!r) {
 					if (o._resolve) o._resolve(entry.payload);
+					saveQueue(queue);
 					return;
 				}
 
@@ -556,9 +608,11 @@ export function createSyncManager(config) {
 					uri:      r.uri,
 					dataPath: r.dataPath,
 					delete:   o.delete,
+					id:       o.id,
 				})
 				.then(function(response) {
 					if (o._resolve) o._resolve(response);
+					saveQueue(queue);
 				})
 				.catch(function(err) {
 					attempts++;
@@ -572,6 +626,7 @@ export function createSyncManager(config) {
 					entry.attempts  = attempts;
 					entry.nextRetry = Date.now() + delayMs;
 					queue.push(entry);
+					saveQueue(queue);
 					scheduleRetry();
 				});
 			});
@@ -583,25 +638,29 @@ export function createSyncManager(config) {
 	// Startup — restore persisted queue from previous session
 	// -------------------------------------------------------------------------
 	local.read(config.queueKey).then(function(saved) {
-		if (saved && saved.length) {
-			queue = saved;
-			local.write(config.queueKey, undefined);
+		var restored = (saved && saved.length) ? saved : readPersistedQueue();
+		if (restored && restored.length) {
+			queue = restored;
+			saveQueue(queue);
+			api.processQueue();
+		}
+	}).catch(function() {
+		var restored = readPersistedQueue();
+		if (restored.length) {
+			queue = restored;
+			saveQueue(queue);
 			api.processQueue();
 		}
 	});
 
-	globalThis.addEventListener('beforeunload', function() {
-		var toSave = queue.map(function(e) {
-			var o = Object.assign({}, e.opts);
-			delete o._resolve;
-			delete o._reject;
-			return { key: e.key, payload: e.payload, opts: o, attempts: e.attempts, nextRetry: e.nextRetry };
+	if (typeof globalThis.addEventListener === 'function') {
+		globalThis.addEventListener('beforeunload', function() {
+			saveQueue(queue);
 		});
-		local.write(config.queueKey, toSave.length ? toSave : undefined);
-	});
+		globalThis.addEventListener('online', function() { api.processQueue(); });
+	}
 
 	setInterval(function() { api.processQueue(); }, config.interval);
-	globalThis.addEventListener('online', function() { api.processQueue(); });
 
 	return api;
 }

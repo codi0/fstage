@@ -132,6 +132,28 @@ async function runHandlerStorageSuite(suite, test) {
 			assertEqual(fetchCount, 0);
 		});
 
+		await test('seed retries after an initial failure', async () => {
+			let fetchCount = 0;
+			const orig = globalThis.fetch;
+			try {
+				globalThis.fetch = function() {
+					fetchCount++;
+					if (fetchCount === 1) return Promise.reject(new Error('seed failed once'));
+					return Promise.resolve({ json: function() { return Promise.resolve([{ id: '2', name: 'RetrySeed' }]); } });
+				};
+				const storage = makeLocal();
+				const handler = createHandler(storage, { seedUrl: 'http://x/seed', read: { keyPath: 'id' } });
+				let threw = false;
+				await handler.read('items').catch(function() { threw = true; });
+				assert(threw);
+				const result = await handler.read('items');
+				assertEqual(result['2'].name, 'RetrySeed');
+				assertEqual(fetchCount, 2);
+			} finally {
+				globalThis.fetch = orig;
+			}
+		});
+
 	});
 
 }
@@ -385,6 +407,25 @@ async function runWriteSuite(suite, test) {
 			assert(sentPayload === undefined);
 		});
 
+		await test('forwards opts.id to remote write on delete', async () => {
+			const local = makeLocal();
+			let receivedOpts = null;
+			const sync = makeSync(local, {
+				write: function(key, payload, opts) {
+					receivedOpts = opts;
+					return Promise.resolve({});
+				},
+			});
+			await sync.write('items.abc', undefined, {
+				remote: 'items',
+				delete: true,
+				id: 'abc',
+				skipLocal: true,
+			}).promise;
+			assertEqual(receivedOpts.id, 'abc');
+			assertEqual(receivedOpts.delete, true);
+		});
+
 	});
 
 }
@@ -424,6 +465,56 @@ async function runQueueSuite(suite, test) {
 			await flush2();
 			// If remote succeeded, queuedPayload should be our value
 			assertEqual(queuedPayload, { val: 42 });
+		});
+
+		await test('queue persistence is written when enqueueing', async () => {
+			const local = makeLocal();
+			const writes = [];
+			const origWrite = local.write.bind(local);
+			local.write = function(key, val) {
+				writes.push({ key: key, val: val });
+				return origWrite(key, val);
+			};
+			const sync = createSyncManager({
+				localHandler:  local,
+				remoteHandler: makeRemote({
+					write: function() { return Promise.reject(new Error('offline')); },
+				}),
+				queueKey: 'syncQueueTest',
+				maxRetries: 1, backoffBase: 1, backoffMax: 1, interval: 999999,
+			});
+			await sync.write('x', { id: 1 }, { remote: 'x' }).promise.catch(function() {});
+			assert(writes.some(function(w) { return w.key === 'syncQueueTest' && Array.isArray(w.val) && w.val.length >= 1; }));
+		});
+
+		await test('queued retry forwards id for delete operations', async () => {
+			const local = makeLocal();
+			let attempts = 0;
+			const receivedIds = [];
+			const sync = createSyncManager({
+				localHandler:  local,
+				remoteHandler: makeRemote({
+					write: function(key, payload, opts) {
+						attempts++;
+						receivedIds.push(opts && opts.id);
+						if (attempts === 1) return Promise.reject(new Error('offline'));
+						return Promise.resolve({ ok: true });
+					},
+				}),
+				maxRetries: 1, backoffBase: 1, backoffMax: 1, interval: 999999,
+			});
+			const pending = sync.write('items.abc', undefined, {
+				remote: 'items',
+				delete: true,
+				id: 'abc',
+				skipLocal: true,
+			}).promise;
+			await new Promise(function(resolve) { setTimeout(resolve, 5); });
+			sync.processQueue();
+			await pending;
+			assert(receivedIds.length >= 2);
+			assertEqual(receivedIds[0], 'abc');
+			assertEqual(receivedIds[1], 'abc');
 		});
 
 	});

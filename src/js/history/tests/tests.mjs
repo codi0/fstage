@@ -167,6 +167,17 @@ export async function runTests() {
 			assertEqual(fired, 0);
 		});
 
+		await test('destroy() removes internal popstate listener', async () => {
+			resetHash();
+			const h = makeHash();
+			let fired = 0;
+			h.on(() => { fired++; });
+			h.destroy();
+			h.push('/after-destroy');
+			await flush();
+			assertEqual(fired, 0);
+		});
+
 	});
 
 	// -----------------------------------------------------------------------

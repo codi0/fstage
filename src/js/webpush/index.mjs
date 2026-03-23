@@ -22,8 +22,8 @@ const _cache = {};
  *   topics(): string[],
  *   state(opts?: Object): Promise<string>,
  *   subscribe(topic?: string): Promise<boolean>,
- *   unsubscribe(topic?: string): Promise<void>,
- *   close(topic?: string): Promise<void>
+ *   unsubscribe(topic?: string): Promise<boolean>,
+ *   close(topic?: string): Promise<boolean>
  * }}
  *
  * **`init(url, vapidKey)`** — set the server endpoint URL and VAPID public key.
@@ -52,10 +52,13 @@ export function createWebpush(config={}) {
 	var _sub = null;
 	var _vapid = null;
 	var _topics = [];
-	var _canPush = ('PushManager' in globalThis);
+	var _canPush = !!(globalThis.PushManager && globalThis.navigator && navigator.serviceWorker);
 
 	//get sub helper
 	var getSub = function() {
+		if(!_canPush) {
+			return Promise.resolve(null);
+		}
 		//has sub?
 		if(_sub) {
 			return Promise.resolve(_sub);
@@ -76,15 +79,18 @@ export function createWebpush(config={}) {
 
 	//format vapid key helper
 	var formatVapidKey = function(key) {
+		if(!key || typeof key !== 'string') {
+			return null;
+		}
 		//convert from base64 to int8
 		var padding = '='.repeat((4 - key.length % 4) % 4);
 		var base64 = (key + padding).replace(/\-/g, '+').replace(/_/g, '/');
 		var rawData = atob(base64);
-		var key = new Uint8Array(rawData.length);
+		var out = new Uint8Array(rawData.length);
 		for(var i = 0; i < rawData.length; ++i) {
-			key[i] = rawData.charCodeAt(i);
+			out[i] = rawData.charCodeAt(i);
 		}
-		return key;			
+		return out;			
 	};
 
 	//server sync helper
@@ -113,7 +119,12 @@ export function createWebpush(config={}) {
 		init: function(url, vapid) {
 			_url = url;
 			_vapid = formatVapidKey(vapid);
-			_topics = JSON.parse(localStorage.getItem('webpush.topics') || '[]');
+			try {
+				_topics = JSON.parse(localStorage.getItem('webpush.topics') || '[]');
+				if(!Array.isArray(_topics)) _topics = [];
+			} catch (err) {
+				_topics = [];
+			}
 		},
 
 		can: function() {
@@ -170,6 +181,10 @@ export function createWebpush(config={}) {
 		},
 
 		unsubscribe: function(topic) {
+			//can push?
+			if(!_canPush) {
+				return Promise.resolve(false);
+			}
 			//get sub
 			return getSub().then(function() {
 				//set vars
@@ -191,23 +206,30 @@ export function createWebpush(config={}) {
 				if(!_topics.length) {
 					method = 'DELETE'; 
 				}
-				//save to backend
-				return serverSync(method).then(function(result) {
-					if(result && method === 'DELETE') {
-						_sub.unsubscribe();
-						_sub = null;
-					}
+					//save to backend
+					return serverSync(method).then(function(result) {
+						if(result && method === 'DELETE') {
+							return _sub.unsubscribe().catch(function() {}).then(function() {
+								_sub = null;
+								return true;
+							});
+						}
+						return result;
+					});
 				});
-			});
 		},
 
 		close: function(topic) {
+			if(!_canPush) {
+				return Promise.resolve(false);
+			}
 			return navigator.serviceWorker.ready.then(function(reg) {
 				//get all active notifications
 				return reg.getNotifications().then(function(notifications) {
 					//loop through notifications
 					for(var i=0; i < notifications.length; i++) {
-						if(!topic || notifications[i].tag == topic || (notifications[i].data || []).topic == topic) {
+						var data = notifications[i].data || {};
+						if(!topic || notifications[i].tag == topic || data.topic == topic) {
 							notifications[i].close();
 						}
 					}

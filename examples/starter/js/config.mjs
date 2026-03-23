@@ -226,7 +226,7 @@ export default {
 
 	afterLoadApp: function(e) {
 		e.get('stack.startStack', [ e, {
-			rootEl: 'my-app',  // must match the root element tag in index.html and app.mjs
+			rootEl: e.get('config.rootEl'),
 
 			// Edge-pan back gesture — enabled by default on mobile/native.
 			// Override shouldStart to add custom blockers.

@@ -5,7 +5,7 @@
  * here as it requires a live network; test it via integration tests.
  */
 
-import { formatUrl, formatHeaders, formatJsonBody, formatFormBody } from '../index.mjs';
+import { formatUrl, formatHeaders, formatJsonBody, formatFormBody, fetchHttp } from '../index.mjs';
 import { createRunner, assert, assertEqual } from '../../../../tests/runner.mjs';
 
 export async function runTests() {
@@ -108,6 +108,61 @@ export async function runTests() {
 
 		await test('null/falsy returns empty string', () => {
 			assertEqual(formatFormBody(null), '');
+		});
+
+	});
+
+	await suite('fetchHttp', async () => {
+
+		await test('uses caller-provided AbortSignal', async () => {
+			const origFetch = globalThis.fetch;
+			const ctl = new AbortController();
+			let seenSignal = null;
+			try {
+				globalThis.fetch = function(url, opts) {
+					seenSignal = opts.signal;
+					return Promise.resolve({
+						ok: true,
+						headers: { get: function() { return 'application/json'; } },
+						json: function() { return Promise.resolve({ ok: true }); },
+					});
+				};
+				await fetchHttp('/api/ping', { signal: ctl.signal, timeout: 0 });
+				assert(seenSignal === ctl.signal, 'expected fetch() to receive provided signal');
+			} finally {
+				globalThis.fetch = origFetch;
+			}
+		});
+
+		await test('bridges external signal when timeout is enabled', async () => {
+			const origFetch = globalThis.fetch;
+			const ctl = new AbortController();
+			let aborted = false;
+			try {
+				globalThis.fetch = function(url, opts) {
+					return new Promise(function(resolve, reject) {
+						opts.signal.addEventListener('abort', function() {
+							aborted = true;
+							reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+						});
+						setTimeout(function() {
+							resolve({
+								ok: true,
+								headers: { get: function() { return 'application/json'; } },
+								json: function() { return Promise.resolve({ ok: true }); },
+							});
+						}, 40);
+					});
+				};
+				const prom = fetchHttp('/api/ping', { signal: ctl.signal, timeout: 200 });
+				ctl.abort();
+				let threw = false;
+				await prom.catch(function(err) { threw = (err && err.name === 'AbortError'); });
+				assert(aborted);
+				assert(threw, 'expected AbortError when external signal aborts');
+			} finally {
+				globalThis.fetch = origFetch;
+			}
 		});
 
 	});

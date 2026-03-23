@@ -270,27 +270,31 @@ var load = function(path, type='') {
 	}
 	//is object?
 	if(isObject(path)) {
-		//set vars
-		var proms = [];
-		//loop through props
-		for(var i in path) {
-			//is nested?
-			if(isObject(path[i])) {
-				//load first group
-				return load(path[i]).then(function(res) {
-					//get group name
-					var group = i[0].toUpperCase() + i.slice(1);
-					//create event
-					var e = { modules: res, get: get };
-					//group loaded hook
-					_cb(_config['afterLoad' + group], [ e ]);
-					//delete property
-					delete path[i];
-					//load next
-					return load(path);
-				});
+		//find first grouped phase
+		var groupName = null;
+		for(var g in path) {
+			if(isObject(path[g])) {
+				groupName = g;
+				break;
 			}
-			//add to array
+		}
+		//load grouped phases sequentially
+		if(groupName) {
+			var groupPath = path[groupName];
+			return load(groupPath).then(function(res) {
+				//create event
+				var e = { modules: res, get: get };
+				//group loaded hook
+				_cb(_config['afterLoad' + groupName[0].toUpperCase() + groupName.slice(1)], [ e ]);
+				//delete property
+				delete path[groupName];
+				//load next
+				return load(path);
+			});
+		}
+		//load flat entries in parallel
+		var proms = [];
+		for(var i in path) {
 			proms.push(load(path[i]));
 		}
 		//wait for load — wrap each promise so a single failure can be

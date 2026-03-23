@@ -36,12 +36,11 @@
 		background: var(--splash-bg); color: var(--splash-color);
 	}
 
-	/* CUSTOMISE: replace 'my-app' with your root element tag */
-	my-app { display: block; width: 100%; height: 100%; }
+	pwa-app { display: block; width: 100%; height: 100%; }
 
 	html.pwa-native,
 	html.pwa-native body,
-	html.pwa-native my-app { overflow: hidden; }
+	html.pwa-native pwa-app { overflow: hidden; }
 
 	body { min-width: 320px; position: relative; }
 	html.pwa-native body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
@@ -102,8 +101,7 @@
 		</div>
 	</div>
 
-	<!-- CUSTOMISE: replace 'my-app' with your root element tag (must match above CSS + FSCONFIG.rootEl) -->
-	<my-app></my-app>
+	<pwa-app></pwa-app>
 
 	<script>
 	(function() {
@@ -117,11 +115,10 @@
 		// Set to your server URL when building for native: 'https://app.example.com'
 		var REMOTE_ORIGIN = '';
 
-		// Root custom element tag — must match the tag in your root layout component
-		// and the element in the HTML above.
-		var ROOT_EL = 'my-app';
+		// Stable app identifier used for persisted keys (must remain stable across releases).
+		var APP_ID = 'fstage-app';
 
-		// Splash / load screen style:
+			// Splash / load screen style:
 		//   'spinner'     — minimal spinner (default, works everywhere)
 		//   'logo'        — shows icons/icon-256.webp; good for installed PWA
 		//   'logo-native' — inline SVG logo (see LOGO_SVG below); required for Capacitor
@@ -152,17 +149,18 @@
 			return REMOTE_ORIGIN.replace(/\/$/, '') + '/' + path.replace(/^\//, '');
 		};
 
-		window.FSCONFIG = {
-			rootEl:     ROOT_EL,
-			loadScreen: isNative ? 'logo-native' : LOAD_SCREEN,
-			swPath:     'sw.js',
-			configPath: buildPath('js/config.mjs'),
-			scriptPath: buildPath(SCRIPT_PATH),
+			window.FSCONFIG = {
+				appId:      APP_ID,
+				rootEl:     'pwa-app',
+				loadScreen: isNative ? 'logo-native' : LOAD_SCREEN,
+				swPath:     'sw.js',
+				configPath: buildPath('js/config.mjs'),
+				scriptPath: buildPath(SCRIPT_PATH),
 		};
 
 		// ---- Feature detection ----------------------------------------------
 
-		var tests = {
+			var tests = {
 			es6:          function() { try { new Function('(a=0)=>a'); return true; } catch(e) { return false; } },
 			ls:           function() { try { localStorage.setItem(1,1); localStorage.removeItem(1); return true; } catch(e) { return false; } },
 			swCan:        function() { return !!navigator.serviceWorker; },
@@ -274,6 +272,7 @@
 				}
 			};
 
+			var versionKey = (window.FSCONFIG.appId || 'fstage-app') + '.appVersion';
 			var timer = setTimeout(function() { finish(false); }, 3000);
 
 			fetch(buildPath('version.json'), { headers: { 'X-Fetch': 'true' }, cache: 'no-store' })
@@ -281,9 +280,9 @@
 				.then(function(data) {
 					clearTimeout(timer);
 					if (!data || !data.version) return finish(false);
-					var stored  = localStorage.getItem('appVersion');
-					var current = String(data.version);
-					localStorage.setItem('appVersion', current);
+						var stored  = localStorage.getItem(versionKey);
+						var current = String(data.version);
+						localStorage.setItem(versionKey, current);
 					finish(stored !== null && stored !== current);
 				})
 				.catch(function() { clearTimeout(timer); finish(false); });
