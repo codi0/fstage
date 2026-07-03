@@ -6,14 +6,14 @@
 
 ## Usage
 
-Load `@fstage/stack` in the `preload` phase so it is available via `e.get()` in all subsequent hooks — no import statements needed in `config.mjs`:
+Load `@fstage/stack` in the `preload` phase so it is available via `e.modules.get()` in all subsequent hooks — no import statements needed in `config.mjs`:
 
 ```js
 loadAssets: {
   preload: [
     '@fstage/env',
     '@fstage/registry',
-    '@fstage/stack',       // ← load early so e.get('stack.*') works in all hooks
+    '@fstage/stack',       // ← load early so e.modules.get('stack.*') works in all hooks
   ],
   libs: [
     'lit',
@@ -35,9 +35,9 @@ loadAssets: {
 Then call the three helpers from the matching phase hooks:
 
 ```js
-afterLoadPreload(e) { e.get('stack.wirePreload', [ e ]); },
-afterLoadLibs(e)    { e.get('stack.wireStack',   [ e ]); },
-afterLoadApp(e)     { e.get('stack.startStack',  [ e ]); },
+afterLoadPreload(e) { e.modules.get('stack.wirePreload', [ e ]); },
+afterLoadLibs(e)    { e.modules.get('stack.wireStack',   [ e ]); },
+afterLoadApp(e)     { e.modules.get('stack.startStack',  [ e ]); },
 ```
 
 That's the entire wiring for a standard app. Configuration is driven by the keys already present in your `config.mjs` — no duplication needed.
@@ -57,6 +57,9 @@ That's the entire wiring for a standard app. Configuration is driven by the keys
 | `policy` | `wireStack` | App policy — plain object or `(facts, config) => object` |
 | `router` | `wireStack` | Passed to `createBrowserHistory` + `createRouter` |
 | `storage` | `wireStack` | Passed to `createStorage` + `createSyncManager` |
+| `push` | `wireStack` | Passed to `push.createPush(config.push)` when `@fstage/push` is loaded |
+| `network` | `wireStack` | Passed to `native.createNativeNetworkAdapter(config.network)` when available |
+| `secrets` | `wireStack` | Passed to `native.createNativeSecretsAdapter(config.secrets)` when available |
 | `api` | `wireStack` | Used to seed the mock remote handler (single-namespace apps) |
 | `rootEl` | `startStack` | CSS selector for the screen host + router root element |
 
@@ -68,7 +71,7 @@ Detects the runtime environment and registers `'env'` in the default registry. C
 
 ```js
 afterLoadPreload(e) {
-  e.get('stack.wirePreload', [ e ]);
+  e.modules.get('stack.wirePreload', [ e ]);
 },
 ```
 
@@ -87,7 +90,7 @@ Instantiates and registers all standard services. Call from `afterLoadLibs`.
 
 ```js
 afterLoadLibs(e) {
-  e.get('stack.wireStack', [ e ]);
+  e.modules.get('stack.wireStack', [ e ]);
 },
 ```
 
@@ -101,8 +104,8 @@ afterLoadLibs(e) {
 | `storage` | `config.storage` | Storage options `{ name, schemas }`. Pass `false` to skip |
 | `remoteHandler` | auto | Pre-built remote handler. Omit to use auto-mock when `debug && mockRemote` |
 | `policy` | `config.policy` | App policy object or factory function |
-| `ctx` | `e.get('lit')` | Render helpers `{ html, css, svg }` |
-| `baseClass` | `e.get('lit.LitElement')` | Component base class |
+| `ctx` | `e.modules.get('lit')` | Render helpers `{ html, css, svg }` |
+| `baseClass` | `e.modules.get('lit.LitElement')` | Component base class |
 | `services` | `{}` | Per-service overrides — see below |
 
 ### Overriding individual services
@@ -111,7 +114,7 @@ Pass `false` to skip a service, or a factory function `() => instance` to replac
 
 ```js
 afterLoadLibs(e) {
-  e.get('stack.wireStack', [ e, {
+  e.modules.get('stack.wireStack', [ e, {
     services: {
       // skip the default sync wiring — provide your own
       sync: false,
@@ -126,7 +129,8 @@ afterLoadLibs(e) {
 ```
 
 Recognised service keys: `store`, `storage`, `sync`, `formManager`, `animator`,
-`screenHost`, `transitions`, `gestureManager`, `interactionsManager`, `componentRuntime`.
+`screenHost`, `transitions`, `gestureManager`, `interactionsManager`, `componentRuntime`,
+`native`, `push`, `network`, `secrets`.
 
 ### Auto-defining components
 
@@ -157,7 +161,7 @@ and the router→transitions→store pipeline. Call from `afterLoadApp`.
 
 ```js
 afterLoadApp(e) {
-  e.get('stack.startStack', [ e ]);
+  e.modules.get('stack.startStack', [ e ]);
 },
 ```
 
@@ -178,7 +182,7 @@ the others:
 
 ```js
 afterLoadApp(e) {
-  e.get('stack.startStack', [ e, {
+  e.modules.get('stack.startStack', [ e, {
     rootEl: 'pwa-main',
     edgePan: {
       // extend the default shouldStart guard
@@ -201,7 +205,7 @@ All wired services are available via the registry:
 
 ```js
 window.addEventListener('fstage.ready', function() {
-  var registry = fstage.get('registry.defaultRegistry', []);
+  var registry = fstage.modules.get('registry.defaultRegistry', []);
   var store    = registry.get('store');
   var router   = registry.get('router');
 });
@@ -264,9 +268,9 @@ export default {
     },
   },
 
-  afterLoadPreload(e) { e.get('stack.wirePreload', [ e ]); },
-  afterLoadLibs(e)    { e.get('stack.wireStack',   [ e ]); },
-  afterLoadApp(e)     { e.get('stack.startStack',  [ e ]); },
+  afterLoadPreload(e) { e.modules.get('stack.wirePreload', [ e ]); },
+  afterLoadLibs(e)    { e.modules.get('stack.wireStack',   [ e ]); },
+  afterLoadApp(e)     { e.modules.get('stack.startStack',  [ e ]); },
 };
 ```
 

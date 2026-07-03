@@ -2,7 +2,7 @@
 
 Five reusable, unstyled, accessible UI components. All use CSS custom properties for theming with sensible fallbacks — no stylesheet is required beyond the custom properties your app already defines.
 
-Components auto-register with the component runtime when loaded through `fstage.load()`. Load them individually or all at once:
+Components auto-register with the component runtime when loaded through `fstage.modules.load()` or declaratively via `loadAssets`. Load them individually or all at once:
 
 ```js
 // Individual — only loads what you use

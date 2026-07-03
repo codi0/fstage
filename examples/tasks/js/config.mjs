@@ -30,6 +30,7 @@ export default {
 			'@fstage/store',
 			'@fstage/sync',
 			'@fstage/history',
+			'@fstage/native',
 			'@fstage/router',
 			'@fstage/animator',
 			'@fstage/gestures',
@@ -112,11 +113,11 @@ export default {
 	},
 
 	afterLoadPreload: function(e) {
-		e.get('stack.wirePreload', [ e ]);
+		e.modules.get('stack.wirePreload', [ e ]);
 	},
 
 	afterLoadLibs: function(e) {
-		e.get('stack.wireStack', [ e ]);
+		e.modules.get('stack.wireStack', [ e ]);
 	},
 
 	afterLoadApp: function(e) {
@@ -131,7 +132,7 @@ export default {
 				}
 			}
 		};
-		e.get('stack.startStack', [ e, opts ]);
+		e.modules.get('stack.startStack', [ e, opts ]);
 	}
 
 };

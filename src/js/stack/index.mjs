@@ -6,7 +6,7 @@
  * explicit-wiring path available for apps that need it.
  *
  * Because @fstage/stack loads in the `preload` phase, its exports are
- * available via `e.get()` in all subsequent hooks — no imports needed in
+ * available via `e.modules.get()` in all subsequent hooks — no imports needed in
  * config.mjs:
  *
  *   loadAssets: {
@@ -24,12 +24,12 @@
  *   },
  *   storage: { name: 'myapp', schemas: { items: { keyPath: 'id' } } },
  *
- *   afterLoadPreload(e) { e.get('stack.wirePreload', [ e ]); },
- *   afterLoadLibs(e)    { e.get('stack.wireStack',   [ e ]); },
- *   afterLoadApp(e)     { e.get('stack.startStack',  [ e ]); },
+ *   afterLoadPreload(e) { e.modules.get('stack.wirePreload', [ e ]); },
+ *   afterLoadLibs(e)    { e.modules.get('stack.wireStack',   [ e ]); },
+ *   afterLoadApp(e)     { e.modules.get('stack.startStack',  [ e ]); },
  *
  * All services are accessible after wiring via:
- *   fstage.get('registry.defaultRegistry', []).get('store')
+ *   fstage.modules.get('registry.defaultRegistry', []).get('store')
  *
  * @module @fstage/stack
  */
@@ -46,7 +46,7 @@
  * Registers `'env'` in the default registry. Safe to skip if your app wires
  * env manually.
  *
- * @param {Object} e       - Hook event object (provides `e.get`).
+ * @param {Object} e       - Hook event object (provides `e.modules` and `e.configs`).
  * @param {Object} [opts]
  * @param {string}  [opts.preset] - Force an OS preset for env detection
  *   (`'ios'`, `'android'`, `'windows'`, `'mac'`). Useful for dev testing.
@@ -59,8 +59,8 @@
 export function wirePreload(e, opts) {
 	opts = opts || {};
 
-	var registry = e.get('registry.defaultRegistry', []);
-	var debug    = opts.debug !== undefined ? opts.debug : e.get('config.debug');
+	var registry = e.modules.get('registry.defaultRegistry', []);
+	var debug    = opts.debug !== undefined ? opts.debug : !!e.configs.root().debug;
 
 	var preset = opts.preset || null;
 	if (!preset && debug) {
@@ -69,7 +69,7 @@ export function wirePreload(e, opts) {
 		} catch (_) {}
 	}
 
-	var env = e.get('env.getEnv', [{ preset: preset || undefined }]);
+	var env = e.modules.get('env.getEnv', [{ preset: preset || undefined }]);
 	registry.set('env', env);
 
 	return registry;
@@ -102,16 +102,16 @@ export function wirePreload(e, opts) {
  *
  * @property {Object|null}   [ctx]       - Render helpers for the component runtime
  *   (e.g. `{ html, css, svg }` from lit-html). When omitted the stack attempts
- *   `e.get('lit')` automatically.
+ *   `e.modules.get('lit')` automatically.
  * @property {Function|null} [baseClass] - Component base class (e.g. LitElement).
- *   Defaults to `e.get('lit.LitElement')`.
+ *   Defaults to `e.modules.get('lit.LitElement')`.
  *
  * @property {Object} [services]         - Per-service overrides. Each key matches
  *   a registry name; the value is either `false` (skip) or a factory function
  *   `() => instance` that replaces the built-in wiring.
  *   Recognised keys: `store`, `sync`, `storage`, `animator`, `screenHost`,
  *   `transitions`, `gestureManager`, `interactionsManager`, `componentRuntime`,
- *   `formManager`.
+ *   `formManager`, `native`, `push`, `network`, `secrets`.
  */
 
 /**
@@ -128,8 +128,8 @@ export function wirePreload(e, opts) {
 export function wireStack(e, opts) {
 	opts = opts || {};
 
-	var config   = e.get('config') || {};
-	var registry = e.get('registry.defaultRegistry', []);
+	var config   = e.configs.root() || {};
+	var registry = e.modules.get('registry.defaultRegistry', []);
 
 	// -------------------------------------------------------------------------
 	// Resolved options — config values are the defaults, opts values win
@@ -174,21 +174,21 @@ export function wireStack(e, opts) {
 	// Render context (lit or custom)
 	// -------------------------------------------------------------------------
 
-	var lit       = opts.ctx       || e.get('lit')          || {};
-	var baseClass = opts.baseClass || e.get('lit.LitElement') || null;
+	var lit       = opts.ctx       || e.modules.get('lit')          || {};
+	var baseClass = opts.baseClass || e.modules.get('lit.LitElement') || null;
 
 	// -------------------------------------------------------------------------
 	// Core reactive services
 	// -------------------------------------------------------------------------
 
 	var store = _service(services, 'store', function() {
-		return e.get('store.createStore', []);
+		return e.modules.get('store.createStore', []);
 	});
 
-	var models = e.get('registry.createRegistry', []);
+	var models = e.modules.get('registry.createRegistry', []);
 
 	var formManager = _service(services, 'formManager', function() {
-		return e.get('form.createFormManager', []);
+		return e.modules.get('form.createFormManager', []);
 	});
 
 	// -------------------------------------------------------------------------
@@ -200,7 +200,7 @@ export function wireStack(e, opts) {
 
 	if (storageConf !== false) {
 		storage = _service(services, 'storage', function() {
-			return e.get('sync.createStorage', [ storageConf || {} ]);
+			return e.modules.get('sync.createStorage', [ storageConf || {} ]);
 		});
 
 		var remoteHandler = opts.remoteHandler !== undefined
@@ -208,7 +208,7 @@ export function wireStack(e, opts) {
 			: _buildMockRemote(e, config, debug, storageConf);
 
 		syncManager = _service(services, 'sync', function() {
-			return e.get('sync.createSyncManager', [{
+			return e.modules.get('sync.createSyncManager', [{
 				localHandler:  storage,
 				remoteHandler: remoteHandler || undefined,
 			}]);
@@ -223,8 +223,8 @@ export function wireStack(e, opts) {
 
 	if (routerConf !== false) {
 		var historyOpts    = Object.assign({}, routerConf);
-		historyOpts.history = e.get('history.createBrowserHistory', [ routerConf ]);
-		router = e.get('router.createRouter', [ historyOpts ]);
+		historyOpts.history = e.modules.get('history.createBrowserHistory', [ routerConf ]);
+		router = e.modules.get('router.createRouter', [ historyOpts ]);
 	}
 
 	// -------------------------------------------------------------------------
@@ -232,15 +232,15 @@ export function wireStack(e, opts) {
 	// -------------------------------------------------------------------------
 
 	var animator = _service(services, 'animator', function() {
-		return e.get('animator.createAnimator', [{ motion: policy.motion }]);
+		return e.modules.get('animator.createAnimator', [{ motion: policy.motion }]);
 	});
 
 	var screenHost = _service(services, 'screenHost', function() {
-		return e.get('transitions.createScreenHost', [{ name: name }]);
+		return e.modules.get('transitions.createScreenHost', [{ name: name }]);
 	});
 
 	var transitions = _service(services, 'transitions', function() {
-		return e.get('transitions.createTransitionEngine', [{ animator: animator, screenHost: screenHost }]);
+		return e.modules.get('transitions.createTransitionEngine', [{ animator: animator, screenHost: screenHost }]);
 	});
 
 	// -------------------------------------------------------------------------
@@ -248,18 +248,48 @@ export function wireStack(e, opts) {
 	// -------------------------------------------------------------------------
 
 	var gestureManager = _service(services, 'gestureManager', function() {
-		return e.get('gestures.createGestureManager', [{ policy: policy.gestures }]);
+		return e.modules.get('gestures.createGestureManager', [{ policy: policy.gestures }]);
 	});
 
 	var interactionsManager = _service(services, 'interactionsManager', function() {
-		return e.get('interactions.createInteractionsManager', []);
+		return e.modules.get('interactions.createInteractionsManager', []);
+	});
+
+	// Optional native bridge (Capacitor): lifecycle, backButton, keyboard.
+	var native = _service(services, 'native', function() {
+		var createNativeBridge = e.modules.get('native.createNativeBridge');
+		if (!createNativeBridge) return null;
+		return createNativeBridge({
+			backButtonFallback: false
+		});
+	});
+
+	// Optional unified push facade (native/web adapters).
+	var push = _service(services, 'push', function() {
+		var createPush = e.modules.get('push.createPush');
+		if (!createPush || config.push === false) return null;
+		return createPush(config.push || {});
+	});
+
+	// Optional native network adapter.
+	var network = _service(services, 'network', function() {
+		var createNativeNetworkAdapter = e.modules.get('native.createNativeNetworkAdapter');
+		if (!createNativeNetworkAdapter || config.network === false) return null;
+		return createNativeNetworkAdapter(config.network || {});
+	});
+
+	// Optional native secrets adapter.
+	var secrets = _service(services, 'secrets', function() {
+		var createNativeSecretsAdapter = e.modules.get('native.createNativeSecretsAdapter');
+		if (!createNativeSecretsAdapter || config.secrets === false) return null;
+		return createNativeSecretsAdapter(config.secrets || {});
 	});
 
 	// Wire interaction extensions — guarded so skipped services don't throw
 	if (interactionsManager) {
-		var gestureInteraction    = gestureManager    ? e.get('gestures.gestureInteraction')         : null;
-		var screenHostInteraction = screenHost        ? e.get('transitions.screenHostInteraction')   : null;
-		var accompanyInteraction  = screenHost        ? e.get('transitions.accompanyInteraction')    : null;
+		var gestureInteraction    = gestureManager    ? e.modules.get('gestures.gestureInteraction')         : null;
+		var screenHostInteraction = screenHost        ? e.modules.get('transitions.screenHostInteraction')   : null;
+		var accompanyInteraction  = screenHost        ? e.modules.get('transitions.accompanyInteraction')    : null;
 
 		if (gestureInteraction)    interactionsManager.extend('gesture',    gestureInteraction(gestureManager));
 		if (screenHostInteraction) interactionsManager.extend('screen',     screenHostInteraction(screenHost));
@@ -271,7 +301,7 @@ export function wireStack(e, opts) {
 	// -------------------------------------------------------------------------
 
 	var componentRuntime = _service(services, 'componentRuntime', function() {
-		return e.get('component.createRuntime', [{
+		return e.modules.get('component.createRuntime', [{
 			store:               store,
 			config:              fullConfig,
 			registry:            registry,
@@ -303,6 +333,10 @@ export function wireStack(e, opts) {
 	if (storage)     registry.set('storage',     storage);
 	if (syncManager) registry.set('syncManager', syncManager);
 	if (router)      registry.set('router',      router);
+	if (native)      registry.set('native',      native);
+	if (push)        registry.set('push',        push);
+	if (network)     registry.set('network',     network);
+	if (secrets)     registry.set('secrets',     secrets);
 
 	// -------------------------------------------------------------------------
 	// Auto-define components loaded after this point
@@ -335,7 +369,6 @@ export function wireStack(e, opts) {
 			if (registry.get('syncManager')) devtools.connectSync(registry.get('syncManager'));
 			if (registry.get('storage'))     devtools.connectStorage(registry.get('storage'));
 			registry.set('devtools', devtools);
-			if (globalThis.fstage) globalThis.fstage.devtools = devtools;
 			mods[1].mountDevtoolsPanel(devtools, { position: 'bottom' });
 		}).catch(function() {});
 	}
@@ -387,7 +420,8 @@ export function wireStack(e, opts) {
 export function startStack(e, opts) {
 	opts = opts || {};
 
-	var registry        = e.get('registry.defaultRegistry', []);
+	var registry        = e.modules.get('registry.defaultRegistry', []);
+	var prevCleanup     = registry.has('stackCleanup') ? registry.get('stackCleanup') : null;
 	var config          = registry.get('config') || {};
 	var store           = registry.get('store');
 	var router          = registry.get('router');
@@ -395,6 +429,13 @@ export function startStack(e, opts) {
 	var transitions     = registry.get('transitions');
 	var gestureManager  = registry.get('gestureManager');
 	var models          = registry.get('models');
+	var native          = registry.get('native');
+	var cleanups        = [];
+
+	// Restart-safe: tear down previous startStack subscriptions first.
+	if (typeof prevCleanup === 'function') {
+		try { prevCleanup(); } catch (err) {}
+	}
 
 	// -------------------------------------------------------------------------
 	// Resolve root elements
@@ -467,6 +508,57 @@ export function startStack(e, opts) {
 	}
 
 	// -------------------------------------------------------------------------
+	// Native bridge events
+	// -------------------------------------------------------------------------
+
+	if (native && typeof native.on === 'function') {
+		// Keep native snapshot in store for components.
+		if (store && typeof native.getState === 'function') {
+			var ns = native.getState();
+			store.$set('native.lifecycle', ns.lifecycle || {});
+			store.$set('native.keyboard',  ns.keyboard  || {});
+		}
+
+		var offLifecycle = native.on('lifecycle.change', function(e) {
+			if (store) store.$set('native.lifecycle', e || {});
+		});
+		if (typeof offLifecycle === 'function') cleanups.push(offLifecycle);
+
+		var offKeyboard = native.on('keyboard.change', function(e) {
+			if (store) store.$set('native.keyboard', e || {});
+		});
+		if (typeof offKeyboard === 'function') cleanups.push(offKeyboard);
+
+		// Default native back button behavior: navigate back when possible.
+		var offBackButton = native.on('backButton', function() {
+			var backPolicy = (
+				config.policy &&
+				config.policy.native &&
+				config.policy.native.back
+			) || {};
+
+			if (!router) return false;
+			var prev = router.peek(-1);
+
+			// At root: policy decides whether to consume or exit app.
+			if (!prev) {
+				if (backPolicy.atRoot === 'consume') return true;
+				if (backPolicy.atRoot === 'exit') {
+					var cap = globalThis.Capacitor;
+					var app = cap && cap.Plugins && cap.Plugins.App;
+					if (app && typeof app.exitApp === 'function') app.exitApp();
+					return true;
+				}
+				return false;
+			}
+
+			router.go(-1, { native: true });
+			return true;
+		});
+		if (typeof offBackButton === 'function') cleanups.push(offBackButton);
+	}
+
+	// -------------------------------------------------------------------------
 	// Router → transitions + store
 	// -------------------------------------------------------------------------
 
@@ -501,6 +593,13 @@ export function startStack(e, opts) {
 	if (gestureManager && appEl) gestureManager.start(appEl);
 	if (screenHost && rootEl)    screenHost.start(rootEl);
 	if (router && rootEl)        router.start(rootEl);
+
+	registry.set('stackCleanup', function() {
+		while (cleanups.length) {
+			var off = cleanups.pop();
+			try { off(); } catch (err) {}
+		}
+	});
 
 	return registry;
 }
@@ -544,8 +643,8 @@ function _service(services, key, builtIn) {
 function _buildMockRemote(e, config, debug, storageConf) {
 	if (!debug || !config.mockRemote) return null;
 
-	var createHandler  = e.get('sync.createHandler');
-	var createStorage2 = e.get('sync.createStorage');
+	var createHandler  = e.modules.get('sync.createHandler');
+	var createStorage2 = e.modules.get('sync.createStorage');
 
 	if (!createHandler || !createStorage2) return null;
 

@@ -2,6 +2,18 @@
 
 ---
 
+## Native contracts
+
+Native bridge contracts (Capacitor adapters) live in:
+
+- `docs/contracts/native-lifecycle.md`
+- `docs/contracts/native-back.md`
+- `docs/contracts/native-keyboard.md`
+- `docs/contracts/native-deeplink.md`
+- `docs/contracts/native-statusbar.md`
+
+---
+
 ## env
 
 `@fstage/env` detects the runtime environment and provides a layered policy system for platform-adaptive behaviour.

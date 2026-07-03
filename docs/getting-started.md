@@ -45,7 +45,7 @@ export default {
   },
 
   afterLoadApp: function(e) {
-    var store = e.get('store.createStore', []);
+    var store = e.modules.get('store.createStore', []);
 
     store.$set('count', 0);
 
@@ -107,7 +107,7 @@ export default {
 };
 ```
 
-All config data is accessible to hooks via `e.get('config')`.
+All root config data is accessible to hooks via `e.configs.root()`.
 
 ## 3. Load phases
 
@@ -152,12 +152,12 @@ Phase names are arbitrary — add as many as needed.
 
 ## 4. Wiring services with @fstage/stack
 
-For a standard app, `@fstage/stack` provides three helpers that replace the manual wiring entirely. Because `@fstage/stack` loads in `preload`, its exports are available via `e.get()` in all later hooks — no import statements needed in `config.mjs`:
+For a standard app, `@fstage/stack` provides three helpers that replace the manual wiring entirely. Because `@fstage/stack` loads in `preload`, its exports are available via `e.modules.get()` in all later hooks — no import statements needed in `config.mjs`:
 
 ```js
-afterLoadPreload(e) { e.get('stack.wirePreload', [ e ]); },
-afterLoadLibs(e)    { e.get('stack.wireStack',   [ e ]); },
-afterLoadApp(e)     { e.get('stack.startStack',  [ e ]); },
+afterLoadPreload(e) { e.modules.get('stack.wirePreload', [ e ]); },
+afterLoadLibs(e)    { e.modules.get('stack.wireStack',   [ e ]); },
+afterLoadApp(e)     { e.modules.get('stack.startStack',  [ e ]); },
 ```
 
 Services are configured via top-level keys in `config.mjs` that `wireStack` reads automatically:
@@ -188,16 +188,20 @@ After each phase, a matching `afterLoad<PhaseName>` hook fires (if defined). The
 
 A generic `afterLoad` hook fires after every individual file load.
 
-## 6. The e.get() helper
+## 6. Hook helpers: `e.modules` and `e.configs`
 
-`e.get(path, args?)` walks a dot-path across loaded modules and config:
+Hooks now receive two namespaces:
+
+- `e.modules.get(path, args?)` walks a dot-path across loaded module exports and can invoke functions.
+- `e.configs.root()` returns the merged root config object.
+- `e.configs.all()` returns every registered config participating in hook dispatch.
 
 ```js
-e.get('config')                        // full config object
-e.get('config.debug')                  // config.debug value
-e.get('store.createStore', [])         // calls createStore(), returns result
-e.get('registry.defaultRegistry', []) // calls defaultRegistry(), returns result
-e.get('stack.wireStack', [ e ])        // calls wireStack(e), returns registry
+e.configs.root()                         // full root config object
+e.configs.root().debug                   // root config value
+e.modules.get('store.createStore', [])   // calls createStore(), returns result
+e.modules.get('registry.defaultRegistry', []) // calls defaultRegistry(), returns result
+e.modules.get('stack.wireStack', [ e ])  // calls wireStack(e), returns registry
 ```
 
 When `args` is an array the resolved function is called with those arguments — letting you instantiate services without any direct imports in config.
@@ -208,25 +212,25 @@ For apps that need full control, services can be wired explicitly without `@fsta
 
 ```js
 afterLoadPreload: function(e) {
-  var registry = e.get('registry.defaultRegistry', []);
-  var env      = e.get('env.getEnv', [{}]);
+  var registry = e.modules.get('registry.defaultRegistry', []);
+  var env      = e.modules.get('env.getEnv', [{}]);
   registry.set('env', env);
 },
 
 afterLoadLibs: function(e) {
-  var registry = e.get('registry.defaultRegistry', []);
-  var config   = e.get('config');
+  var registry = e.modules.get('registry.defaultRegistry', []);
+  var config   = e.configs.root();
 
-  var store   = e.get('store.createStore', []);
-  var storage = e.get('sync.createStorage', [{ name: 'myapp', schemas: { items: { keyPath: 'id' } } }]);
-  var sync    = e.get('sync.createSyncManager', [{ localHandler: storage }]);
+  var store   = e.modules.get('store.createStore', []);
+  var storage = e.modules.get('sync.createStorage', [{ name: 'myapp', schemas: { items: { keyPath: 'id' } } }]);
+  var sync    = e.modules.get('sync.createSyncManager', [{ localHandler: storage }]);
 
-  var routerOpts     = Object.assign({}, e.get('config.router'));
-  routerOpts.history = e.get('history.createBrowserHistory', [routerOpts]);
-  var router         = e.get('router.createRouter', [routerOpts]);
+  var routerOpts     = Object.assign({}, e.configs.root().router);
+  routerOpts.history = e.modules.get('history.createBrowserHistory', [routerOpts]);
+  var router         = e.modules.get('router.createRouter', [routerOpts]);
 
-  var lit = e.get('lit');
-  var componentRuntime = e.get('component.createRuntime', [{
+  var lit = e.modules.get('lit');
+  var componentRuntime = e.modules.get('component.createRuntime', [{
     store, config, registry,
     baseClass: lit.LitElement,
     ctx: { html: lit.html, css: lit.css, svg: lit.svg },
@@ -239,7 +243,7 @@ afterLoadLibs: function(e) {
 },
 
 afterLoadApp: function(e) {
-  var registry = e.get('registry.defaultRegistry', []);
+  var registry = e.modules.get('registry.defaultRegistry', []);
   registry.get('router').start(document.querySelector('my-app'));
   registry.seal();
 },
@@ -255,7 +259,7 @@ afterLoadApp: function(e) {
 | `swPath` | Path to a service worker to register before loading |
 | `rootEl` | CSS selector for the app's root element |
 | `loadScreen` | Splash style: `'spinner'` \| `'logo'` \| `'text'` |
-| `onLoadError(e)` | Called when an asset fails to load. `e`: `{ error, path, get }`. Return `false` to abort boot; return anything else to skip the asset and continue. Useful for making non-critical assets (e.g. devtools, analytics) survivable. |
+| `onLoadError(e)` | Called when an asset fails to load. `e`: `{ error, path, modules, configs }`. Return `false` to abort boot; return anything else to skip the asset and continue. Useful for making non-critical assets (e.g. devtools, analytics) survivable. |
 
 See [`examples/starter/index.html`](../examples/starter/index.html) for a complete HTML shell covering splash screen, service worker lifecycle, online/offline handling, and unsupported browser detection. The `CUSTOMISE` block at the top is the only section that needs changing per app.
 

@@ -94,7 +94,7 @@ import { debounce } from '../utils/index.mjs';
  *
  * Usage in config:
  * ```js
- * var formManager = e.get('form.createFormManager', []);
+ * var formManager = e.modules.get('form.createFormManager', []);
  * ```
  *
  * @returns {{ create(def: Object, ctx: Object): Object }}

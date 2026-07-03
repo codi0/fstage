@@ -32,7 +32,7 @@
 	<h1>fstage test suite</h1>
 
 	<div class="modules">
-		<button class="run-all" data-run="all">▶ Run all</button>
+		<button class="run-all" data-run="all">Run all</button>
 		<button data-run="env">env</button>
 		<button data-run="history">history</button>
 		<button data-run="interactions">interactions</button>
@@ -45,9 +45,13 @@
 		<button data-run="registry">registry</button>
 		<button data-run="http">http</button>
 		<button data-run="router">router</button>
+		<button data-run="stack">stack</button>
+		<button data-run="ssr">ssr</button>
 		<button data-run="component">component</button>
-		<button data-run="webpush">webpush</button>
+		<button data-run="plugin">plugin</button>
+		<button data-run="push">push</button>
 		<button data-run="websocket">websocket</button>
+		<button data-run="native">native</button>
 		<button data-run="clear">clear</button>
 		<button data-run="verbose" id="btn-verbose">verbose: off</button>
 	</div>
@@ -68,11 +72,15 @@
 		import { runTests as registry } from '../src/js/registry/tests/tests.mjs';
 		import { runTests as http     } from '../src/js/http/tests/tests.mjs';
 		import { runTests as router    } from '../src/js/router/tests/tests.mjs';
+		import { runTests as stack     } from '../src/js/stack/tests/tests.mjs';
+		import { runTests as ssr       } from '../src/js/ssr/tests/tests.mjs';
 		import { runTests as component } from '../src/js/component/tests/tests.mjs';
-		import { runTests as webpush   } from '../src/js/webpush/tests/tests.mjs';
+		import { runTests as plugin    } from '../src/js/plugin/tests/tests.mjs';
+		import { runTests as push      } from '../src/js/push/tests/tests.mjs';
 		import { runTests as websocket } from '../src/js/websocket/tests/tests.mjs';
+		import { runTests as native    } from '../src/js/native/tests/tests.mjs';
 
-		const MODULES = { env, history, interactions, form, store, storage, sync, devtools, utils, registry, http, router, component, webpush, websocket };
+		const MODULES = { env, history, interactions, form, store, storage, sync, devtools, utils, registry, http, router, stack, component, plugin, push, websocket, native, ssr };
 
 		let verbose = false;
 		window.FSTAGE_TESTS_VERBOSE = false;

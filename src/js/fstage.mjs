@@ -1,484 +1,556 @@
 /**
- * @fstage/fstage
+ * @fstage
  *
  * Zero-build module loader and registry — the entry point for fstage.
  *
- * Bootstraps the fstage module system:
- *   1. Reads optional config from `window.FSCONFIG`.
- *   2. Injects an import-map for all built-in fstage modules (`@fstage/<n>`).
- *   3. Loads `config.configPath` (if set) and merges it into the active config.
- *   4. Loads `config.loadAssets` and fires `fstage.ready` when complete.
+ * Boot process:
+ * 1. Creates the root config from `globalThis.FSCONFIG`.
+ * 2. Registers the root config in the config registry.
+ * 3. Injects an import map for built-in fstage modules and any root import-map entries.
+ * 4. Loads `configs.root().configPath` (if set) and merges its default export into the root config.
+ * 5. Loads `configs.root().loadAssets` and dispatches `fstage.ready` on success.
+ * 6. Dispatches `fstage.failed` if boot fails.
  *
  * Public API (also available on `globalThis.fstage`):
- *   - `get(path, args?)` — retrieve or invoke an export from the module registry.
- *   - `load(path, type?)` — dynamically load modules or assets.
- *
- * Config (`window.FSCONFIG` or a loaded config module's default export):
- *   - `configPath`   — path to a config module (default: `''`, skipped if empty).
- *   - `scriptDir`    — base directory for fstage module resolution.
- *   - `baseDir`      — base directory for relative asset paths.
- *   - `importMap`    — additional import-map entries merged into the auto-generated map.
- *   - `loadAssets`   — assets/modules to load during boot (same format as `load()`).
- *   - `beforeLoad(e)` — hook called before each asset load; mutate `e.path` to redirect.
- *   - `afterLoad(e)`  — hook called after each successful module load.
- *   - `afterLoad<Group>(e)` — called after each named boot-phase group finishes.
- *   - `onLoadError(e)` — called when an asset in a parallel group fails to load.
- *     `e`: `{ error, path, get }`. Return `false` (or throw) to abort boot;
- *     return anything else to skip the failed asset and continue loading.
- *
- * Events dispatched on `globalThis`:
- *   - `fstage.ready`  — all boot assets loaded successfully.
- *   - `fstage.failed` — an error occurred during boot (detail includes `error`).
+ * - `modules.map(paths)`
+ * - `modules.get(path, args?)`
+ * - `modules.load(path, type?)`
+ * - `configs.root()`
+ * - `configs.all()`
+ * - `configs.add(filePath, cfg)`
+ * - `configs.remove(cfg)`
  */
 
-//config vars
+var _exports = {};
+var _configs = {};
+var _rootConfig = {};
+
 var _name = 'fstage';
 var _confName = 'FSCONFIG';
-var _modules = [ 'animator', 'component', 'devtools', 'env', 'form', 'gestures', 'history', 'http', 'interactions', 'registry', 'router', 'ssr', 'stack', 'storage', 'store', 'sync', 'transitions', 'ui', 'utils', 'webpush', 'websocket' ];
-
-//misc vars
-var _global = {};
-var _config = {};
-var _exports = {};
 var _uri = import.meta.url;
-var _swUpdate = localStorage.getItem('swUpdate') == 1;
 
-//detect nonce
+var _coreModules = [
+	'animator', 'component', 'devtools', 'env', 'form', 'gestures', 'history', 'http',
+	'interactions', 'native', 'plugin', 'push', 'registry', 'router', 'ssr', 'stack',
+	'storage', 'store', 'sync', 'transitions', 'ui', 'utils', 'websocket'
+];
+
+/**
+ * Content-Security-Policy nonce copied onto injected tags when present.
+ *
+ * @type {string}
+ */
 var _nonce = (function() {
 	var el = document.querySelector('script[nonce], style[nonce]');
 	return el ? el.getAttribute('nonce') : '';
 })();
 
-//invoke callback helper
-var _cb = function(fn, args, ctx) {
+/**
+ * Invoke a callback if present.
+ *
+ * @param {Function|null|undefined} fn Callback to invoke.
+ * @param {Array<*>} [args=[]] Arguments passed to the callback.
+ * @param {*} [ctx=null] Optional `this` context.
+ * @returns {*} The callback result, or `null` when `fn` is falsy.
+ */
+var _call = function(fn, args, ctx) {
 	return fn ? fn.apply(ctx || null, args || []) : null;
 };
 
-//invoke custom event
-var _event = function(action, detail = {}) {
-	if (detail.error) console.error(detail.error);
-	globalThis.dispatchEvent(new CustomEvent(_name + '.' + action, { detail }));
+/**
+ * Invoke a callback and normalize the result to a promise.
+ *
+ * @param {Function|null|undefined} fn Callback to invoke.
+ * @param {Array<*>} [args=[]] Arguments passed to the callback.
+ * @param {*} [ctx=null] Optional `this` context.
+ * @returns {Promise<*>} Promise resolved with the callback result.
+ */
+var _callAsync = function(fn, args, ctx) {
+	try {
+		return Promise.resolve(_call(fn, args, ctx));
+	} catch(error) {
+		return Promise.reject(error);
+	}
 };
 
-//format path helper
-var _formatPath = function(path, removeFile=false) {
-	//remove hash
+/**
+ * Dispatch a namespaced DOM custom event.
+ *
+ * Errors included in the detail are logged to the console before dispatch.
+ *
+ * @param {string} action Event action suffix.
+ * @param {Object} [detail={}] Event detail payload.
+ * @returns {void}
+ */
+var _event = function(action, detail) {
+	detail = detail || {};
+	if(detail.error) console.error(detail.error);
+	globalThis.dispatchEvent(new CustomEvent(_name + '.' + action, { detail: detail }));
+};
+
+/**
+ * Normalize a URL or path and optionally strip the trailing file segment.
+ *
+ * @param {string} path Input path.
+ * @param {boolean} [removeFile=false] Remove the last path segment when it looks like a file.
+ * @returns {string} Normalized path.
+ */
+var _formatPath = function(path, removeFile) {
+	removeFile = !!removeFile;
+	path = String(path || '');
 	path = path.split('#')[0];
-	//remove query
 	path = path.split('?')[0];
-	//split into segments
 	var segs = path.split('/');
-	//remove file name?
 	if(removeFile && segs.length) {
-		if(segs[segs.length-1].indexOf('.') >= 0) {
+		if(segs[segs.length - 1].indexOf('.') >= 0) {
 			segs.pop();
 		}
 	}
-	//update path
 	path = segs.join('/');
-	//add trailing slash?
-	if(segs.length && segs[segs.length-1].indexOf('.') == -1) {
+	if(segs.length && segs[segs.length - 1].indexOf('.') === -1) {
 		path = path.replace(/\/$/, '') + '/';
 	}
-	//return
 	return path;
 };
 
-//deep merge helper
+/**
+ * Deep-merge source values into a target object.
+ *
+ * Objects are merged recursively. Arrays and primitives replace the current value.
+ *
+ * @param {Object} target Target object.
+ * @param {Object} source Source object.
+ * @returns {Object} The mutated target object.
+ */
 var _merge = function(target, source) {
-	//loop through source
-  for(var key in source) {
-    if(source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
-      target[key] = _merge(target[key] || {}, source[key]);
-    } else {
-      target[key] = source[key];
-    }
-  }
-	//return
-  return target;
-};
-
-//query import map helper
-var _queryMap = function() {
-	//set vars
-	var res = {};
-	var importMaps = document.querySelectorAll('[type="importmap"]');
-	//loop through maps
-	importMaps.forEach(function(s) {
-		var m = JSON.parse(s.textContent);
-		Object.assign(res, m.imports || {});
-	});
-	//return
-	return res;
+	for(var key in source) {
+		if(source[key] && typeof source[key] === 'object' && !Array.isArray(source[key])) {
+			target[key] = _merge(target[key] || {}, source[key]);
+		} else {
+			target[key] = source[key];
+		}
+	}
+	return target;
 };
 
 /**
- * Inject an `<script type="importmap">` element into the document head.
- * Silently no-ops when `paths` is empty or falsy. Multiple calls are additive —
- * later maps layer on top of earlier ones per the browser's own precedence rules.
+ * Determine whether a value is a plain object.
  *
- * @param {Object} paths - Specifier → URL entries, e.g.
- *   `{ '@fstage/store': 'https://...', '@fstage/': 'https://.../' }`.
+ * @param {*} input Value to test.
+ * @returns {boolean} `true` when the value is a plain object.
  */
-var map = function(paths) {
-	//valid paths?
-	if(!paths || !Object.keys(paths).length) {
+var _isObject = function(input) {
+	return !!input && input.constructor === Object;
+};
+
+/**
+ * Dispatch a hook across all registered configs.
+ *
+ * Hooks are awaited in registration order. Missing hooks are skipped.
+ *
+ * @param {string} name Hook name.
+ * @param {*} e Event payload passed to each hook.
+ * @returns {Promise<void>} Promise resolved when all hook handlers complete.
+ */
+var _runHook = async function(name, e) {
+	for (var i in _configs) {
+		var cfg = _configs[i];
+		e.config = cfg;
+		await _callAsync(cfg && cfg[name], [ e ]);
+	}
+	delete e.config;
+};
+
+/**
+ * Dispatch `onLoadError` across all registered configs until one aborts.
+ *
+ * Returning `false` from any handler aborts recovery and causes the original
+ * load error to be re-thrown.
+ *
+ * @param {FstageLoadErrorEvent} e Error event payload.
+ * @returns {Promise<boolean>} `true` when the error was recoverable, otherwise `false`.
+ */
+var _runErrorHook = async function(e) {
+	for (var i in _configs) {
+		var cfg = _configs[i];
+		e.config = cfg;
+		var fn = cfg && cfg.onLoadError;
+		if(fn) {
+			var result = await _callAsync(fn, [ e ]);
+			if(result === false) {
+				delete e.config;
+				return false;
+			}
+		}
+	}
+	delete e.config;
+	return true;
+};
+
+/**
+ * Normalize `modules.load()` input so arrays become plain objects recursively.
+ *
+ * This preserves the loader's parallel-loading behavior while simplifying
+ * internal traversal.
+ *
+ * @param {*} input Original load input.
+ * @returns {*} Normalized input.
+ */
+var _formatInput = function(input) {
+	if(Array.isArray(input)) {
+		var obj = input.length ? {} : null;
+		for(var i = 0; i < input.length; i++) {
+			obj[i] = _formatInput(input[i]);
+		}
+		return obj;
+	}
+	if(_isObject(input)) {
+		for(var key in input) {
+			input[key] = _formatInput(input[key]);
+		}
+	}
+	return input;
+};
+
+/**
+ * Resolve a module/asset path against built-in aliases and the active import map.
+ *
+ * @param {FstageLoadEvent} e Mutable load event.
+ * @returns {string} Normalized registry name for the path.
+ */
+var _resolvePath = function(e) {
+	var scope = '@' + _name;
+	if(_coreModules.includes(e.path)) {
+		e.path = scope + '/' + e.path;
+	}
+	var name = e.path;
+	if(name.indexOf(scope + '/') === 0) {
+		name = name.replace(scope + '/', '').replace(/\/index\.mjs$/, '');
+	}
+	if(name.indexOf('://') === -1) {
+		name = name.replace('@', '').replace(/\.m?js$/, '');
+	}
+	if(_rootConfig.importMap[e.path]) {
+		e.path = _rootConfig.importMap[e.path];
+	} else {
+		var bestMatch = Object.keys(_rootConfig.importMap).filter(function(specifier) {
+			return e.path.indexOf(specifier) === 0 && specifier[specifier.length - 1] === '/';
+		}).sort(function(a, b) {
+			return b.length - a.length;
+		})[0];
+		if(bestMatch) {
+			e.path = _rootConfig.importMap[bestMatch] + e.path.slice(bestMatch.length);
+		}
+	}
+	if(e.path.indexOf(_rootConfig.baseDir) === -1 && e.path.indexOf('://') === -1 && e.path.indexOf('.') >= 0) {
+		e.path = _rootConfig.baseDir + e.path;
+	}
+	return name;
+};
+
+/**
+ * Infer the load type for a path when no explicit type was supplied.
+ *
+ * @param {FstageLoadEvent} e Mutable load event.
+ * @returns {void}
+ */
+var _resolveType = function(e) {
+	if(e.type) {
 		return;
 	}
-	//create map
-	var map = document.createElement('script');
-	map.type = 'importmap';
-	//set content
-	map.textContent = JSON.stringify({
-		imports: paths
-	});
-	//set nonce?
-	if(_nonce) {
-		map.setAttribute('nonce', _nonce);
+	if(/^[a-zA-Z0-9\/\-\_\@]+$/.test(e.path) || /(\.|\?|\+)(mjs|esm|es6)/.test(e.path)) {
+		e.type = 'module';
+	} else if(/(manifest)\./.test(e.path)) {
+		e.type = 'manifest';
+	} else if(/(favico)n?\./.test(e.path)) {
+		e.type = 'icon';
 	}
-	//add to document
-	document.documentElement.firstChild.appendChild(map);
 };
 
-/**
- * Retrieve a value from the fstage export registry by dot-path, optionally
- * invoking it as a function.
- *
- * @param {string} path - Dot-separated path into the registry, e.g. `'store.createStore'`.
- * @param {Array|null} [args=null] - When an Array, the resolved value is called
- *   as a function with these arguments and its return value is returned instead.
- *   The `this` context is set to the nearest constructor ancestor in the path
- *   (detected via `prototype.constructor === value`), so class factory methods
- *   receive the correct `this` automatically.
- * @returns {*} The resolved value, or the result of invoking it when `args` is
- *   an Array, or `null` if any segment of the path is not found.
- *
- * @example
- * // Retrieve a value
- * const store = fstage.get('store');
- *
- * @example
- * // Invoke a factory with arguments
- * const s = fstage.get('store.createStore', [{ state: {} }]);
- */
-var get = function(path, args=null) {
-  //set vars
-  var t = null;
-  var res = _exports;
-  var arr = path ? path.split('.') : [];
-	//loop through array
-  for(var i = 0; i < arr.length; i++) {
-		//stop here?
-    if(!res || !Object.prototype.hasOwnProperty.call(res, arr[i])) {
-			return null;
-		}
-    //update result
-    res = res[arr[i]];
-    //set this?
-    if(i < (arr.length-1)) {
-			if(res && res.prototype && res.prototype.constructor === res) {
-				t = res;
-			}
-    }
-  }
-	//has args?
-	if(Array.isArray(args)) {
-		res = _cb(res, args, t);
-	}
-	//return
-	return res;
-};
 
 /**
- * Load one or more assets and/or fstage modules, returning a Promise that
- * resolves when all requested assets are ready.
+ * Public module namespace.
  *
- * Accepted `path` shapes:
- *   - **string** — a single asset.  Special values:
- *       - `'@all'`  loads every built-in fstage module.
- *       - A bare module name (`'store'`, `'router'`, …) resolves via the
- *         import-map to `@fstage/<n>/index.mjs`.
- *       - Any string ending in `.mjs`, `.js`, `+esm`, or matching a bare
- *         package-scope pattern is treated as an ES module (`import()`).
- *       - Strings ending in `.css` (or similar) are injected as `<link>` tags.
- *       - `'manifest.<ext>'` / `'favicon.<ext>'` update existing `<link>` tags.
- *   - **Array** — shorthand for an object with numeric keys; all items load
- *     in parallel.
- *   - **Object (flat)** — all values load in parallel.
- *   - **Object (nested)** — each top-level key whose value is itself an object
- *     forms a *group*: the group loads first, then `config.afterLoad<Group>`
- *     is called, then the remaining keys load. Useful for ordered boot phases.
- *
- * Config hooks (set via `FSCONFIG` or the loaded config module):
- *   - `beforeLoad(e)` — called before each asset; mutate `e.path` to redirect.
- *   - `afterLoad(e)`  — called after each successful module load.
- *   - `afterLoad<Group>(e)` — called after a named group finishes.
- *
- * @param {string|string[]|Object} path - Asset(s) to load (see above).
- * @param {string} [type=''] - Override the auto-detected element type
- *   (`'module'`, `'stylesheet'`, `'icon'`, `'manifest'`, `'base'`, …).
- * @returns {Promise<*>} Resolves with the module exports (for ES modules),
- *   an array of exports (for parallel loads), or `undefined` for non-module
- *   assets.
- *
- * @example
- * // Load a single built-in module
- * await fstage.load('store');
- *
- * @example
- * // Load several modules in parallel
- * await fstage.load(['store', 'router', 'component']);
- *
- * @example
- * // Two-phase boot: load core first, then features
- * await fstage.load({
- *   core: { store: 'store', router: 'router' },
- *   features: ['form', 'http']
- * });
+ * @type {FstageModulesApi}
  */
-var load = function(path, type='') {
-	//set vars
-	var scope = '@' + _name;
-	//Helper: is object
-	var isObject = function(input) {
-		return input && input.constructor === Object;
-	};
-	//Helper: format input
-	var formatInput = function(input) {
-		//is array or object?
-		if(Array.isArray(input)) {
-			var obj = input.length ? {} : null;
-			for(var i=0; i < input.length; i++) obj[i] = formatInput(input[i]);
-			return obj;
-		} else if(isObject(input)) {
-			for(var i in input) {
-				input[i] = formatInput(input[i]);
+var modules = {
+	/**
+	 * Inject import-map entries into the document.
+	 *
+	 * @param {FstageImportMapEntries} paths Import-map entries to inject.
+	 * @param {HtmlElement} target Node to add import map to
+	 * @returns {FstageImportMapEntries} paths Import-map entries injected.
+	 */
+	map: function(paths, target) {
+		if(!paths || !Object.keys(paths).length) {
+			return {};
+		}
+		var el = document.createElement('script');
+		el.type = 'importmap';
+		el.textContent = JSON.stringify({ imports: paths });
+		if(_nonce) {
+			el.setAttribute('nonce', _nonce);
+		}
+		(target || document.documentElement.firstChild).appendChild(el);
+		return paths;
+	},
+
+	/**
+	 * Retrieve a value from the internal registry by dot-path, optionally invoking it.
+	 *
+	 * @param {string} path Dot-separated path into the registry.
+	 * @param {Array<*>|null} [args=null] When provided, invoke the resolved value with these arguments.
+	 * @returns {*} The resolved value, the invocation result, or `null` if not found.
+	 */
+	get: function(path, args) {
+		args = (typeof args === 'undefined') ? null : args;
+		var t = null;
+		var res = _exports;
+		var arr = path ? path.split('.') : [];
+		for(var i = 0; i < arr.length; i++) {
+			if(!res || !Object.prototype.hasOwnProperty.call(res, arr[i])) {
+				return null;
 			}
-		}
-		//return
-		return input;
-	};
-	//load all modules?
-	if(path === '@all') {
-		path = _modules;
-	}
-	//format input
-	path = formatInput(path);
-	//stop here?
-	if(!path) {
-		return Promise.resolve();
-	}
-	//is object?
-	if(isObject(path)) {
-		//find first grouped phase
-		var groupName = null;
-		for(var g in path) {
-			if(isObject(path[g])) {
-				groupName = g;
-				break;
-			}
-		}
-		//load grouped phases sequentially
-		if(groupName) {
-			var groupPath = path[groupName];
-			return load(groupPath).then(function(res) {
-				//create event
-				var e = { modules: res, get: get };
-				//group loaded hook
-				_cb(_config['afterLoad' + groupName[0].toUpperCase() + groupName.slice(1)], [ e ]);
-				//delete property
-				delete path[groupName];
-				//load next
-				return load(path);
-			});
-		}
-		//load flat entries in parallel
-		var proms = [];
-		for(var i in path) {
-			proms.push(load(path[i]));
-		}
-		//wait for load — wrap each promise so a single failure can be
-		//recovered via onLoadError rather than aborting the whole group
-		var wrapped = proms.map(function(p, idx) {
-			return p.catch(function(err) {
-				if(_config.onLoadError) {
-					var e2 = { error: err, path: (err && err.path) || '', get: get };
-					var result = _cb(_config.onLoadError, [ e2 ]);
-					if(result !== false) return undefined;
+			res = res[arr[i]];
+			if(i < (arr.length - 1)) {
+				if(res && res.prototype && res.prototype.constructor === res) {
+					t = res;
 				}
-				throw err;
-			});
-		});
-		return Promise.all(wrapped);
-	}
-	//create promise
-	return new Promise(function(resolve, reject) {
-		//create event
-		var e = {
-			get: get,
-			type: type,
-			path: path
-		};
-		//set default scope?
-		if(_modules.includes(e.path)) {
-			e.path = scope + '/' + e.path;
+			}
 		}
-		//set name
-		var name = e.path;
-		//format name?
-		if(name.indexOf(scope + '/') === 0) {
-			name = name.replace(scope + '/', '').replace(/\/index\.mjs$/, '');
+		if(Array.isArray(args)) {
+			res = _call(res, args, t);
 		}
-		//remove extension?
-		if(name.indexOf('://') === -1) {
-			name = name.replace('@', '').replace(/\.m?js$/, '');
+		return res;
+	},
+
+	/**
+	 * Load one or more assets and/or fstage modules.
+	 *
+	 * @param {string|Array<*>|Object<string, *>} path Asset(s) or module(s) to load.
+	 * @param {string} [type=''] Explicit type override.
+	 * @returns {Promise<*>} Promise that resolves when the requested load completes.
+	 */
+	load: async function(path, type) {
+		type = type || '';
+		if(path === '@all') {
+			path = _coreModules;
 		}
-		//is cached?
-		if(_exports[name]) {
-			resolve(_exports[name]);
+		path = _formatInput(path);
+		if(!path) {
 			return;
 		}
-		//before load hook
-		_cb(_config['beforeLoad'], [ e ]);
-		//valid path?
-		if(!e.path) {
-			return resolve();
+		if(_isObject(path)) {
+			var groupName = null;
+			for(var g in path) {
+				if(_isObject(path[g])) {
+					groupName = g;
+					break;
+				}
+			}
+			if(groupName) {
+				var groupPath = path[groupName];
+				var result = await modules.load(groupPath);
+				await _runHook('afterLoad' + groupName[0].toUpperCase() + groupName.slice(1), {
+					result: result,
+					modules: modules,
+					configs: configs,
+				});
+				delete path[groupName];
+				return await modules.load(path);
+			}
+			var entries = Object.keys(path).map(function(key) {
+				return modules.load(path[key]).catch(async function(err) {
+					var errorEvent = { error: err, path: (err && err.path) || '', modules: modules, configs: configs };
+					if(await _runErrorHook(errorEvent)) {
+						return undefined;
+					}
+					throw err;
+				});
+			});
+			return await Promise.all(entries);
 		}
-		//set vars
+
+		var e = {
+			modules: modules,
+			configs: configs,
+			type: type,
+			path: path,
+		};
+		if(!e.path) {
+			return;
+		}
+		var name = _resolvePath(e);
+		if(_exports[name]) {
+			return _exports[name];
+		}
+		await _runHook('beforeLoad', e);
+		if(!e.path) {
+			return;
+		}
 		var isBase = (e.type === 'base');
 		var isScript = /(\+esm|\.m?js)(\#|\?|$)/.test(e.path);
-		//guess type?
-		if(!e.type) {
-			if(/^[a-zA-Z0-9\/\-\_\@]+$/.test(e.path) || /(\.|\?|\+)(mjs|esm|es6)/.test(e.path)) {
-				e.type = 'module';
-			} else if(/(manifest)\./.test(e.path)) {
-				e.type = 'manifest';
-			} else if(/(favico)n?\./.test(e.path)) {
-				e.type = 'icon';
-			}
-		}
-		//resolve import map?
-		if(_config.importMap[e.path]) {
-			e.path = _config.importMap[e.path];
-		} else {
-			var bestMatch = Object.keys(_config.importMap).filter(function(key) {
-				return e.path.indexOf(key) === 0 && key[key.length-1] === '/';
-			}).sort(function(a, b) {
-				return b.length - a.length;
-			})[0];
-			if (bestMatch) {
-				e.path = _config.importMap[bestMatch] + e.path.slice(bestMatch.length);
-			}
-		}
-		//add base path?
-		if(e.path.indexOf(_config.baseDir) == -1 && e.path.indexOf('://') == -1 && e.path.indexOf('.') >= 0) {
-			e.path = _config.baseDir + e.path;
-		}
-		//is module?
+		_resolveType(e);
 		if(e.type === 'module') {
-			//dynamic import
-			return import(e.path).then(function(exports) {
-				//cache exports
-				e.exports = _exports[name] = exports || {};
-				//after load hook
-				_cb(_config['afterLoad'], [ e ]);
-				//resolve
-				resolve(e.exports);
-			}).catch(function(err) {
-				//attach path so callers can identify which asset failed
-				var loadErr = (err instanceof Error) ? err : new Error(String(err));
-				if(!loadErr.path) loadErr.path = e.path;
-				reject(loadErr);
-			});
-		}
-		//update existing link?
-		if(e.type === 'icon' || e.type === 'manifest') {
-			var i = document.querySelector('link[rel="' + e.type + '"]');
-			if(i) { i.href = e.path; return resolve(); }
-		}
-		//create element
-		var el = document.createElement(isBase ? 'base' : (isScript ? 'script' : 'link'));
-		//set properties
-		if(isScript) {
-			el.src = e.path;
-			el.async = false;
-			if(e.type) el.type = e.type;
-			
-		} else {
-			el.href = e.path;
-			if(!isBase) {
-				el.rel = e.type || 'stylesheet';
+			try {
+				e.exports = _exports[name] = (await import(e.path)) || {};
+				await _runHook('afterLoad', e);
+				return e.exports;
+			} catch(error) {
+				var loadErr = (error instanceof Error) ? error : new Error(String(error));
+				if(!loadErr.path) {
+					loadErr.path = e.path;
+				}
+				throw loadErr;
 			}
 		}
-		//use listeners?
-		if(isScript || el.rel === 'stylesheet') {
-			el.setAttribute('crossorigin', 'anonymous');
-			el.addEventListener('load', resolve);
-			el.addEventListener('error', function() {
-				var loadErr = new Error('Failed to load: ' + e.path);
-				loadErr.path = e.path;
-				reject(loadErr);
-			});
-		} else {
-			resolve();
+		if(e.type === 'icon' || e.type === 'manifest') {
+			var existing = document.querySelector('link[rel="' + e.type + '"]');
+			if(existing) {
+				existing.href = e.path;
+				return;
+			}
 		}
-		//append to document
-		document.documentElement.firstChild.appendChild(el);
-	});
+		return await new Promise(function(resolve, reject) {
+			var el = document.createElement(isBase ? 'base' : (isScript ? 'script' : 'link'));
+			if(isScript) {
+				el.src = e.path;
+				el.async = false;
+				if(e.type) {
+					el.type = e.type;
+				}
+			} else {
+				el.href = e.path;
+				if(!isBase) {
+					el.rel = e.type || 'stylesheet';
+				}
+			}
+			if(isScript || el.rel === 'stylesheet') {
+				el.setAttribute('crossorigin', 'anonymous');
+				el.addEventListener('load', resolve);
+				el.addEventListener('error', function() {
+					var loadErr = new Error('Failed to load: ' + e.path);
+					loadErr.path = e.path;
+					reject(loadErr);
+				});
+			} else {
+				resolve();
+			}
+			if(_nonce) {
+				el.setAttribute('nonce', _nonce);
+			}
+			document.documentElement.firstChild.appendChild(el);
+		});
+	}
+};
+
+/**
+ * Public config-registry namespace.
+ *
+ * @type {FstageConfigsApi}
+ */
+var configs = {
+	/**
+	 * Return the root config object.
+	 *
+	 * @returns {FstageConfig} Root config.
+	 */
+	root: function() {
+		return _rootConfig;
+	},
+
+	/**
+	 * Return all registered configs in registration order.
+	 *
+	 * The returned object is a shallow copy and can be safely mutated by callers.
+	 *
+	 * @returns {FstageConfigs} Registered configs.
+	 */
+	all: function() {
+		return Object.assign({}, _configs);
+	},
+
+	/**
+	 * Register a config object for hook participation.
+	 *
+	 * @param {string} filePath to config file loaded.
+	 * @param {FstageConfig} cfg Config object to register.
+	 * @throw {Error} if invalid filePath string or cfg object provided
+	 * @returns {FstageConfig|null} The registered config.
+	 */
+	add: function(filePath, cfg) {
+		if(!filePath || !cfg) {
+			throw new Error("[fstage] configs.add() requires a valid filePath string and cfg object");
+		}
+		if(!_configs[filePath]) {
+			_configs[filePath] = cfg;
+			if(cfg.importMap) {
+				modules.map(cfg.importMap);
+			}
+		}
+		return _configs[filePath];
+	},
+
+	/**
+	 * Remove a config object for hook participation.
+	 *
+	 * @param {string|FstageConfig} cfg to remove from configs
+	 */
+	remove: function(cfg) {
+		for(var i in _configs) {
+			if (cfg === i || cfg === _configs[i]) {
+				delete _configs[i];
+			}
+		}
+	}
 };
 
 
-/* INIT */
+/* BOOTSTRAP */
 
-//setup config object
-_config = _exports['config'] = Object.assign({
+_rootConfig = Object.assign({
+	importMap: {},
 	configPath: '',
 	scriptDir: _formatPath(import.meta.url, true),
 	baseDir: _formatPath((document.querySelector('base') || {}).href || location.href, true),
-	importMap: {}
 }, globalThis[_confName] || {});
 
-//add core mappings
-_config.importMap['@' + _name ] = _uri;
-_config.importMap['@' + _name + '/'] = _config.scriptDir;
+_exports.modules = modules;
+_exports.configs = configs;
+_exports.config = _rootConfig;
 
-//loop through defined modules
-for(var i=0; i < _modules.length; i++) {
-	_config.importMap['@' + _name + '/' + _modules[i]] = _config.scriptDir + _modules[i] + '/index.mjs';
+_rootConfig.importMap['@' + _name] = _uri;
+_rootConfig.importMap['@' + _name + '/'] = _rootConfig.scriptDir;
+
+for(var i = 0; i < _coreModules.length; i++) {
+	_rootConfig.importMap['@' + _name + '/' + _coreModules[i]] = _rootConfig.scriptDir + _coreModules[i] + '/index.mjs';
 }
 
-//primary import map
-map(_config.importMap);
-
-//load config
-load(_config.configPath).then(function(m) {
-	//merge config?
-	if(m && m.default) {
-		_config = _merge(_config, m.default);
-		map(m.default.importMap);
-	}
-	//find all import maps
-	_config.importMap = _queryMap();
-	//set base
-	load(_config.baseDir, 'base');
-	//load assets
-	load(_config.loadAssets).then(function() {
+(async function() {
+	try {
+		var cfgMod = await modules.load(_rootConfig.configPath);
+		if(cfgMod && cfgMod.default) {
+			_merge(_rootConfig, cfgMod.default);
+		}
+		if(_rootConfig.configPath) {
+			configs.add(_rootConfig.configPath, _rootConfig);
+		} else {
+			modules.map(_rootConfig.importMap);
+		}
+		await modules.load(_rootConfig.baseDir, 'base');
+		await modules.load(_rootConfig.loadAssets);
 		_event('ready');
-	}).catch(function(error) {
+	} catch(error) {
 		_event('failed', { error: error, path: (error && error.path) || '' });
-	});
-}).catch(function(error) {
-	_event('failed', { error });
-});
+	}
+})();
 
 
 /* EXPORTS */
 
-//public API
-_global = { get: get, load: load, map: map };
+globalThis[_name] = {
+	modules: modules,
+	configs: configs,
+};
 
-//set globals
-globalThis[_name] = _global;
-
-//module export
-export { get, load };
+export { modules, configs };

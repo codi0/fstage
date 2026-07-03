@@ -521,13 +521,16 @@ export function getEnv(opts) {
 			if (facts.isPwa)        el.setAttribute('data-pwa', '');
 			if (facts.isStandalone) el.setAttribute('data-standalone', '');
 
-			if (globalThis.visualViewport) {
-				function sync() {
-					var kh = Math.max(0, globalThis.innerHeight - globalThis.visualViewport.offsetTop - globalThis.visualViewport.height);
-					el.style.setProperty('--keyboard-height', Math.round(kh) + 'px');
-				}
-				sync();
-				globalThis.visualViewport.addEventListener('resize', sync);
+				if (globalThis.visualViewport) {
+					function sync() {
+						// If native bridge owns keyboard signals, avoid racing updates.
+						if (el.getAttribute('data-keyboard-source') === 'native') return;
+						var kh = Math.max(0, globalThis.innerHeight - globalThis.visualViewport.offsetTop - globalThis.visualViewport.height);
+						el.setAttribute('data-keyboard-source', 'env');
+						el.style.setProperty('--keyboard-height', Math.round(kh) + 'px');
+					}
+					sync();
+					globalThis.visualViewport.addEventListener('resize', sync);
 				globalThis.visualViewport.addEventListener('scroll', sync);
 			}
 

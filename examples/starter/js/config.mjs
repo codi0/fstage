@@ -69,6 +69,7 @@ export default {
 			'@fstage/store',          // reactive state store
 			'@fstage/sync',           // offline-first sync (re-exports storage + http)
 			'@fstage/history',        // URL/history abstraction
+			'@fstage/native',         // Capacitor bridge (lifecycle/backButton/keyboard)
 			'@fstage/router',         // client-side router
 			'@fstage/animator',       // WAAPI animation engine
 			'@fstage/gestures',       // touch/pointer gesture detection
@@ -189,7 +190,7 @@ export default {
 	// -------------------------------------------------------------------------
 
 	// beforeLoad: function(e) {
-	// 	var registry = e.get('registry.defaultRegistry', []);
+	// 	var registry = e.modules.get('registry.defaultRegistry', []);
 	// 	if (!registry) return;
 	// 	var env   = registry.get('env');
 	// 	var facts = env ? env.getFacts() : {};
@@ -204,7 +205,7 @@ export default {
 	// You rarely need to change these unless you're overriding a service.
 	//
 	// To override a service, pass an opts object:
-	//   e.get('stack.wireStack', [ e, {
+	//   e.modules.get('stack.wireStack', [ e, {
 	//     services: {
 	//       store: () => myStore.createStore({ useProxy: true }),
 	//     },
@@ -217,16 +218,16 @@ export default {
 	// -------------------------------------------------------------------------
 
 	afterLoadPreload: function(e) {
-		e.get('stack.wirePreload', [ e ]);
+		e.modules.get('stack.wirePreload', [ e ]);
 	},
 
 	afterLoadLibs: function(e) {
-		e.get('stack.wireStack', [ e ]);
+		e.modules.get('stack.wireStack', [ e ]);
 	},
 
 	afterLoadApp: function(e) {
-		e.get('stack.startStack', [ e, {
-			rootEl: e.get('config.rootEl'),
+		e.modules.get('stack.startStack', [ e, {
+			rootEl: e.configs.root().rootEl,
 
 			// Edge-pan back gesture — enabled by default on mobile/native.
 			// Override shouldStart to add custom blockers.

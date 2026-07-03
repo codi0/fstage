@@ -5,7 +5,7 @@
  * Zero-build. All primitives use CSS custom properties for theming.
  *
  * Components are exported as definition objects for use with createRuntime().
- * They are also auto-registered when loaded through fstage.load() —
+ * They are also auto-registered when loaded through fstage.modules.load() —
  * the afterLoad hook calls runtime.define(def) for any export with a .tag.
  *
  * Available primitives:

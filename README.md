@@ -1,4 +1,4 @@
-# fstage [ALPHA v0.6.0]
+# fstage [ALPHA v0.6.1]
 
 A modular ES module toolkit for building JavaScript apps — no build step required.
 
@@ -55,21 +55,21 @@ export default {
     routes: [ { path: '/', meta: { component: 'my-home', title: 'Home' } } ],
   },
   storage: { name: 'myapp', schemas: { items: { keyPath: 'id' } } },
-  afterLoadPreload(e) { e.get('stack.wirePreload', [ e ]); },
-  afterLoadLibs(e)    { e.get('stack.wireStack',   [ e ]); },
-  afterLoadApp(e)     { e.get('stack.startStack',  [ e ]); },
+  afterLoadPreload(e) { e.modules.get('stack.wirePreload', [ e ]); },
+  afterLoadLibs(e)    { e.modules.get('stack.wireStack',   [ e ]); },
+  afterLoadApp(e)     { e.modules.get('stack.startStack',  [ e ]); },
 };
 ```
 
 Each phase completes before the next starts. `afterLoad`, `afterLoadPreload`, `afterLoadLibs`, and `afterLoadApp` hooks fire at the end of each phase. The **registry** is the central service locator — modules register instances there and components inject what they need.
 
-[`@fstage/stack`](src/js/stack/) provides `wirePreload`, `wireStack`, and `startStack` helpers that handle all standard service wiring from config keys alone. Hooks receive an `e` object with a `get(path, args?)` helper:
+[`@fstage/stack`](src/js/stack/) provides `wirePreload`, `wireStack`, and `startStack` helpers that handle all standard service wiring from config keys alone. Hooks receive an `e` object with `modules` and `configs` namespaces:
 
 ```js
-e.get('config')                          // full config object
-e.get('config.debug')                    // nested config value
-e.get('stack.wireStack', [ e ])          // calls wireStack(e)
-e.get('store.createStore', [])           // calls createStore(), returns instance
+e.configs.root()                         // full root config object
+e.configs.root().debug                   // nested config value
+e.modules.get('stack.wireStack', [ e ])  // calls wireStack(e)
+e.modules.get('store.createStore', [])   // calls createStore(), returns instance
 ```
 
 See the [getting started guide](docs/getting-started.md) for a full walkthrough.
@@ -99,6 +99,7 @@ See [`examples/README.md`](examples/README.md) for details.
 | [`router`](src/js/router/) | Client-side router — deterministic matching, param extraction, navigation handler, scroll state |
 | [`history`](src/js/history/) | Browser history abstraction — hash, query string, or path URL schemes |
 | [`component`](src/js/component/) | Web component runtime implementing the [Universal Component Definition Standard](specs/component-standard.md) — declarative state, bindings, watches, computed, animations, interactions |
+| [`plugin`](src/js/plugin/) | Plugin lifecycle runtime — source registration, activation/deactivation, cleanup scope, handler/contribution ownership |
 | [`registry`](src/js/registry/) | Service registry / DI container — the glue between modules |
 | [`env`](src/js/env/) | Platform detection, capability facts, and a layered policy system with CSS variable output |
 | [`animator`](src/js/animator/) | WAAPI animation engine — named presets, toggle controllers, flip, stagger, collapse |
@@ -109,10 +110,8 @@ See [`examples/README.md`](examples/README.md) for details.
 | [`form`](src/js/form/) | Form utilities |
 | [`ssr`](src/js/ssr/) | Server-side rendering via Declarative Shadow DOM — `createSsrRuntime` + `renderToString`. Supports state defaults, reactive getters, all `$src` shorthands, host attribute stamping, and per-call error handling. Requires `@lit-labs/ssr` as a peer dep |
 | [`devtools`](src/js/devtools/) | Debug panel — store event log, sync queue inspector, storage browser |
-| [`webpush`](src/js/webpush/) | Web Push subscription management |
+| [`push`](src/js/push/) | Unified push facade with native (Capacitor) + web adapters |
 | [`websocket`](src/js/websocket/) | WebSocket wrapper |
-| [`hls`](src/js/hls/) | HLS video stream helper |
-| [`ipfs`](src/js/ipfs/) | IPFS integration |
 | [`utils`](src/js/utils/) | Shared primitives: deep copy, equality, diff, hash, debounce, schedule, nested key access, DOM helpers |
 
 ## Documentation
@@ -123,8 +122,10 @@ See [`examples/README.md`](examples/README.md) for details.
 - [SSR — server-side rendering](docs/ssr.md)
 - [Store](docs/store.md)
 - [Data layer — storage, sync, http](docs/data.md)
+- [Push — unified native + web notifications](docs/push.md)
 - [Routing — router, history](docs/routing.md)
 - [Components](docs/components.md)
+- [Plugin runtime](docs/plugin.md)
 - [Platform — env, animator, transitions, gestures, interactions](docs/platform.md)
 - [Utilities — utils, registry](docs/utilities.md)
 - [Component Definition Standard](specs/component-standard.md)
