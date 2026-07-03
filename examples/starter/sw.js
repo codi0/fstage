@@ -49,21 +49,24 @@ var config = {
 		// Cache prefix — change to bust all existing caches on next deploy.
 		cachePrefix: 'myapp',
 
-		// Maximum entries in runtime (same-origin) and CDN caches.
+		// Maximum entries in runtime (same-origin assets) and CDN caches.
+		// Oldest entries are evicted when the limit is reached.
 		runtimeMaxEntries: 160,
 		cdnMaxEntries:     120,
 
-		// false = ignore search params when matching cache entries.
+		// Whether to include URL search params in cache keys.
+		// false = ignore search params (one cache entry per path).
 		fetchParams: false,
 
-		// Search params that indicate a request should bypass the cache.
+		// Search params that indicate the request should bypass the cache
+		// (e.g. signed URLs where the signature changes per-request).
 		bypassSearchParams: [
 			'token', 'auth', 'signature', 'expires',
 			'x-amz-signature', 'x-amz-credential',
 			'x-amz-security-token', 'googleaccessid',
 		],
 
-		// Origins/paths to cache. Map to CORS mode.
+		// Origins/paths that should be cached. Map to CORS mode.
 		// Same-origin is always included automatically.
 		cachePolicies: {
 			'https://cdn.jsdelivr.net': 'cors',

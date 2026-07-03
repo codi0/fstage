@@ -208,11 +208,8 @@ export default {
 		}
 	},
 
-	// Declarative form — wires to <form name="form"> in the render template.
-	// title lives in state (via bind above) so render can react to it directly,
-	// restoring the reactive disabled button without any special form API.
-	// newDate and newPriority remain in state, managed by custom picker
-	// components, and are read from ctx.state inside onSubmit.
+	// Form owns validation and submit; state still drives reactive UI.
+	// Pickers keep date/priority in state for onSubmit.
 	form: {
 		fields: {
 			title: { required: true, default: '' },

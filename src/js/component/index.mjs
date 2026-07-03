@@ -1,106 +1,10 @@
-// @fstage/component
-//
-// Definition-based web component runtime, based on LitElement for maximum compatibility.
-// Implements the Fstage Universal Component Definition Standard v1.4.
-//
-// === Reactive State Provider ===
-// The Fstage store is used as the reactive state provider (standard §4.4).
-// Each component instance gets two namespaced paths in the store:
-//   __cl.{id}.*  — local state    ($src: 'local')
-//   __cp.{id}.*  — prop mirror    ($src: 'prop', updated in willUpdate())
-//   <decl.key>   — external state ($src: 'external', aliased to decl.key)
-//
-// ctx.state is a per-instance thin proxy over the global store. Every access
-// is automatically wrapped in store.$withScope(component) so path translation
-// is always active — no manual $withScope at call sites.
-//
-// === Capability Claims ===
-//   asyncState       — ctx.state.$query
-//   animation        — ctx.animate, declarative animate block
-//   screenHost       — activated / deactivated hooks
-//   hostMethods      — def.host.methods mounted onto the host element
-//   interactionExtensions — via config.interactionsManager
-//
-// === ctx Contract ===
-// ctx is frozen after createRenderRoot() — no new properties may be added.
-// ctx._ is the designated private instance bag and remains mutable.
-// Declare all imperative instance state in constructed({ _ }) for clarity:
-//   constructed({ _ }) { _.transitioning = false; _.swipeKey = ''; }
-//
-// === Declaration Extensions ===
-//
-//   state — three shorthand forms and one getter form:
-//     sheetOpen: false              ->  { $src: 'local', default: false }
-//     tasks:     { $ext: 'tasks', default: [] }  ->  { $src: 'external', key: 'tasks', default: [] }
-//     open:      { $prop: false }   ->  { $src: 'prop', type: Boolean, default: false }
-//     open:      { $prop: Boolean, default: false }  ->  explicit type form
-//     get total() { return this.state.items.length; }  ->  reactive derived value,
-//       'this' is ctx — this.state.* / this.models / this.config
-//
-//   bind — declarative two-way bindings between selectors and state keys.
-//     bind: {
-//       '#task-title':      'newTitle',
-//       '.inline-textarea': { key: 'description', event: 'change' },
-//       '.rating':          { key: 'rating', extract: (el) => Number(el.dataset.value) },
-//     }
-//
-//   watch — unified reactive subscriptions, wired on connect, torn down on disconnect.
-//     All handlers receive (e, ctx) where e = { path, val, oldVal }.
-//     Pre-render (default): state coordination, resets, optional immediate call.
-//       Handlers fire synchronously during the state mutation, before the async render.
-//     Post-render (afterRender: true): DOM operations after each render where value changed.
-//     watch: {
-//       theme:       (e, ctx) => { ... },                          // pre-render shorthand
-//       routeParams: { handler, immediate: true, reset: [...] },   // pre-render descriptor
-//       activeRoute: { reset: ['panel'] },                         // pre-render, reset only
-//       open:        { handler: fn, afterRender: true },           // post-render
-//       task:        { handler: fn, afterRender: true },           // post-render
-//     }
-//
-//   computed — DEPRECATED: use state getters instead. Kept for backwards compatibility.
-//     computed: { isEmpty: (ctx) => ctx.state.items.length === 0 }
-//
-//   interactions — handler may be a plain function or a descriptor:
-//     interactions: {
-//       'click(.btn)': fn,
-//       'input(.search)': { handler: fn, debounce: 300 },
-//       'keydown(.field)': { handler: fn, keys: ['Enter'], prevent: true },
-//     }
-//
-//   host — host element configuration:
-//     host: {
-//       methods: { highlight: function() { ... } },
-//       attrs:   { 'data-theme': (ctx) => ctx.state.theme },
-//       vars:    { '--row-index': (ctx) => ctx.state.index },
-//     }
-//
-//   form / forms — declarative form lifecycle block (requires formManager).
-//     Singular `form` is shorthand for a single form named 'form'.
-//     `forms` supports multiple named forms, each wired to <form name="{key}">.
-//     form: {
-//       fields: { email: { required: true, type: 'email' }, ... },
-//       onSubmit(values, form) { ... },
-//       onError(errors, form)  { ... },
-//     }
-//     forms: {
-//       login:   { fields: { ... }, onSubmit(...) { ... } },
-//       profile: { fields: { ... }, onSubmit(...) { ... } },
-//     }
-//     Accessible as ctx.form (singular) and ctx.forms (map of all controllers).
-//     mount() is called after every render; it is idempotent and only re-wires
-//     when the underlying <form> element reference has changed.
-//     unmount() is registered via ctx.cleanup and runs on disconnect.
-//
-//   animate — declarative animation block (requires animation capability):
-//     enter  — host entry, fires once on first render
-//     exit   — host exit, fires when skipAttr is set on host
-//     toggle(selector) — state-driven animations on child elements:
-//     animate: {
-//       enter: 'slideUp',
-//       exit:  'slideDown',
-//       'toggle(.error-msg)': { state: 'hasError', show: 'fadeIn', hide: 'fadeOut' },
-//       'toggle(.badge)':     { state: 'count',    show: 'fadeIn', activate: 'pop' },
-//     }
+/**
+ * @fstage/component
+ *
+ * Definition-based web component runtime. State reads are scoped through the
+ * shared store (`__cl.*` local, `__cp.*` prop mirror, external keys unchanged),
+ * and `ctx._` is the mutable per-instance bag after `ctx` is frozen.
+ */
 
 import { getType, adoptStyleSheet } from '../utils/index.mjs';
 
@@ -124,8 +28,8 @@ import { getType, adoptStyleSheet } from '../utils/index.mjs';
  * @property {Object}   config   - App config object (from `createRuntime` config).
  * @property {Object}   _        - Private mutable bag for per-instance state.
  *   Declare all instance-local fields in `constructed({ _ })` for clarity.
- * @property {Function} cleanup  - `cleanup(fn)` — register a teardown function that
- *   runs when the component disconnects.
+ * @property {Function} cleanup  - `cleanup(fn)` — register a connected-only
+ *   teardown function that runs when the component disconnects.
  * @property {Function} emit     - `emit(type, detail?, opts?)` — dispatch a `CustomEvent`
  *   from the host (`bubbles: true, composed: true` by default).
  * @property {Function} [animate] - `animate(el, preset, opts?)` — run a named WAAPI
@@ -178,13 +82,6 @@ import { getType, adoptStyleSheet } from '../utils/index.mjs';
  * @property {Function} [onError]   - `(err, ctx, location)` — component-level error handler.
  */
 
-
-// =============================================================================
-// formatDefMap
-//
-// Normalises and validates all structured definition fields in one pass.
-// Mutates def in place; called once at define() time.
-// =============================================================================
 
 /**
  * Normalise and validate all structured definition fields in place.
@@ -369,13 +266,6 @@ function formatDefMap(def) {
 }
 
 
-// =============================================================================
-// wireBind
-//
-// Attaches delegated listeners on root for each bind entry.
-// Returns a cleanup function that removes all listeners.
-// =============================================================================
-
 /**
  * Attach delegated input listeners on `ctx.root` for each `bind` entry.
  * Called after the first render commit. Returns a cleanup function.
@@ -409,21 +299,6 @@ function wireBind(def, ctx) {
 }
 
 
-// =============================================================================
-// scopePlugin
-//
-// Installed once on the store per createRuntime call.
-//
-// path hook — translates declared state keys to real store paths:
-//   local    __cl.{id}.key[.sub]
-//   prop     __cp.{id}.key[.sub]
-//   external decl.key[.sub]
-//   unknown  unchanged (global paths pass through)
-//
-// read hook — supplies declared defaults when the store has no value yet.
-// watch hook — auto-registers off() with ctx.cleanup on disconnect.
-// =============================================================================
-
 /**
  * Store plugin installed once per `createRuntime` call.
  * Provides per-component path translation, default value injection,
@@ -433,7 +308,7 @@ function wireBind(def, ctx) {
  * - `path`  — translates declared state keys to namespaced store paths
  *   (`__cl.{id}.*` for local, `__cp.{id}.*` for prop, raw key for external).
  * - `read`  — injects declared defaults when the store has no value yet.
- * - `watch` — auto-registers `off()` with `ctx.cleanup` on disconnect.
+ * - `watch` — auto-registers `off()` with connected-only `ctx.cleanup` on disconnect.
  *
  * @returns {{ methods: Object, hooks: Object }} Plugin descriptor.
  */
@@ -492,14 +367,6 @@ function scopePlugin() {
 }
 
 
-// =============================================================================
-// createStateProxy
-//
-// Per-component proxy over the global store. Every access is auto-wrapped in
-// store.$withScope(component) so path translation is always active.
-// State getters are dispatched directly to the getter fn with ctx as 'this'.
-// =============================================================================
-
 /**
  * Create a per-component reactive state proxy over the global store.
  * Every property access is auto-wrapped in `store.$withScope(component)`
@@ -547,10 +414,6 @@ function createStateProxy(component, store, stateGetters) {
 	});
 }
 
-
-// =============================================================================
-// createRuntime
-// =============================================================================
 
 /**
  * Create a component runtime.
@@ -850,7 +713,7 @@ export function createRuntime(config) {
 						ctx.cleanup(() => observer.disconnect());
 					}
 
-					// Register form unmount via ctx.cleanup so forms tear down on disconnect.
+					// Register form unmount via connected-only ctx.cleanup.
 					if (ctx.forms) {
 						for (var fName in ctx.forms) {
 							(function(controller) {
@@ -861,18 +724,21 @@ export function createRuntime(config) {
 
 					if (def.connected) def.connected(ctx);
 
-					if (def.activated) {
-						ctx.cleanup(config.screenHost.on('activate', (e) => {
-							if (!e.target || !e.target.contains(this)) return;
-							def.activated(ctx);
-						}));
-					}
+					const screenHost = config.screenHost;
+					if (screenHost && typeof screenHost.on === 'function') {
+						if (def.activated) {
+							ctx.cleanup(screenHost.on('activate', (e) => {
+								if (!e.target || !e.target.contains(this)) return;
+								def.activated(ctx);
+							}));
+						}
 
-					if (def.deactivated) {
-						ctx.cleanup(config.screenHost.on('deactivate', (e) => {
-							if (!e.target || !e.target.contains(this)) return;
-							def.deactivated(ctx);
-						}));
+						if (def.deactivated) {
+							ctx.cleanup(screenHost.on('deactivate', (e) => {
+								if (!e.target || !e.target.contains(this)) return;
+								def.deactivated(ctx);
+							}));
+						}
 					}
 				}
 

@@ -150,8 +150,8 @@ function activateDomEvent(root, isShadow, eventName, selector, handler) {
  * @property {Object}   config   - App config object (from `createRuntime` config).
  * @property {Object}   _        - Private mutable bag for imperative per-instance state.
  *   Declare all instance-local fields in `constructed({ _ })` for clarity.
- * @property {Function} cleanup  - `cleanup(fn)` — register a teardown function that
- *   runs when the component disconnects.
+ * @property {Function} cleanup  - `cleanup(fn)` — register a connected-only
+ *   teardown function that runs when the component disconnects.
  * @property {Function} emit     - `emit(type, detail?, opts?)` — dispatch a CustomEvent
  *   from the host element (`bubbles: true, composed: true` by default).
  * @property {Function} [animate] - `animate(el, preset, opts?)` — run a named WAAPI
@@ -231,12 +231,14 @@ export function createInteractionsManager() {
 
 				// Global target — 'click(document)', 'addTask(document)', 'resize(window)' etc.
 				if (parsed.selector && typeof parsed.selector === 'object') {
-					(function(handler) {
+					var target    = parsed.selector;
+					var eventName = parsed.name;
+					(function(handler, target, eventName) {
 						if (!handler) return;
 						var listener = function(e) { handler(e, ctx); };
-						parsed.selector.addEventListener(parsed.name, listener);
-						cleanups.push(function() { parsed.selector.removeEventListener(parsed.name, listener); });
-					})(resolveHandler(value));
+						target.addEventListener(eventName, listener);
+						cleanups.push(function() { target.removeEventListener(eventName, listener); });
+					})(resolveHandler(value), target, eventName);
 					continue;
 				}
 

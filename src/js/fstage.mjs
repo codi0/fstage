@@ -1,24 +1,9 @@
 /**
  * @fstage
  *
- * Zero-build module loader and registry — the entry point for fstage.
- *
- * Boot process:
- * 1. Creates the root config from `globalThis.FSCONFIG`.
- * 2. Registers the root config in the config registry.
- * 3. Injects an import map for built-in fstage modules and any root import-map entries.
- * 4. Loads `configs.root().configPath` (if set) and merges its default export into the root config.
- * 5. Loads `configs.root().loadAssets` and dispatches `fstage.ready` on success.
- * 6. Dispatches `fstage.failed` if boot fails.
- *
- * Public API (also available on `globalThis.fstage`):
- * - `modules.map(paths)`
- * - `modules.get(path, args?)`
- * - `modules.load(path, type?)`
- * - `configs.root()`
- * - `configs.all()`
- * - `configs.add(filePath, cfg)`
- * - `configs.remove(cfg)`
+ * Zero-build module loader and registry. Creates the root config, injects the
+ * import map, loads configured assets, and exposes `modules` / `configs` on
+ * `globalThis.fstage`.
  */
 
 var _exports = {};

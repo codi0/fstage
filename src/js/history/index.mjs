@@ -1,10 +1,4 @@
-// @fstage/history
-//
-// Responsibilities:
-// - URL <-> route string translation
-// - push / replace commits
-// - popstate listening
-// - event emission
+// @fstage/history — URL/route translation plus push/replace/popstate events.
 
 function normalizePath(path) {
 	path = path || '/';

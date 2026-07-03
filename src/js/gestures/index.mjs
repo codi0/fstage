@@ -120,27 +120,6 @@ function canStartPointer(e, opts, defaultExclude) {
 }
 
 
-// --- Edge Pan Gesture --------------------------------------------------------
-//
-// Recognizes a pan originating from a screen edge.
-// Used for interactive back-navigation at the page level.
-//
-// Options:
-// {
-//   target,              // optional element to scope the gesture to
-//   trigger,             // optional element for hit-testing (defaults to target)
-//   edge,                // 'left' | 'right' | 'top' | 'bottom'  (default: 'left')
-//   edgeWidthPx,         // px from edge to begin recognition     (default: 24)
-//   minSwipeDistancePx,  // px of movement before gesture claims  (default: 10)
-//   commitThreshold,     // progress (0-1) required to commit     (default: 0.35)
-//   velocityThreshold,   // px/ms required to commit              (default: 0.35)
-//   enabled,             // bool                                  (default: true)
-//   onStart,           // (event) => void
-//   onProgress,        // (event) => void  event.progress is updated
-//   onCommit,          // (event) => void
-//   onCancel,          // (event) => void
-// }
-
 /**
  * Create a pan-from-edge gesture recogniser. Tracks pointer movement
  * originating within `edgeWidthPx` of the specified screen edge and
@@ -149,7 +128,18 @@ function canStartPointer(e, opts, defaultExclude) {
  * Intended for interactive back-navigation. Works with `createGestureManager`
  * via `manager.on('edgePan', opts)` or standalone.
  *
- * @param {Object} [options] - See inline options block above for full details.
+ * @param {Object} [options]
+ * @param {Element} [options.target] - Element that receives callbacks.
+ * @param {Element} [options.trigger] - Optional hit-test element.
+ * @param {'left'|'right'|'top'|'bottom'} [options.edge='left']
+ * @param {number} [options.edgeWidthPx=24]
+ * @param {number} [options.minSwipeDistancePx=10]
+ * @param {number} [options.commitThreshold=0.35]
+ * @param {number} [options.velocityThreshold=0.35]
+ * @param {Function} [options.onStart]
+ * @param {Function} [options.onProgress]
+ * @param {Function} [options.onCommit]
+ * @param {Function} [options.onCancel]
  * @returns {{ onPointerDown: Function, onPointerMove: Function, onPointerUp: Function, onPointerCancel: Function }}
  */
 export function createEdgePanGesture(options = {}) {
@@ -305,33 +295,24 @@ export function createEdgePanGesture(options = {}) {
 }
 
 
-// --- Swipe Gesture -----------------------------------------------------------
-//
-// Recognizes a swipe on a target element. Physically moves the element during
-// drag. Snaps back on cancel, flies off on commit.
-//
-// Options:
-// {
-//   target,            // required: the element to measure/move  (e.target in callbacks)
-//   trigger,           // optional: hit-test element             (defaults to target)
-//   directions,        // ['left'] | ['right'] | ['left','right'] | ['up'] | ['down'] etc.
-//   threshold,         // fraction of target size to trigger commit   (default: 0.35)
-//   velocityThreshold, // px/ms to trigger commit on fast swipe        (default: 0.4)
-//   resistanceFactor,  // rubber-band factor past threshold            (default: 0.3)
-//   moveEl,            // auto-apply transform to target               (default: true)
-//   onStart,           // (event) => void | false  return false to cancel
-//   onProgress,        // (event) => void  event: { target, direction, delta, progress }
-//   onCommit,          // (event) => void
-//   onCancel,          // (event) => void
-// }
-
 /**
  * Create a swipe gesture recogniser. Physically translates the target element
  * during the drag; snaps back on cancel and flies off on commit.
  *
  * Works with `createGestureManager` via `manager.on('swipe', opts)` or standalone.
  *
- * @param {Object} [options] - See inline options block above for full details.
+ * @param {Object} [options]
+ * @param {Element} options.target - Element to measure and move.
+ * @param {Element} [options.trigger] - Optional hit-test element.
+ * @param {string[]} [options.directions=['left','right']]
+ * @param {number} [options.threshold=0.35]
+ * @param {number} [options.velocityThreshold=0.4]
+ * @param {number} [options.resistanceFactor=0.3]
+ * @param {boolean} [options.moveEl=true]
+ * @param {Function} [options.onStart]
+ * @param {Function} [options.onProgress]
+ * @param {Function} [options.onCommit]
+ * @param {Function} [options.onCancel]
  * @returns {{ onPointerDown: Function, onPointerMove: Function, onPointerUp: Function, onPointerCancel: Function }}
  */
 export function createSwipeGesture(options = {}) {
@@ -569,22 +550,6 @@ export function createSwipeGesture(options = {}) {
 }
 
 
-// --- Long Press Gesture ------------------------------------------------------
-//
-// Fires after a sustained hold on an element without significant movement.
-// Triggers haptic feedback on supported devices. Never claims the pointer
-// exclusively -- co-exists with swipe and scroll gestures.
-//
-// Options:
-// {
-//   target,           // required: the element being watched   (e.target in callbacks)
-//   trigger,          // optional: hit-test element            (defaults to target)
-//   durationMs,       // ms hold required to fire              (default: 400)
-//   moveThresholdPx,  // px movement before cancelling         (default: 8)
-//   onStart,       // (event) => void  event: { target, x, y }
-//   onCancel,      // () => void
-// }
-
 /**
  * Create a long-press gesture recogniser. Fires `onStart` after a sustained
  * hold without significant movement. Triggers haptic feedback on supported
@@ -592,7 +557,13 @@ export function createSwipeGesture(options = {}) {
  *
  * Works with `createGestureManager` via `manager.on('longPress', opts)` or standalone.
  *
- * @param {Object} [options] - See inline options block above for full details.
+ * @param {Object} [options]
+ * @param {Element} options.target - Element being watched.
+ * @param {Element} [options.trigger] - Optional hit-test element.
+ * @param {number} [options.durationMs=400]
+ * @param {number} [options.moveThresholdPx=8]
+ * @param {Function} [options.onStart]
+ * @param {Function} [options.onCancel]
  * @returns {{ onPointerDown: Function, onPointerMove: Function, onPointerUp: Function, onPointerCancel: Function }}
  */
 export function createLongPressGesture(options = {}) {
@@ -658,27 +629,18 @@ export function createLongPressGesture(options = {}) {
 }
 
 
-// --- Tap Gesture -------------------------------------------------------------
-//
-// Distinguishes an intentional tap from accidental touches or scroll
-// initiation. Useful on non-anchor interactive elements.
-//
-// Options:
-// {
-//   target,          // required: the element being watched   (e.target in callbacks)
-//   trigger,         // optional: hit-test element            (defaults to target)
-//   maxDistancePx,   // px movement before rejecting as tap   (default: 10)
-//   maxDurationMs,   // ms before rejecting as long press     (default: 350)
-//   onTap,       // (event) => void  event: { target, x, y }
-// }
-
 /**
  * Create a tap gesture recogniser. Distinguishes an intentional tap from
  * accidental touches or scroll initiation by checking distance and duration.
  *
  * Works with `createGestureManager` via `manager.on('tap', opts)` or standalone.
  *
- * @param {Object} [options] - See inline options block above for full details.
+ * @param {Object} [options]
+ * @param {Element} options.target - Element being watched.
+ * @param {Element} [options.trigger] - Optional hit-test element.
+ * @param {number} [options.maxDistancePx=10]
+ * @param {number} [options.maxDurationMs=350]
+ * @param {Function} [options.onTap]
  * @returns {{ onPointerDown: Function, onPointerMove: Function, onPointerUp: Function, onPointerCancel: Function }}
  */
 export function createTapGesture(options = {}) {
@@ -722,28 +684,6 @@ export function createTapGesture(options = {}) {
   return { onPointerDown, onPointerMove, onPointerUp, onPointerCancel };
 }
 
-
-// --- Gesture Manager ---------------------------------------------------------
-//
-// Owns a single pointer event loop on a root element. Dispatches to all
-// registered gestures in registration order.
-//
-// Multiple gestures can be 'pending' simultaneously on the same pointer --
-// the first one to claim on pointermove wins exclusively. Gestures that only
-// return 'pending' and never claim (longPress, tap) co-exist safely with
-// claiming gestures (edgePan, swipe).
-//
-// Gesture onPointerDown return values:
-//   true      -- claimed immediately
-//   'pending' -- watching for intent; multiple gestures may be pending at once
-//   false     -- not interested
-//
-// Usage:
-//   const manager = createGestureManager({ policy });
-//   manager.start(rootEl);
-//
-//   const stop = manager.on('swipe', { target: rowEl, directions: ['left','right'], ... });
-//   stop(); // unregister
 
 /**
  * Create a gesture manager that owns a single pointer event loop on a root
@@ -821,8 +761,7 @@ export function createGestureManager(config = {}) {
     var hasButtons = typeof e.buttons === 'number';
     var hasPressure = typeof e.pressure === 'number';
 
-    // PointerEvent reports release as buttons=0 and pressure=0.
-    // Use both signals so touch/emulation paths are handled consistently.
+    // Use both release signals so touch/emulation paths are handled consistently.
     if (hasButtons && hasPressure) return e.buttons !== 0 || e.pressure > 0;
     if (hasButtons) return e.buttons !== 0;
     if (hasPressure) return e.pressure > 0;
@@ -978,10 +917,6 @@ export function createGestureManager(config = {}) {
 }
 
 
-// --- Interactions extension -------------------------------------------------
-
-// Pre-built extension for interactionsManager.extend('gesture', ...).
-// Bridges gesture.xxx interaction keys to gestureManager.on().
 /**
  * Create a pre-built `interactionsManager.extend()` handler that bridges
  * `gesture.xxx` interaction keys to `gestureManager.on()`.

@@ -47,8 +47,6 @@ export function resolveMotionEasing(policy, override) {
   return override || policy.easing || MOTION_DEFAULTS.easing;
 }
 
-// Read a CSS custom property from an element, coerced to a number.
-// parseFloat strips trailing units ('ms', 'px', etc.) automatically.
 /**
  * Read a CSS custom property from an element as a number.
  * `parseFloat` strips trailing units (`ms`, `px`, etc.) automatically.
@@ -64,10 +62,6 @@ export function readCss(el, varName, fallback) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-
-// Collapse an element's height/opacity/marginBottom to zero, then clear styles.
-// Returns a Promise that resolves when done.
-// opts: { duration, easing }
 /**
  * Animate an element's height, opacity, and margin-bottom to zero, then clear
  * the inline styles. Useful for list-item removal animations.
@@ -111,29 +105,7 @@ export function collapseElement(el, opts) {
   });
 }
 
-//
-// Pure WAAPI Animator
-// - No platform logic
-// - No presets
-// - No env inference
-// - Fully policy-driven
-//
-// Policy contract:
-//
-// motion = {
-//   duration: { normalMs: 240 },
-//   easing: 'ease',
-//   reduced: false
-// }
-//
-// transition = {
-//   forward: { from: [...], to: [...] },
-//   back:    { from: [...], to: [...] }
-// }
-//
-// Exports:
-//   createAnimator(options) -> { start, animate }
-//   ANIMATION_PRESETS        -> named keyframe map (extensible)
+// Policy-driven WAAPI animator. Platform choices live in env policy.
 
 
 function clamp01(n) {
@@ -188,17 +160,8 @@ function cancelAnimation(anim) {
 }
 
 
-// --- State-aware keyframe helpers -------------------------------------------
-//
-// Problem: Some presets assume an initial state (e.g. translateY(0)).
-// If the element currently has a different computed transform when the
-// animation starts, it will visually snap (jump) to the first keyframe.
-//
-// Solution: Allow presets to opt-in to "start from current" using the
-// sentinel value 'current' (for transform/opacity/etc). When present,
-// we replace it with the element's computed style at invocation time.
-// We also commit/cancel in-flight animations started by this animator so we
-// start from the *actual* current visual state.
+// Prevent visual snaps by resolving `'current'` keyframe values from computed
+// style and committing in-flight animations owned by this animator.
 
 var _ownedAnimations = new WeakMap();
 
@@ -330,16 +293,6 @@ function shouldRebaseTarget(config, target) {
 }
 
 
-// --- Named animation presets -------------------------------------------------
-//
-// Each preset defines { from, to } keyframe arrays for a single element.
-// Consumers may extend this map at runtime:
-//   import { ANIMATION_PRESETS } from '@fstage/animator';
-//   ANIMATION_PRESETS.myEffect = { from: [...], to: [...] };
-//
-// Special case: presets with only `from` (no `to`) are treated as
-// multi-keyframe sequences applied directly to the element (e.g. `pop`).
-
 /**
  * Named keyframe preset map. Each entry is `{ from, to }` (enter/exit pairs)
  * or `{ from }` only for multi-keyframe sequences (e.g. `pop`, `tabBounce`).
@@ -405,8 +358,7 @@ export const ANIMATION_PRESETS = {
     from: [{ transform: 'scale(1)',    opacity: 1 }],
     to:   [{ transform: 'scale(0.88)', opacity: 0 }],
   },
-  // Multi-keyframe: applied directly as a sequence on a single element.
-  // `to` is omitted - the `from` array IS the full keyframe sequence.
+  // `from` without `to` is treated as a full keyframe sequence.
   pop: {
     from: [
       { transform: 'scale(1)' },
@@ -415,14 +367,12 @@ export const ANIMATION_PRESETS = {
     ],
   },
 
-  // Bottom sheet: slides up from off-screen bottom
   slideUpSheet: {
     from: [{ transform: 'translateY(100%)' }],
     to:   [{ transform: 'translateY(0)' }],
   },
 
-  // Bottom sheet: slides down to off-screen bottom
-  // NOTE: start from current computed transform to avoid visual snapping
+  // Starts from computed transform to avoid snapping during drag dismiss.
   slideDownSheet: {
     from: [{ transform: 'current' }],
     to:   [{ transform: 'translateY(100%)' }],
@@ -513,11 +463,7 @@ export function createAnimator(options = {}) {
     return resolveMotionEasing(p || policy, override);
   }
 
-  // ---------- start() — screen-to-screen transitions (existing API) ----------
-  //
-  // args: { direction, from, to, interactive }
-  // returns: handle with { finished, destroy, [progress, commit, cancel] }
-
+  // Screen-to-screen transitions.
   function start(args) {
     args = args || {};
 
@@ -557,7 +503,7 @@ export function createAnimator(options = {}) {
     if (aFrom) trackAnimation(fromEl, aFrom);
     if (aTo)   trackAnimation(toEl, aTo);
 
-    // --- INTERACTIVE ---
+    // Interactive transitions expose progress/commit/cancel controls.
     if (interactive && duration > 0) {
       if (aFrom) aFrom.pause();
       if (aTo)   aTo.pause();
@@ -604,7 +550,7 @@ export function createAnimator(options = {}) {
       };
     }
 
-    // --- NON-INTERACTIVE ---
+    // Non-interactive transition.
     const finished = Promise.all([wait(aFrom), wait(aTo)]).then(function () {
       cancelAnimation(aFrom);
       cancelAnimation(aTo);
@@ -624,14 +570,7 @@ export function createAnimator(options = {}) {
   }
 
 
-  // ---------- animate() — single-element named-preset animation --------------
-  //
-  // el:     the element to animate
-  // preset: string name from ANIMATION_PRESETS, or a raw { from, to } object
-  // opts:   { duration, easing, fill, delay }
-  //
-  // Returns: { finished: Promise, cancel: fn }
-
+  // Single-element named-preset animation.
   function animate(el, preset, opts) {
     opts = opts || {};
 
@@ -714,17 +653,7 @@ export function createAnimator(options = {}) {
     };
   }
 
-  // ---------- createToggle() — boolean-state two-preset animation controller --
-  //
-  // Called once in connected(). Returns { update(el, bool), cancel() }.
-  // update() owns: change guard, skip-initial-false, in-flight cancel, policy.
-  // Returns false if state unchanged (caller can bail on side-effects).
-  //
-  // spec: {
-  //   show: { preset, duration, easing, onSettle },
-  //   hide: { preset, duration, easing, onSettle },
-  // }
-
+  // Boolean-state two-preset animation controller.
   function createToggle(spec) {
     spec = spec || {};
     var showSpec = spec.show || {};
@@ -770,11 +699,7 @@ export function createAnimator(options = {}) {
     };
   }
 
-  // ---------- collapse() — measure-and-collapse exit animation ---------------
-  //
-  // Pins element height, animates height/opacity/marginBottom to zero.
-  // opts: { durationFactor, easing, onSettle }
-
+  // Measure-and-collapse exit animation.
   function collapse(el, opts) {
     opts = opts || {};
     if (!el) return noopHandle();
@@ -816,16 +741,7 @@ export function createAnimator(options = {}) {
   }
 
 
-  // ---------- flip() — positional before/after mutation animation ------------
-  //
-  // Snapshots element positions before and after a DOM mutation, then animates
-  // the delta so elements appear to move smoothly from their old positions.
-  //
-  // flip(mutationFn, targets, opts)
-  //   mutationFn: () => void  — performs the DOM change
-  //   targets:    Element | Element[]  — elements to animate
-  //   opts:       { durationFactor, easing }
-
+  // Positional before/after mutation animation.
   function flip(mutationFn, targets, opts) {
     opts = opts || {};
     if (!targets) return Promise.resolve();
@@ -882,17 +798,7 @@ export function createAnimator(options = {}) {
   }
 
 
-  // ---------- stagger() — collection animation with per-item delay ----------
-  //
-  // Animates an array of elements with the same preset, offset by a delay
-  // between each item.
-  //
-  // stagger(els, preset, opts)
-  //   opts: { durationFactor, easing, staggerFactor (delay as fraction of
-  //           duration per step, default 0.12), staggerMs (override) }
-  //
-  // Returns { finished: Promise, cancel: fn }
-
+  // Collection animation with per-item delay.
   function stagger(els, preset, opts) {
     opts = opts || {};
     if (!els || !els.length) return noopHandle();

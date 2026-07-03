@@ -44,10 +44,8 @@
  */
 export function createWebsocket(url, opts={}) {
 
-	//format url
 	url = url.replace(/^http/i, 'ws');
 
-	//format opts
 	opts = Object.assign({
 		protocols: [],
 		retries: 50,
@@ -55,7 +53,6 @@ export function createWebsocket(url, opts={}) {
 		open: true
 	}, opts);
 
-	//local vars
 	var conn = false;
 	var tries = 0;
 	var guid = 0;
@@ -63,21 +60,16 @@ export function createWebsocket(url, opts={}) {
 	var sendQ = []
 	var subbed = {};
 
-	//update listener queue
 	var updateListenQ = function(listener, event='message', channel=null, remove=false) {
-		//event queue
 		listenQ[event] = listenQ[event] || [];
-		//de-dupe queue
 		listenQ[event] = listenQ[event].filter(function(item) {
 			return item.listener !== listener || item.channel !== channel;
 		});
-		//add to queue?
 		if(!remove) {
 			listenQ[event].push({ listener: listener, channel: channel });
 		}
 	};
 
-	//run listen queue
 	var runListenQ = function(event, e) {
 		var isRaw = !event || [ 'open', 'message', 'error', 'close' ].includes(event);
 		var json = null;
@@ -88,118 +80,90 @@ export function createWebsocket(url, opts={}) {
 				//do nothing
 			}
 		}
-		//loop through listeners
 		for(var i=0; i < (listenQ[event] || []).length; i++) {
-			//set vars
 			var opts = listenQ[event][i];
-			//raw socket?
 			if(isRaw) {
 				opts.listener(e);
 				continue;
 			}
-			//event matched?
 			if(!json || json.event !== event) {
 				continue;
 			}
-			//channel matched?
 			if(!opts.channel || json.channel === opts.channel) {
 				opts.listener(json.data || json.message || json, e);
 			}
 		}
 	};
 
-	//public api
 	const api = {
 	
 		ws: null,
 
 		open: function() {
-			//create socket?
 			if(!api.ws) {
-				//create socket
 					api.ws = new WebSocket(url, opts.protocols);
-					//open listener
 					api.ws.addEventListener('open', function(e) {
-						//update vars
 						var q = sendQ.slice();
 						sendQ = [];
 						conn = true;
 						tries = 0;
-						//loop through send queue
 						for(var i=0; i < q.length; i++) {
 							api.send(...q[i]);
 						}
-					//open queue
 					runListenQ('open', e);
 				});
-				//message listener
 				api.ws.addEventListener('message', function(e) {
-					//message queue
 					runListenQ('message', e);
-					//process custom events
+					// Custom events are encoded inside message frames.
 					for(var key in listenQ) {
-						//has property?
 						if(!listenQ.hasOwnProperty(key)) {
 							continue;
 						}
-						//run queue?
 						if(![ 'open', 'message', 'error', 'close' ].includes(key)) {
 							runListenQ(key, e);
 						}
 					}
 				});
-				//error listener
 				api.ws.addEventListener('error', function(e) {
 					runListenQ('error', e);
 				});
-				//close listener
 				api.ws.addEventListener('close', function(e) {
-					//reset socket
 					api.ws = null;
 					conn = false;
 					subbed = {};
-					//close queue
 					runListenQ('close', e);
-					//stop here?
+					// Normal close or exhausted retries stops reconnecting.
 					if(e.code === 1000 || (tries > 0 && tries >= opts.retries)) {
 						return;
 					}
-					//try to reconnect
 					setTimeout(function() {
 						tries++;
 						api.open();
 					}, opts.wait);
 				});
 			}
-			//return
 			return api;
 		},
 
 		close: function(code=1000, reason='') {
-			//close connection?
 			if(api.ws) {
 				api.ws.close(code, reason);
 				api.ws = null;
 				conn = false;
 			}
-			//return
 			return api;
 		},
 
 		send: function(data, opts={}) {
-			//can send?
 			if(conn) {
 				api.ws.send(opts.encode ? JSON.stringify(data) : data);
 			}
-			//de-dupe queue
 			sendQ = sendQ.filter(function(item) {
 				return item[0] !== data;
 			});
-			//add to queue?
 			if(!conn || opts.queue) {
 				sendQ.push([ data, opts ]);
 			}
-			//return
 			return api;
 		},
 
@@ -223,19 +187,14 @@ export function createWebsocket(url, opts={}) {
 		},
 
 			subscribe: function(channel, listener, remove=false) {
-				//update listener queue
 				if(typeof listener === 'function') {
 					updateListenQ(listener, 'publish', channel, remove);
 				}
-				//valid channel?
 				if(!channel) {
 					return api;
 				}
-				//send message to server?
 				if(!remove && !subbed[channel]) {
-					//update flag
 					subbed[channel] = true;
-					//send now
 					api.send({
 						event: 'subscribe',
 					channel: channel
@@ -253,7 +212,6 @@ export function createWebsocket(url, opts={}) {
 						encode: true
 					});
 				}
-				//return
 				return api;
 			},
 
@@ -273,19 +231,16 @@ export function createWebsocket(url, opts={}) {
 
 	};
 
-	//open now?
 	if(opts.open) {
 		api.open();
 	}
 
-	//close gracefully
 	if(typeof globalThis.addEventListener === 'function') {
 		globalThis.addEventListener('beforeunload', function() {
 			api.close();
 		});
 	}
 
-	//return
 	return api;
 
 }

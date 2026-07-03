@@ -178,7 +178,7 @@ Every lifecycle function and handler receives `ctx`:
 | `ctx.config` | App config (immutable) |
 | `ctx.html/css/svg` | LitElement template helpers |
 | `ctx.emit(type, detail?, opts?)` | Dispatch a CustomEvent from host |
-| `ctx.cleanup(fn)` | Register a teardown function (run on disconnect, in reverse order) |
+| `ctx.cleanup(fn)` | Register a connected-only teardown function (run on disconnect, in reverse order) |
 | `ctx.form` / `ctx.forms` | Form controllers when `form` / `forms` is declared |
 | `ctx.animate(el, preset, opts?)` | Animate an element (requires animator) |
 

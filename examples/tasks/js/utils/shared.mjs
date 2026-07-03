@@ -149,11 +149,11 @@ export function animateTaskListRestore(mutateFn, opts) {
 	var before = snapshotTaskRows();
 	var res = mutateFn();
 
+	// Wait two frames so Lit has committed restored row positions.
 	requestAnimationFrame(function() {
 		requestAnimationFrame(function() {
 			var after = snapshotTaskRows();
 
-			// Collect move targets and new entrants separately
 			var moveEls = [];
 			var moveDys = [];
 			var enterEls = [];

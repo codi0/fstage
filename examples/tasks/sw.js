@@ -1,5 +1,5 @@
 /**
- * sw.js — Fstage service worker.
+ * sw.js — fstage service worker.
  *
  * Caching strategy:
  *   Navigation requests  — cache-first (offline shell always available).
@@ -11,7 +11,8 @@
  *
  * Update trigger: bump version.json on your server. The shell detects the
  * change on boot, messages this SW to clear all managed caches, and reloads.
- * No sw.js edit needed.
+ * No sw.js edit needed for content updates — only change sw.js when modifying
+ * caching strategy or adding push notification behaviour.
  */
 
 // =============================================================================

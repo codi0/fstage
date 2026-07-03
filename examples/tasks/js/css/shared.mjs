@@ -1,11 +1,11 @@
 // Shared CSS blocks for PWA components.
 // Import named exports and compose into component style arrays.
-// LitElement deduplicates CSSResult objects by reference  each block is one
+// LitElement deduplicates CSSResult objects by reference, so each block is one
 // CSSStyleSheet in memory regardless of how many components import it.
 
 import { css } from 'lit';
 
-// Section header  typography controlled by global platform tokens.
+// Section header — typography controlled by global platform tokens.
 export const sectionHeader = css`
 	.section-header {
 		font-size: var(--pwa-section-header-font-size, 10.5px);
@@ -17,7 +17,7 @@ export const sectionHeader = css`
 	}
 `;
 
-// Empty state  centred illustration + message used when a list has no items.
+// Empty state — centred illustration and message for empty lists.
 export const emptyState = css`
 	.empty-state {
 		display: flex; flex-direction: column; align-items: center;
@@ -28,7 +28,7 @@ export const emptyState = css`
 	.empty-sub   { font-size: 15px; color: var(--text-tertiary); }
 `;
 
-// Row icon  small rounded square used as a leading icon in card rows.
+// Row icon — small rounded square used as a leading icon in card rows.
 export const rowIcon = css`
 	.row-icon {
 		width: 30px; height: 30px; border-radius: 8px;
@@ -41,7 +41,7 @@ export const rowIcon = css`
 	.row-icon svg    { width: 16px; height: 16px; stroke: currentColor; stroke-width: 2; stroke-linecap: round; fill: none; }
 `;
 
-// Card section  grouped card container with divider rows, used in settings and task detail.
+// Card section — grouped card container with divider rows.
 export const cardSection = css`
 	.section {
 		background: var(--bg-base); border-radius: var(--radius-lg);

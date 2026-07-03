@@ -1,4 +1,3 @@
-//cache
 var cache = null;
 
 // ---------------------------------------------------------------------------
@@ -66,11 +65,9 @@ export function defaultRegistry() {
  * @returns {Registry<T>}
  */
 export function createRegistry() {
-	//set vars
 	const _data = {};
 	var sealed = false;
 
-	//create function
 	const api = {
 
 		has: function(key) {
@@ -78,35 +75,27 @@ export function createRegistry() {
 		},
 
 		get: function(key, defVal = null) {
-			//set vars
 			var res = defVal;
-			//key not found (no default set)?
+			// Warn only when no explicit default was supplied.
 			if(!_data[key] && arguments.length < 2) {
 				console.warn('[fstage/registry] get("' + key + '"): key not found');
 			}
-			//has value?
 			if(_data[key]) {
-				//is factory?
 				if(_data[key].isFactory) {
-					//get value
 					var val = _data[key].val();
-					//is promise?
 					if(val instanceof Promise) {
 						val = val.then(function(res) {
 							_data[key].val = res;
 							return res;
 						});
 					}
-					//update data
 					_data[key] = {
 						val: val,
 						isFactory: false
 					};
 				}
-				//set result
 				res = _data[key].val;
 			}
-			//return
 			return res;
 		},
 	
@@ -114,11 +103,9 @@ export function createRegistry() {
 			if (sealed && _data[key]) {
 				throw new Error("[fstage/registry] this registry is sealed");
 			}
-			//is factory function?
 			if(isFactory && typeof val !== 'function') {
 				throw new Error("[fstage/registry] factory requires a function");
 			}
-			//add to data
 			_data[key] = {
 				val: val,
 				isFactory: !!isFactory
@@ -144,7 +131,6 @@ export function createRegistry() {
 		
 	};
 
-	//return
 	return api;
 
 }

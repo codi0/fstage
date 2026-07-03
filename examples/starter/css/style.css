@@ -4,8 +4,8 @@
  * Tokens use CSS custom properties so they automatically cascade to
  * components (whether shadow DOM or not) and are easy to theme.
  *
- * The PWA example (examples/pwa/css/style.css) has a fuller design
- * system you can draw from for a production app.
+ * The tasks example (examples/tasks/css/style.css) has fuller design
+ * tokens you can draw from for a production app.
  */
 
 

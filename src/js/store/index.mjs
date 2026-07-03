@@ -1,20 +1,9 @@
 /**
  * @fstage/store
  *
- * Exports (in dependency order):
- *   createTracker   — reactive tracking primitive
- *   createBase      — foundation: state, pipelines, write engine, plugin system
- *   createPlain     — simple store using plain object
- *   createProxy     — deep reactive proxy store
- *   storePlugin     — $get, $set, $merge, $del, $reset, $watch, $raw, $has
- *   reactivePlugin  — $effect, $computed, $track
- *   operationPlugin — $operation, $fetch, $send, $query, $opStatus
- *   createStore     — fully wired store (all three plugins)
- *
- * Data flow: register operations with $operation. Each operation owns the full
- * lifecycle for a store path — fetching, caching, TTL, mutations, optimistic
- * updates, rollback, cancellation, and pagination — through a single declarative
- * definition. fetch and mutate are independently optional.
+ * Reactive store primitives plus the standard `$get`/`$set`/`$watch`, reactive,
+ * and operation plugins. `$operation` owns fetch, cache, mutation, optimistic
+ * update, rollback, cancellation, and pagination lifecycle for a store path.
  */
 
 import { getType, hasKeys, copy, nestedKey, diffValues, hash, isEqual, createHooks } from '../utils/index.mjs';
@@ -781,47 +770,6 @@ export function reactivePlugin(ctx) {
 }
 
 
-// =============================================================================
-// operationPlugin
-//
-// Single unified data lifecycle plugin. Owns fetch, mutation, TTL, caching,
-// optimistic updates, rollback, cancellation, and pagination internally.
-// Exposes a minimal public API — no separate access/mutation primitives needed.
-//
-// Public API:
-//   $operation(path, def)    — register read/write lifecycle for a store path
-//   $fetch(path, opts)       — imperatively trigger a fetch
-//   $send(path, val, opts)   — imperatively trigger a mutation
-//   $query(path, opts)       — read data + fetch status: { data, loading, fetching, error }
-//   $opStatus(path)          — full status snapshot for reads, writes, and pagination
-//
-// Operation definition (all fields optional except at least one of fetch/mutate):
-//   fetch(ctx)       — load data. ctx: { path, val, refresh, signal, controller,
-//                      query, pagination }. Return a Promise (optionally with a
-//                      .next Promise for background updates) or a plain value.
-//   mutate(ctx)      — sync writes. ctx: { path, val, action, signal, controller }.
-//                      Return { promise, rollback? } or a plain Promise.
-//   ttl              — ms before cached value is stale (default: none)
-//   enabled          — boolean or fn() => boolean; skips fetch when false
-//   optimistic       — true to use ctx.val immediately, or fn(currentVal) => val
-//   paginate(ctx)    — fn returning next-page params. ctx: { path, val, pagination }.
-//                      Return null/undefined when no more pages.
-//   onSuccess(response, ctx)
-//   onError(err, ctx)  — return true to suppress automatic rollback
-//   onSettled(ctx)
-//
-// $opStatus(path) => {
-//   loading, fetching, fetchError,      — read-side
-//   mutating, mutationError             — write-side
-//   hasMore, nextParams, pageCount      — pagination
-// }
-//
-// Pagination:
-//   Return { data, pagination: { hasMore, next, total? } } from the fetch
-//   Promise to surface continuation state. Call $fetch(path, { append: true })
-//   to load the next page — results are merged into the store.
-// =============================================================================
-
 /**
  * Operation plugin — mounts `$operation`, `$fetch`, `$send`, `$query`, and `$opStatus`.
  *
@@ -835,10 +783,6 @@ export function reactivePlugin(ctx) {
  * @returns {{ methods: Object, hooks: Object }} Plugin descriptor.
  */
 export function operationPlugin(ctx) {
-
-  // --------------------------------------------------------------------------
-  // Internal state
-  // --------------------------------------------------------------------------
 
   // path → operation definition
   const defs = new Map();
@@ -864,10 +808,6 @@ export function operationPlugin(ctx) {
 
   // write sources that should never trigger a mutate sync
   const WRITE_SKIP = new Set(['access', 'optimistic', 'rollback']);
-
-  // --------------------------------------------------------------------------
-  // Helpers
-  // --------------------------------------------------------------------------
 
   function getOpMeta(path) {
     return opMeta.get(path) || {

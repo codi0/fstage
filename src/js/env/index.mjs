@@ -1,8 +1,4 @@
-// CACHE
-
 const _cache = {};
-
-// HELPERS
 
 function merge(target, src) {
 	for (var k in src) {
@@ -125,28 +121,8 @@ function policyToCssArr(policy, reserved) {
 	return vars;
 }
 
-// POLICY KEY NAMING CONVENTION
-//
-// Structure:  domain -> feature -> token
-//             e.g.  gestures.edgePan.edgeWidthPx
-//
-// Casing:     camelCase for all JS keys
-//
-// Units:      Suffix raw numbers with their unit: Ms, Px
-//             Omit suffix for unitless ratios and booleans
-//             e.g.  durationMs: 400   edgeWidthPx: 24   commitThreshold: 0.35
-//
-// Naming:     Prefer semantic names — duration.normalMs not durationNormal
-//             Use nouns for domain/feature segments
-//             Only use from/to inside animation descriptors
-//             Make context explicit — transitions.pageNavigation.forward
-//             not motion.forward
-//
-// Keyframes:  Defined under transitions.<feature>.<direction>
-//             motion holds only duration and easing — never keyframes
-//
-// CSS output: CSS var names derived independently from JS keys
-//             JS: edgeWidthPx   CSS: --policy-gestures-edge-pan-edge-width
+// Policy keys use camelCase JS paths; numeric unit tokens end in `Ms` / `Px`.
+// Scalar values are exported as kebab-case CSS variables by policyToCssArr().
 
 function policyDefaults() {
 	return {
@@ -307,8 +283,6 @@ function policyDefaults() {
 	};
 }
 
-// EXPORTS
-
 /**
  * Detect the current runtime environment and return a cached env object.
  * Results are keyed by `ua + preset` so multiple calls with the same
@@ -324,53 +298,9 @@ function policyDefaults() {
  *   getPolicy(path?: string, fallback?: *): *,
  *   applyToDoc(el?: Element): void
  * }}
- *
- * **`getFacts()`** — return a snapshot of detected environment facts:
- * ```
- * {
- *   // Platform
- *   os:           'ios' | 'android' | 'windows' | 'mac' | ''
- *   deviceClass:  'mobile' | 'desktop'
- *
- *   // Runtime context
- *   isBrowser:    boolean  — running in a browser tab / WebView
- *   isNative:     boolean  — running inside a Capacitor native app
- *   isNode:       boolean  — running in Node.js
- *   isWorker:     boolean  — running in a Web Worker
- *
- *   // Display / install mode
- *   isStandalone: boolean  — display-mode: standalone OR navigator.standalone
- *                            (true for both installed PWA and native)
- *   isPwa:        boolean  — isStandalone && !isNative
- *                            (installed web app, not a native wrapper)
- *
- *   // Capabilities
- *   touch:         boolean
- *   notifications: boolean
- *   serviceWorker: boolean
- *
- *   // Location
- *   host:     string
- *   basePath: string
- *
- *   // Debug / meta
- *   nativeEngine: 'capacitor' | ''
- *   preset:       string
- *   userAgent:    string
- * }
- * ```
- *
- * **`registerPolicy(policy, priority?)`** — merge an additional motion/gesture
- * policy layer. `policy` may be a plain object or a `(facts) => object` function.
- * Lower `priority` values win (default `50`). Base platform policy has priority `0`.
- *
- * **`getPolicy(path?, fallback?)`** — read a value from the resolved merged policy
- * by dot-notation path (e.g. `'motion.duration.normalMs'`). Returns the full
- * policy object when `path` is omitted.
- *
- * **`applyToDoc(el?)`** — run once at boot. Sets `data-platform`, and conditionally
- * `data-native`, `data-pwa`, `data-standalone` on the document element, wires
- * keyboard-height CSS var, and injects all policy scalars as CSS custom properties.
+ * `registerPolicy()` accepts plain objects or `(facts) => object` layers. Lower
+ * priority values win; the base platform policy uses priority `0`.
+ * `applyToDoc()` writes platform attributes and policy CSS variables.
  */
 export function getEnv(opts) {
 	opts = opts || {};

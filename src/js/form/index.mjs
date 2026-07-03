@@ -1,101 +1,16 @@
 /**
  * @fstage/form
  *
- * Store-backed declarative form lifecycle manager. Field values live in the
- * component store (declared in `state`, kept in sync via `bind`) — the form
- * module is purely a validation, error-display, and submit-lifecycle layer.
- *
- * Because values are reactive store state, the component's render function has
- * full access to them: disabled buttons, live character counts, dependent field
- * visibility, and any other value-driven UI work naturally without any special
- * form-module API.
- *
- * In a component, mount/unmount is handled automatically by the component
- * runtime when a `form` or `forms` block is present in the definition.
- *
- * Typical component usage:
- * ```js
- * state: {
- *   email:    '',
- *   password: '',
- * },
- *
- * bind: {
- *   '[name="email"]':    'email',
- *   '[name="password"]': 'password',
- * },
- *
- * form: {
- *   fields: {
- *     email:    { required: true, type: 'email' },
- *     password: { required: true, minLength: 8 },
- *   },
- *   onSubmit(values, form, ctx) { ... },
- *   onError(errors, form, ctx)  { ... },
- * },
- *
- * render({ html, state }) {
- *   return html`
- *     <form name="form">
- *       <input name="email"    .value=${state.email}>
- *       <input name="password" .value=${state.password} type="password">
- *       <button type="submit" ?disabled=${!state.email || !state.password}>
- *         Sign in
- *       </button>
- *     </form>
- *   `;
- * },
- * ```
- *
- * ─── Field definition options ────────────────────────────────────────────────
- *   required      {boolean}   Must be non-empty.
- *   minLength     {number}    Minimum string length.
- *   maxLength     {number}    Maximum string length.
- *   type          {string}    'email' | 'url' | 'number' | 'date' — format check.
- *   oneOf         {Array}     Value must appear in this list.
- *   min           {number}    Numeric or date-string minimum.
- *   max           {number}    Numeric or date-string maximum.
- *   validate      {Function}  (value, values) => string|null  — custom sync rule.
- *   validateAsync {Function}  (value, values) => Promise<string|null> — async rule.
- *   enabled       {Function}  (values) => boolean — false skips validation and
- *                             excludes the field from submitted values.
- *   default       {*}         Value written back to state on reset(). Defaults to ''.
- *   validateOn    {string}    'blur' | 'change' — overrides the form-level setting.
- *
- * ─── Form definition options ─────────────────────────────────────────────────
- *   fields        {Object}    Field definitions (required).
- *   validate      {Function}  (values) => { field: msg } | null — form-level sync
- *                             rule, runs after all field rules on submit.
- *   onSubmit      {Function}  (values, form, ctx) => void|Promise
- *   onError       {Function}  (errors, form, ctx) => void
- *   validateOn    {string}    'blur' (default) | 'change'
- *   debounce      {number}    ms to debounce async validation (default: 300).
- *
- * ─── DOM conventions ─────────────────────────────────────────────────────────
- *   - `novalidate` is added to the form element on mount.
- *   - Errors are injected as <div class="form-error"> immediately after the
- *     offending field, or after the last element of a radio/checkbox group.
- *   - The field (or each group element) receives the class 'field-invalid'.
- *   - Both are removed as soon as the field passes validation.
- *   - Submit buttons receive the `disabled` attribute during async submission.
+ * Store-backed form controller. Field values remain component state; this module
+ * owns validation, error display, reset, and submit lifecycle only.
  */
 
 import { debounce } from '../utils/index.mjs';
 
 
-// =============================================================================
-// createFormManager
-// =============================================================================
-
 /**
  * Create a form manager — a thin factory wrapper around `createForm`.
- * Instantiated once at app boot and passed to `createRuntime` as
- * `config.formManager`.
- *
- * Usage in config:
- * ```js
- * var formManager = e.modules.get('form.createFormManager', []);
- * ```
+ * Instantiated once at app boot and passed to `createRuntime` as `formManager`.
  *
  * @returns {{ create(def: Object, ctx: Object): Object }}
  */
@@ -115,10 +30,6 @@ export function createFormManager() {
 	};
 }
 
-
-// =============================================================================
-// Built-in validators
-// =============================================================================
 
 /** @type {Object<string, RegExp>} Format patterns for the `type` rule. */
 var TYPE_PATTERNS = {
@@ -315,11 +226,12 @@ export function createForm(def, componentCtx) {
 	if (!def || !def.fields) throw new Error('[fstage/form] createForm() requires a definition with fields');
 
 	var formEl      = null;
-	var _errors     = {};
-	var _touched    = {};
-	var _submitting = false;
-	var _listeners  = [];  // DOM event listeners
-	var _watchOffs  = [];  // store $watch unsubscribe functions
+	var _errors       = {};
+	var _errorSources = {};
+	var _touched      = {};
+	var _submitting   = false;
+	var _listeners    = [];  // DOM event listeners
+	var _watchOffs    = [];  // store $watch unsubscribe functions
 
 	var globalValidateOn = def.validateOn || 'blur';
 	var debounceMs       = def.debounce !== undefined ? def.debounce : 300;
@@ -336,6 +248,19 @@ export function createForm(def, componentCtx) {
 	 * @type {Object<string, number>}
 	 */
 	var _asyncSeq = {};
+
+	/**
+	 * Bump and return the async validation generation for a field.
+	 * Called when async validation is scheduled, not just when it dispatches,
+	 * so older in-flight responses are stale during the debounce window too.
+	 *
+	 * @param {string} name - Field name.
+	 * @returns {number}
+	 */
+	function nextAsyncSeq(name) {
+		_asyncSeq[name] = (_asyncSeq[name] || 0) + 1;
+		return _asyncSeq[name];
+	}
 
 
 	// ------------------------------------------------------------------
@@ -451,6 +376,7 @@ export function createForm(def, componentCtx) {
 
 		if (!isEnabled(name, allVals)) {
 			delete _errors[name];
+			delete _errorSources[name];
 			removeFieldError(el);
 			return null;
 		}
@@ -464,9 +390,11 @@ export function createForm(def, componentCtx) {
 
 		if (error) {
 			_errors[name] = error;
+			_errorSources[name] = 'sync';
 			showFieldError(el, error);
 		} else {
 			delete _errors[name];
+			delete _errorSources[name];
 			removeFieldError(el);
 		}
 
@@ -485,6 +413,7 @@ export function createForm(def, componentCtx) {
 		for (var name in formErrors) {
 			if (formErrors[name]) {
 				_errors[name] = formErrors[name];
+				_errorSources[name] = 'form';
 				showFieldError(getFieldEl(formEl, name), formErrors[name]);
 			}
 		}
@@ -517,9 +446,8 @@ export function createForm(def, componentCtx) {
 	 * @param {Object} allVals - Snapshot from collectValues().
 	 * @returns {Promise<string|null>}
 	 */
-	function dispatchAsync(name, rules, allVals) {
-		_asyncSeq[name] = (_asyncSeq[name] || 0) + 1;
-		var seq = _asyncSeq[name];
+	function dispatchAsync(name, rules, allVals, seq) {
+		seq = seq || nextAsyncSeq(name);
 		var val = allVals[name];
 
 		return Promise.resolve(rules.validateAsync(val, allVals)).then(function(error) {
@@ -527,7 +455,12 @@ export function createForm(def, componentCtx) {
 			error = error || null;
 			if (error) {
 				_errors[name] = error;
+				_errorSources[name] = 'async';
 				showFieldError(getFieldEl(formEl, name), error);
+			} else if (_errorSources[name] === 'async') {
+				delete _errors[name];
+				delete _errorSources[name];
+				removeFieldError(getFieldEl(formEl, name));
 			} else if (!_errors[name]) {
 				removeFieldError(getFieldEl(formEl, name));
 			}
@@ -562,12 +495,15 @@ export function createForm(def, componentCtx) {
 	 */
 	function getDebouncedAsync(name) {
 		if (!_asyncDebounced[name]) {
-			_asyncDebounced[name] = debounce(function() {
+			var runner = debounce(function(seq) {
 				var rules   = def.fields[name];
 				var allVals = collectValues();
 				if (!isEnabled(name, allVals)) return;
-				dispatchAsync(name, rules, allVals);
+				dispatchAsync(name, rules, allVals, seq);
 			}, debounceMs);
+			_asyncDebounced[name] = function() {
+				runner(nextAsyncSeq(name));
+			};
 		}
 		return _asyncDebounced[name];
 	}
@@ -578,8 +514,8 @@ export function createForm(def, componentCtx) {
 	// ------------------------------------------------------------------
 
 	/**
-	 * Return a blur handler for a field. Marks the field as touched and
-	 * runs sync + async validation immediately (no debounce on blur).
+	 * Return a blur handler for a field. Marks the field as touched and runs
+	 * sync validation immediately; async validation uses the field debounce.
 	 *
 	 * @param {string} name - Field name.
 	 * @returns {Function}
@@ -689,8 +625,9 @@ export function createForm(def, componentCtx) {
 			formEl = newFormEl;
 			formEl.setAttribute('novalidate', '');
 
-			_errors  = {};
-			_touched = {};
+			_errors       = {};
+			_errorSources = {};
+			_touched      = {};
 
 			for (var fieldName in def.fields) {
 				var el = getFieldEl(formEl, fieldName);
@@ -733,6 +670,7 @@ export function createForm(def, componentCtx) {
 			removeAllWatches();
 			formEl          = null;
 			_errors         = {};
+			_errorSources   = {};
 			_touched        = {};
 			_submitting     = false;
 			_asyncDebounced = {};
@@ -810,6 +748,7 @@ export function createForm(def, componentCtx) {
 		 */
 		setError: function(field, message) {
 			_errors[field] = message;
+			_errorSources[field] = 'manual';
 			showFieldError(getFieldEl(formEl, field), message);
 		},
 
@@ -820,6 +759,7 @@ export function createForm(def, componentCtx) {
 		 */
 		clearError: function(field) {
 			delete _errors[field];
+			delete _errorSources[field];
 			removeFieldError(getFieldEl(formEl, field));
 		},
 

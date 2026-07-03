@@ -1,5 +1,5 @@
 /* ============================================================================
-   Fstage Tasks  Design System v2 (Warm Editorial)
+   fstage Tasks — Design System v2 (Warm Editorial)
    ============================================================================ */
 
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap');
@@ -8,7 +8,7 @@
 /* --- Tokens: Light mode ---------------------------------------------------- */
 
 :root {
-	/* Brand  forest green accent */
+	/* Brand — forest green accent */
 	--color-primary:         #2D7A52;
 	--color-primary-dark:    #1E4D35;
 	--color-primary-subtle:  rgba(45, 122, 82, 0.12);
@@ -66,7 +66,7 @@
 	--pwa-row-active-transform: scale(0.98);
 	--pwa-row-active-bg: var(--bg-base);
 	--pwa-row-active-shadow: none;
-	/* Keyboard height  set by config.js */
+	/* Keyboard height — updated live by @fstage/env */
 	--keyboard-height: 0px;
 
 	/* Toast */
@@ -100,7 +100,7 @@
 	/* Typography */
 	--font-body:   'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 
-	/* Safe areas  rely entirely on env() with a 0px fallback.
+	/* Safe areas rely entirely on env() with a 0px fallback.
 	   For plain browser tabs (not standalone, not hybrid) the insets are
 	   always zero, so no extra rule is needed there. */
 	--safe-top:    env(safe-area-inset-top, 0px);
@@ -108,7 +108,7 @@
 	--safe-left:   env(safe-area-inset-left, 0px);
 	--safe-right:  env(safe-area-inset-right, 0px);
 
-	/* @fstage/ui — bridge pwa tokens → generic fs-* tokens */
+	/* @fstage/ui bridge tokens */
 	--fs-safe-area-bottom:   env(safe-area-inset-bottom, 0px);
 	--fs-keyboard-height:    var(--keyboard-height, 0px);
 	--fs-sheet-offset-bottom: calc(var(--tab-height, 0px) + var(--safe-bottom, 0px) + 8px);

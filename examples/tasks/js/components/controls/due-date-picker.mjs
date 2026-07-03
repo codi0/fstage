@@ -20,6 +20,7 @@ export default {
 				if (!e.val) return;
 				const input = root.querySelector('.due-custom-input');
 				if (!input) return;
+				// showPicker can throw outside trusted user activation; focus is the fallback.
 				try {
 					if (input.showPicker) input.showPicker();
 					else input.focus();
@@ -32,10 +33,9 @@ export default {
 		value: {
 			handler(e, { state, root, animate }) {
 				if ((e.val || '') === (e.oldVal || '')) return;
-				// Sync customOpen from prop value
+				// Keep the custom input open for dates outside the shortcut set.
 				const shouldOpen = isCustomDate(e.val, quickDueDates());
 				if (!!state.customOpen !== shouldOpen) state.$set('customOpen', shouldOpen);
-				// Animate the newly active chip
 				const active = root.querySelector('.date-chip.active');
 				if (active) animate(active, 'pop', { durationFactor: 0.9 });
 			},

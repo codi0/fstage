@@ -237,7 +237,7 @@ Interaction handlers should orchestrate state/service calls only. Domain mutatio
 | `ctx.config` | Resolved, immutable application configuration. Available before any component is constructed and MUST NOT change after that point. Shape is runtime-defined and MUST be documented by the runtime. |
 | `ctx.state` | Unified reactive state proxy (see Section 7.4). |
 | `ctx.emit(type, detail?, opts?)` | Dispatches `CustomEvent` from host. |
-| `ctx.cleanup(fn)` | Registers a disconnect cleanup, run in reverse order. |
+| `ctx.cleanup(fn)` | Registers a connected-only disconnect cleanup, run in reverse order. |
 | `ctx.html` | Optional render helper. |
 | `ctx.css` | Optional style helper. |
 | `ctx.svg` | Optional svg helper. |
@@ -568,7 +568,7 @@ When the `form` capability is present, runtime MUST:
 2. Create one form controller per entry in `forms` during construction, passing `ctx` as the second argument.
 3. Expose controllers on `ctx.forms` (and `ctx.form` for the singular case) before `constructed()` is called.
 4. Call `controller.mount(ctx.root, name)` after every render commit.
-5. Register `controller.unmount` via `ctx.cleanup` so forms tear down automatically on disconnect.
+5. Register `controller.unmount` via connected-only `ctx.cleanup` so forms tear down automatically on disconnect.
 6. `mount` is idempotent — it only re-wires when the `<form>` element reference has changed.
 
 ---

@@ -1,114 +1,14 @@
 /**
  * @fstage/storage
  *
- * Two-tier storage module:
- *
- *   Low level  — createDatabase(opts)
- *     Full IDB database with multiple object stores, indexes, migrations,
- *     cursors, and direct transaction access.
- *
- *   High level — createStorage(opts)
- *     Simple read/write/query interface that plugs directly into sync as a
- *     localHandler. Supports two modes per key namespace:
- *
- *     Blob mode (default)
- *       Each top-level key is stored as a single JSON value. Dot-notation
- *       sub-keys are resolved in JS after reading the blob.
- *         read('settings')        → { theme: 'dark', ... }
- *         read('tasks.abc')       → { id: 'abc', title: '...' }
- *         write('tasks.abc', val) → reads blob, patches, writes blob back
- *
- *     Schema mode (opt-in per key namespace)
- *       When a schema is declared for a namespace, each record is stored as
- *       an individual IDB row with full index support. Enables efficient
- *       filtered queries without loading entire collections into memory.
- *         read('tasks')                 → { abc: { id: 'abc', ... }, ... }
- *         read('tasks.abc')             → { id: 'abc', ... }
- *         write('tasks.abc', val)       → put individual row
- *         write('tasks', map)           → putMany rows in one transaction
- *         write('tasks.abc', undefined) → delete row
- *         query('tasks', opts)          → filtered rows, SQL-like syntax
- *
- * Usage:
- *   const storage = createStorage({
- *     name: 'myapp',
- *     schemas: {
- *       tasks: {
- *         keyPath: 'id',
- *         indexes: {
- *           dueDate:   { keyPath: 'dueDate' },
- *           completed: { keyPath: 'completed' },
- *           priority:  { keyPath: 'priority' },
- *         }
- *       }
- *     }
- *   });
- *
- *   // Single WHERE condition
- *   storage.query('tasks', {
- *     where: { field: 'completed', eq: false },
- *   });
- *
- *   // Multiple AND conditions
- *   storage.query('tasks', {
- *     where: [
- *       { field: 'completed', eq: false },
- *       { field: 'dueDate',   lt: today  },
- *     ],
- *   });
- *
- *   // Range condition
- *   storage.query('tasks', {
- *     where: { field: 'dueDate', between: [from, to] },
- *     order: 'dueDate',
- *     limit: 50,
- *   });
- *
- *   // ORDER BY descending with LIMIT and OFFSET
- *   storage.query('tasks', {
- *     where:  { field: 'priority', eq: 'high' },
- *     order:  { by: 'dueDate', dir: 'desc' },
- *     limit:  20,
- *     offset: 40,
- *   });
- *
- *   // JS escape hatch for complex conditions (OR, regex, cross-field)
- *   storage.query('tasks', {
- *     filter: t => t.title.includes('urgent') || t.notes.includes('urgent'),
- *   });
- *
- * createStorage opts:
- *   driver   — 'idb' (default) | 'memory'
- *   name     — IDB database name (default: 'fstage')
- *   store    — blob store name (default: 'data')
- *   schemas  — { [namespace]: { keyPath, indexes? } }
- *              Declaring a schema switches that namespace to row-per-record mode.
- *              The IDB version is derived automatically from the schema hash —
- *              adding/changing schemas triggers an IDB upgrade automatically.
- *   migrate  — fn(db, oldVersion, newVersion, tx) for data transforms
- *
- * query opts:
- *   where    — condition or array of AND conditions:
- *                { field, eq }              field = value
- *                { field, gt }              field > value
- *                { field, gte }             field >= value
- *                { field, lt }              field < value
- *                { field, lte }             field <= value
- *                { field, between: [a, b] } field BETWEEN a AND b
- *              The query layer automatically picks the best indexed condition
- *              to narrow in IDB; remaining conditions become JS filters.
- *              For OR logic or complex conditions, use filter instead.
- *   filter   — fn(record) => boolean, JS escape hatch applied after where
- *   order    — 'fieldName' (ASC) or { by: 'fieldName', dir: 'asc'|'desc' }
- *   limit    — max records to return, applied after order
- *   offset   — records to skip before collecting, applied after order
+ * IndexedDB-backed storage with a low-level database API and a high-level
+ * read/write/query handler for sync. Namespaces use blob mode by default;
+ * declaring a schema switches that namespace to row-per-record mode.
  */
 
 import { nestedKey } from '../utils/index.mjs';
 
-// =============================================================================
-// IDB primitives (shared by both tiers)
-// =============================================================================
+// IDB primitives shared by both tiers.
 
 function idbRequest(req) {
 	return new Promise(function(resolve, reject) {
@@ -135,17 +35,8 @@ function hasIdb() {
 	return typeof indexedDB !== 'undefined';
 }
 
-// Derive a stable integer version from a schema definition.
-// Any structural change (new store, new index, changed keyPath) produces a
-// different hash, which triggers an IDB upgradeneeded automatically.
-// The version is clamped to a positive 32-bit integer as IDB requires.
-//
-// COLLISION WARNING: DJB2 is a fast non-cryptographic hash — two structurally
-// different schemas could theoretically produce the same version number, which
-// would silently prevent an IDB upgrade. The probability is very low (~1 in 2B)
-// but the consequence is severe: new indexes would not be created and queries
-// would fail. If you encounter unexpected query behaviour after a schema change,
-// verify the version changed by logging schemaVersion(storeDefs) before and after.
+// Structural schema changes produce a new positive IDB version. This is a
+// non-cryptographic hash, so collisions are possible but unlikely.
 function schemaVersion(schemas) {
 	const str = JSON.stringify(schemas || {});
 	let h = 5381;
@@ -154,28 +45,6 @@ function schemaVersion(schemas) {
 	}
 	return (Math.abs(h) % 0x7ffffffe) + 1;
 }
-
-// =============================================================================
-// Low-level tier: createDatabase(opts)
-//
-// opts:
-//   name      — database name (required)
-//   version   — schema version; increment to trigger migration (default: 1)
-//   stores    — object store definitions:
-//                 { storeName: { keyPath, autoIncrement?, indexes? } }
-//                 indexes: { indexName: { keyPath, unique?, multiEntry? } }
-//   migrate(db, oldVersion, newVersion, tx)
-//               Called inside upgradeneeded after store/index creation.
-//               Use for data transforms between schema versions.
-//
-// Returns a database handle with:
-//   db.store(name)                   — store handle (get/getAll/getByIndex/
-//                                      getKeysByIndex/count/put/putMany/
-//                                      delete/deleteMany/clear/cursor)
-//   db.transaction(names, mode, fn)  — multi-store coordinated transaction
-//   db.close()                       — close the connection
-//   db.raw                           — Promise<IDBDatabase>
-// =============================================================================
 
 /**
  * Create a low-level IndexedDB database handle with multiple object stores,
@@ -402,9 +271,7 @@ export function createDatabase(opts) {
 	};
 }
 
-// =============================================================================
-// High-level tier: createStorage(opts)
-// =============================================================================
+// High-level storage handler.
 
 function isAbsent(val) {
 	return val === null || val === undefined;

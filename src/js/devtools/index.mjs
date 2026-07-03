@@ -1,70 +1,9 @@
 /**
  * @fstage/devtools
  *
- * Unified devtools hub for store, sync, storage, and component render layers.
- * Entirely opt-in — zero cost when not connected. No devtools imports exist in
- * store/sync/storage/component; each layer is instrumented externally via connect methods.
- *
- * Usage:
- *   import { createDevtools } from '@fstage/devtools';
- *
- *   const devtools = createDevtools({ maxEvents: 500 });
- *   devtools.connectStore(store);
- *   devtools.connectSync(syncManager);
- *   devtools.connectStorage(storage);
- *   devtools.connectRuntime(runtime, { slowThreshold: 16 });
- *
- *   // Subscribe to all events
- *   const unsub = devtools.subscribe(snapshot => render(snapshot));
- *
- *   // Time-travel (store only)
- *   devtools.travel(index);
- *   devtools.back();
- *   devtools.forward();
- *
- * Event shapes by layer:
- *
- *   Store:
- *     { layer:'store', type:'write', src, label, diff, snapshot, timestamp }
- *
- *   Sync:
- *     { layer:'sync', type:'read',         key, uri, status:'local'|'remote'|'cached', duration, timestamp }
- *     { layer:'sync', type:'write',        key, uri, status:'queued'|'sent'|'ok'|'error'|'retry', attempt, error, timestamp }
- *     { layer:'sync', type:'queue',        queue, timestamp }
- *     { layer:'sync', type:'online',       online, timestamp }
- *
- *   Storage:
- *     { layer:'storage', type:'read',      key, driver, duration, timestamp }
- *     { layer:'storage', type:'write',     key, driver, duration, timestamp }
- *     { layer:'storage', type:'query',     namespace, opts, count, driver, duration, timestamp }
- *
- *   Router:
- *     { layer:'router', type:'navigate',   path, params, direction, duration, timestamp }
- *
- *   Render:
- *     { layer:'render', type:'render',     tag, duration, slow, renderCount, timestamp }
- *
- * Snapshot shape (passed to subscribers):
- *   {
- *     events:    Event[],       — unified log, newest last
- *     cursor:    number,        — current time-travel position (-1 = live)
- *     isLive:    boolean,       — true when not time-travelling (cursor === -1)
- *     storeState: object,       — current store state (deep copy)
- *     syncQueue: array,         — current write queue entries
- *     online:    boolean,       — last known online state
- *     perfStats: object,        — per-tag render performance stats
- *   }
- *
- * perfStats shape:
- *   {
- *     [tag]: {
- *       renders:   number,   — total render count
- *       totalMs:   number,   — cumulative render time
- *       avgMs:     number,   — average render duration
- *       maxMs:     number,   — slowest single render
- *       slowCount: number,   — renders exceeding slowThreshold
- *     }
- *   }
+ * Opt-in instrumentation hub for store, sync, storage, router, and component
+ * render layers. Runtime modules do not import devtools directly; each layer is
+ * patched externally through `connect*()` methods.
  */
 
 // =============================================================================
@@ -115,10 +54,10 @@
  * **`connectRuntime(runtime, opts?)`** — wrap `runtime.define` to instrument
  * each component's render lifecycle. Tracks per-tag render count, avg/max
  * duration, and slow renders (configurable threshold). Returns an unhook function.
- * Options:
  * **`connectRouter(router)`** — wrap `router.onAfter` to record every navigation
  * with path, params, direction, and transition duration.
  *
+ * Options for `connectRuntime`:
  *   - `slowThreshold` {number} — ms above which a render is considered slow (default: 16).
  *     Updating this by calling connectRuntime again takes effect immediately for all
  *     already-patched components, since all patches read from a shared mutable ref.

@@ -39,29 +39,29 @@ export default {
 			'@fstage/form'
 		],
 		app: [
-			//data: sync
+			// Data: sync
 			'js/data/sync/tasks.mjs',
 			'js/data/sync/settings.mjs',
-			//data: models
+			// Data: models
 			'js/data/models/tasks.mjs',
 			'js/data/models/settings.mjs',
-			//components: controls
+			// Components: controls
 			'@fstage/ui/action-sheet.mjs',
 			'@fstage/ui/bottom-sheet.mjs',
 			'js/components/controls/due-date-picker.mjs',
 			'js/components/controls/priority-picker.mjs',
-			//components: parts
+			// Components: parts
 			'js/components/parts/task-row.mjs',
-			//components: views
+			// Components: views
 			'js/components/views/tasks.mjs',
 			'js/components/views/completed.mjs',
 			'js/components/views/settings.mjs',
 			'js/components/views/task-detail.mjs',
-			//components: layout
+			// Components: layout
 			'js/components/layout/header.mjs',
 			'js/components/layout/tab-bar.mjs',
 			'js/components/layout/app.mjs',
-			//styling
+			// Styling
 			'css/style.css',
 			'manifest.json',
 			'favicon.svg'
@@ -123,6 +123,7 @@ export default {
 	afterLoadApp: function(e) {
 		var opts = {
 			rootEl: 'pwa-main',
+			// Block back-swipe while transitions, sheets, or modal overlays are active.
 			edgePan: {
 				shouldStart: function() {
 					if (document.documentElement.hasAttribute('data-transitioning')) return false;

@@ -1,4 +1,3 @@
-// imports
 import { nestedKey, copy } from '../utils/index.mjs';
 import { fetchHttp, formatUrl } from '../http/index.mjs';
 import { createStorage } from '../storage/index.mjs';
@@ -29,38 +28,6 @@ function normaliseRemote(remote) {
 	if (typeof remote === 'object' && remote.key) return remote;
 	return null;
 }
-
-// ---------------------------------------------------------------------------
-// createHandler(driver, opts)
-//
-// Unified factory for remote handlers. Two driver types:
-//
-//   driver = 'http' (or omitted)
-//     opts.baseUrl        — prepended to key to form the request URL
-//     opts.routes         — { [key]: url } — per-key URL overrides
-//     opts.read.dataPath  — unwrap response body before returning
-//     opts.read.keyPath   — convert array response to { [keyPath]: record } map
-//     opts.write.dataPath — wrap request payload: { [dataPath]: payload }
-//
-//   driver = storageInstance (duck-typed: has .read and .write)
-//     opts.namespace      — storage namespace (defaults to key at call time)
-//     opts.seedUrl        — fetch + populate on first read when store empty
-//     opts.read.keyPath   — convert rows to { [keyPath]: record } map
-//     opts.write.idPath   — path in response where new id is returned
-//
-//   Both drivers:
-//     opts.latency        — artificial delay ms (dev/testing, default 0)
-//
-// Handler interface — both drivers expose:
-//   read(key, callOpts)
-//     callOpts: { signal?, params?, uri?, dataPath?, keyPath? }
-//     Per-call opts override handler-level defaults.
-//
-//   write(key, payload, callOpts)
-//     callOpts: { signal?, params?, uri?, dataPath?, delete?, id?, idPath? }
-//     delete: true — DELETE regardless of payload
-//     id — record id to delete when payload is absent
-// ---------------------------------------------------------------------------
 
 /**
  * Create a data handler for use with `createSyncManager`.
@@ -256,19 +223,6 @@ export function createHandler(driver, opts) {
 		}
 	};
 }
-
-// ---------------------------------------------------------------------------
-// createSyncManager(config)
-//
-// config:
-//   localHandler   — storage instance (default: createStorage())
-//   remoteHandler  — handler from createHandler(), or any { read, write }
-//   queueKey       — local key for persisting the write queue (default: 'syncQueue')
-//   interval       — ms between processQueue polls (default: 30000)
-//   maxRetries     — default max remote write retries (default: 5)
-//   backoffBase    — ms base for exponential backoff (default: 1000)
-//   backoffMax     — ms cap for backoff delay (default: 30000)
-// ---------------------------------------------------------------------------
 
 /**
  * Create a sync manager that bridges local storage and a remote handler,

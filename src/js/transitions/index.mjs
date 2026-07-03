@@ -1,42 +1,7 @@
-// @fstage/transitions
-//
-// Responsibilities
-// - Orchestrate mount/unmount + lifecycle hooks (activate/deactivate)
-// - Support cancellable/interruptible transitions (token-guarded)
-// - Keep at most 2 screens mounted during a transition
-//
-// Non-responsibilities
-// - No route matching (router owns this)
-// - No history wrapping (router/history owns this)
-// - No persistent navigation stack (router/history owns this)
-//
-// Contracts
-// - screenHost.mount(entry) must return an Element (or throw)
-// - engine tracks entry.target automatically and passes (entry) to hooks
-//
-// Entry shape (engine-owned):
-//   { screen, location, el? }
-//
-// Router adapter expects router.after(fn(match, location)) where:
-//   location.direction: 'back' | 'forward' | 'replace'
-//   location.state.scroll: number (for pop restore)
-//
-// Lifecycle order (both paths):
-//   deactivate (outgoing) -> mount (incoming) -> animate -> activate (incoming) -> unmount (outgoing)
-//
-//   deactivate fires at transition START on the outgoing screen (or with
-//   null entry if there is no outgoing screen). It sets data-transitioning
-//   immediately — before any await — so accompany components never see a
-//   window where a transition is in progress but the flag is absent.
-//
-// Cancellation:
-//   Each run() creates a { cancelled } token. Starting a new run()
-//   flips the previous token, aborting it at its next checkpoint.
+// @fstage/transitions — screen host plus token-guarded page transitions.
+// Lifecycle: mount incoming, deactivate outgoing, animate, activate incoming,
+// then unmount outgoing. Route/history state remains owned by router/history.
 
-
-// ------------------------------------------------------
-// TRANSITION ENGINE (core)
-// ------------------------------------------------------
 
 /**
  * Create a screen transition engine that orchestrates mount/unmount,
@@ -226,10 +191,6 @@ export function createTransitionEngine(options) {
 }
 
 
-// ------------------------------------------------------
-// SCREEN HOST
-// ------------------------------------------------------
-
 /**
  * Create a screen host that manages mounting, unmounting, and activating
  * screen elements inside a container element.
@@ -371,19 +332,7 @@ export function createScreenHost(options) {
 }
 
 
-// ------------------------------------------------------
-// INTERACTION EXTENSIONS
-// ------------------------------------------------------
-
-// Pre-built interactions extension for elements that animate alongside
-// page transitions (e.g. tab bars, toolbars, side panels).
-//
-// Use accompanySettle(el, visible) for instant (no-transition) snaps,
-// e.g. in rendered() when data-transitioning is not set.
-//
-// The emitter must implement on(name, fn) -> off fn.
-// Defaults to screenHost event names; pass a custom events map to adapt
-// any other lifecycle emitter to this pattern.
+// Interaction extensions for transition-aware companion elements.
 
 export const ACCOMPANY_ATTRS = {
   hidden:   'data-accompany-hidden',
