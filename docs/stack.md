@@ -177,18 +177,19 @@ afterLoadApp(e) {
 ### Edge-pan defaults
 
 The built-in `shouldStart` guard blocks the gesture during active transitions,
-open sheet panels, and open modals. Override any individual callback while keeping
-the others:
+open sheet panels, and open modals. Supplying your own `shouldStart` replaces that
+built-in guard, so include every condition your app needs:
 
 ```js
 afterLoadApp(e) {
   e.modules.get('stack.startStack', [ e, {
     rootEl: 'pwa-main',
     edgePan: {
-      // extend the default shouldStart guard
-      shouldStart: function() {
+      shouldStart: function(e) {
         if (document.querySelector('.my-custom-blocker')) return false;
-        return true; // fall through to built-in checks — or replicate them
+        if (document.querySelector('fs-bottom-sheet[open]')) return false;
+        if (document.querySelector('fs-dialog[open]')) return false;
+        return true;
       },
     },
   }]);

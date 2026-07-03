@@ -179,6 +179,7 @@ Every lifecycle function and handler receives `ctx`:
 | `ctx.html/css/svg` | LitElement template helpers |
 | `ctx.emit(type, detail?, opts?)` | Dispatch a CustomEvent from host |
 | `ctx.cleanup(fn)` | Register a teardown function (run on disconnect, in reverse order) |
+| `ctx.form` / `ctx.forms` | Form controllers when `form` / `forms` is declared |
 | `ctx.animate(el, preset, opts?)` | Animate an element (requires animator) |
 
 All handlers and lifecycle functions can be destructured: `function(e, { state, models, emit, root }) { ... }`.
@@ -208,6 +209,40 @@ Multiple `$set` calls within the same synchronous block coalesce automatically i
 
 State keys declared with `$src: 'external'` (or `$ext`) map to paths in the global store — reading and writing is transparent.
 
+## Declarative forms
+
+Use `form` for one form or `forms` for named forms. Values still live in `state`; the form controller handles validation, error display, submit state, and reset.
+
+```js
+state: {
+  email: '',
+},
+
+bind: {
+  '[name="email"]': 'email',
+},
+
+form: {
+  fields: {
+    email: { required: true, type: 'email' },
+  },
+  onSubmit(values, form, ctx) {
+    return save(values);
+  },
+},
+
+render({ html, state }) {
+  return html`
+    <form name="form">
+      <input name="email" .value=${state.email}>
+      <button type="submit">Sign in</button>
+    </form>
+  `;
+}
+```
+
+The runtime exposes controllers as `ctx.form` and `ctx.forms`. See [Forms](form.md) for the practical API and [the standard](../specs/component-standard.md#11-declarative-form--forms-capability-form) for the full contract.
+
 ## inject and registry
 
 ```js
@@ -225,6 +260,7 @@ ctx.models.getTasks();                   // usage in any handler
 | `animation` | `animator` passed to `createRuntime` |
 | `screenHost` | `screenHost` passed to `createRuntime` |
 | `interactionExtensions` | extensions wired via `interactionsManager.extend()` |
+| `form` | `formManager` passed to `createRuntime` |
 | `hostMethods` | always supported |
 
 ## Full standard

@@ -351,7 +351,7 @@ All components:
 - Expose no global class names — styling is scoped to shadow DOM (or the component's own subtree for `shadow: false` components).
 - Do not depend on any specific icon set — icon rendering uses CSS `mask-image` against CSS custom properties you define.
 
-The `tasks` template (`templates/tasks/css/style.css`) provides a complete set of design tokens including all icon variables and safe area mappings that these components reference.
+The `tasks` template (`examples/tasks/css/style.css`) provides a complete set of design tokens including all icon variables and safe area mappings that these components reference.
 
 ---
 
@@ -397,4 +397,4 @@ Minimum set of CSS custom properties to theme all five components:
 }
 ```
 
-See `templates/tasks/css/style.css` for the full icon definitions.
+See `examples/tasks/css/style.css` for the full icon definitions.

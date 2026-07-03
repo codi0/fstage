@@ -180,6 +180,7 @@ export function createWebsocket(url, opts={}) {
 			if(api.ws) {
 				api.ws.close(code, reason);
 				api.ws = null;
+				conn = false;
 			}
 			//return
 			return api;

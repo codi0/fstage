@@ -736,6 +736,8 @@ function createIdbDriver(opts) {
 		const orderDesc  = opts.order && typeof opts.order === 'object' && opts.order.dir === 'desc';
 		const nativeOrder = orderField && idbIndex && orderField === idbIndex;
 		const direction   = nativeOrder ? (orderDesc ? 'prev' : 'next') : 'next';
+		const comparator  = resolveOrder(opts.order);
+		const postSort    = !!comparator && !nativeOrder;
 
 		// Build JS filter functions for remaining where conditions.
 		const restFilters = restConds.map(conditionToFilter).filter(Boolean);
@@ -753,22 +755,24 @@ function createIdbDriver(opts) {
 			// Apply caller-supplied filter.
 			if (typeof opts.filter === 'function' && !opts.filter(record)) return;
 
-			// Apply offset — skip matching records until offset is reached.
-			if (offset && skipped < offset) { skipped++; return; }
+			// Apply offset during cursor iteration only when no post-sort is needed.
+			if (!postSort && offset && skipped < offset) { skipped++; return; }
 
 			results.push(record);
 
-			// Stop early once limit is satisfied (only safe when no post-sort needed).
-			if (limit && !nativeOrder && results.length >= limit) return false;
+			// Stop early once limit is satisfied only when the cursor is already
+			// producing records in the final requested order.
+			if (!postSort && limit && results.length >= limit) return false;
 		}, {
 			index:     idbIndex  || null,
 			range:     idbRange  !== null && idbRange !== undefined ? idbRange : undefined,
 			direction,
 		}).then(function() {
-			// If order wasn't handled natively by the cursor direction, sort now.
-			if (!nativeOrder) {
-				const comparator = resolveOrder(opts.order);
-				if (comparator) results.sort(comparator);
+			// If order wasn't handled natively by the cursor direction, sort before
+			// applying offset/limit so mixed indexed queries return the right window.
+			if (postSort) {
+				results.sort(comparator);
+				if (offset) results.splice(0, offset);
 				if (limit && results.length > limit) results.splice(limit);
 			}
 			return results;

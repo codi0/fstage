@@ -698,7 +698,8 @@ export function createRuntime(config) {
 					};
 
 					ctx.emit = (type, detail, opts) => {
-						return config.interactionsManager.dispatch(this, type, detail, opts);
+						var e = new CustomEvent(type, Object.assign({ bubbles: true, composed: true, detail: detail }, opts || {}));
+						return this.dispatchEvent(e);
 					};
 
 					if (config.animator && typeof config.animator.animate === 'function') {

@@ -27,7 +27,7 @@ The simplest possible fstage app — two files, no build step, just the store:
     window.FSCONFIG = { configPath: 'config.mjs' };
   </script>
   <script type="module"
-    src="https://cdn.jsdelivr.net/gh/codi0/fstage@latest/src/js/fstage.min.mjs">
+    src="https://cdn.jsdelivr.net/gh/codi0/fstage@latest/src/js/fstage.mjs">
   </script>
 </head>
 <body>
@@ -71,7 +71,7 @@ export default {
   window.FSCONFIG = { configPath: 'js/config.mjs' };
 </script>
 <script type="module"
-  src="https://cdn.jsdelivr.net/gh/codi0/fstage@latest/src/js/fstage.min.mjs">
+  src="https://cdn.jsdelivr.net/gh/codi0/fstage@latest/src/js/fstage.mjs">
 </script>
 ```
 

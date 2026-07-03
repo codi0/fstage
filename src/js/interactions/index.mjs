@@ -205,8 +205,8 @@ export function createInteractionsManager() {
 
 		// Dispatch a CustomEvent from a host element.
 		dispatch: function(host, type, detail, opts) {
-			var event = new CustomEvent(type, Object.assign({ bubbles: true, composed: true, detail: detail || null }, opts || {}));
-			return host.dispatchEvent(event);
+			var e = new CustomEvent(type, Object.assign({ bubbles: true, composed: true, detail: detail }, opts || {}));
+			return host.dispatchEvent(e);
 		},
 
 		// Wire up a component's interactions declaration.

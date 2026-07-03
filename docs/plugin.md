@@ -116,8 +116,6 @@ Use higher-level code for:
 - install state persistence
 - management UI
 
-See [`examples/plugin-manager/`](../examples/plugin-manager/) for the smallest
-standalone usage. In [`examples/codi-v2/`](../examples/codi-v2/), the app loads
-`@fstage/plugin` and `js/core/plugins.mjs` through `loadAssets`, then composes
-them in `afterLoadApp` via `e.modules.get(...)` so the trusted config surface
-owns the wiring instead of direct imports.
+A typical app loads `@fstage/plugin` through `loadAssets`, then composes the
+trusted plugin manager in `afterLoadApp` via `e.modules.get(...)`. Keep discovery,
+permission checks, install state, and management UI above this runtime layer.

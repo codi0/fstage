@@ -408,8 +408,8 @@ export function createNavigationHandler(options) {
  *   navigate(path: string, opts?: { back?: boolean, replace?: boolean, params?: Object }): Promise<Object|null>,
  *   peek(n: number): Object|null,
  *   go(n: number, opts?: Object): void,
- *   onBefore(fn: Function): void,
- *   onAfter(fn: Function): void
+ *   onBefore(fn: Function): Function,
+ *   onAfter(fn: Function): Function
  * }}
  *
  * Returned methods:
@@ -423,8 +423,9 @@ export function createNavigationHandler(options) {
  *     (`0` = current, `-1` = previous, `+1` = next).
  *   - `go(n)` — delegates to `history.go(n)`.
  *   - `onBefore(fn)` — register a guard; return `false` (or a Promise resolving
- *     to `false`) to cancel navigation.
- *   - `onAfter(fn)` — register a post-navigation hook.
+ *     to `false`) to cancel navigation. Returns an unsubscribe function.
+ *   - `onAfter(fn)` — register a post-navigation hook. Returns an unsubscribe
+ *     function.
  */
 export function createRouter(options) {
 
@@ -661,10 +662,18 @@ export function createRouter(options) {
 
 		onBefore: function(fn) {
 			beforeHooks.push(fn);
+			return function offBefore() {
+				var idx = beforeHooks.indexOf(fn);
+				if (idx !== -1) beforeHooks.splice(idx, 1);
+			};
 		},
 
 		onAfter: function(fn) {
 			afterHooks.push(fn);
+			return function offAfter() {
+				var idx = afterHooks.indexOf(fn);
+				if (idx !== -1) afterHooks.splice(idx, 1);
+			};
 		}
 	};
 }

@@ -107,11 +107,11 @@ See [`examples/README.md`](examples/README.md) for details.
 | [`interactions`](src/js/interactions/) | Delegated event handling with debounce/throttle and gesture/transition extensions |
 | [`gestures`](src/js/gestures/) | Touch/pointer gesture detection — swipe, edge pan, long press, tap |
 | [`ui`](src/js/ui/) | Reusable, accessible UI primitives — `fs-action-sheet` (imperative iOS-style sheet), `fs-bottom-sheet` (swipe-dismissable modal), `fs-dialog` (centered modal), `fs-disclosure` (animated show/hide), `fs-listbox` (keyboard-navigable select with typeahead). All unstyled, CSS-custom-property driven |
-| [`form`](src/js/form/) | Form utilities |
+| [`form`](src/js/form/) | Store-backed form validation and submit lifecycle for component definitions |
 | [`ssr`](src/js/ssr/) | Server-side rendering via Declarative Shadow DOM — `createSsrRuntime` + `renderToString`. Supports state defaults, reactive getters, all `$src` shorthands, host attribute stamping, and per-call error handling. Requires `@lit-labs/ssr` as a peer dep |
 | [`devtools`](src/js/devtools/) | Debug panel — store event log, sync queue inspector, storage browser |
 | [`push`](src/js/push/) | Unified push facade with native (Capacitor) + web adapters |
-| [`websocket`](src/js/websocket/) | WebSocket wrapper |
+| [`websocket`](src/js/websocket/) | Small WebSocket helper with reconnect, send queue, custom events, and channel pub/sub |
 | [`utils`](src/js/utils/) | Shared primitives: deep copy, equality, diff, hash, debounce, schedule, nested key access, DOM helpers |
 
 ## Documentation
@@ -123,11 +123,14 @@ See [`examples/README.md`](examples/README.md) for details.
 - [Store](docs/store.md)
 - [Data layer — storage, sync, http](docs/data.md)
 - [Push — unified native + web notifications](docs/push.md)
+- [WebSocket](docs/websocket.md)
 - [Routing — router, history](docs/routing.md)
 - [Components](docs/components.md)
+- [Forms](docs/form.md)
 - [Plugin runtime](docs/plugin.md)
 - [Platform — env, animator, transitions, gestures, interactions](docs/platform.md)
 - [Utilities — utils, registry](docs/utilities.md)
+- [Devtools](docs/devtools.md)
 - [Component Definition Standard](specs/component-standard.md)
 
 ## Contributing

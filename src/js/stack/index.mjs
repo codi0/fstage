@@ -504,7 +504,8 @@ export function startStack(e, opts) {
 			};
 		}
 
-		gestureManager.on('edgePan', edgePanOpts);
+		var offEdgePan = gestureManager.on('edgePan', edgePanOpts);
+		if (typeof offEdgePan === 'function') cleanups.push(offEdgePan);
 	}
 
 	// -------------------------------------------------------------------------
@@ -563,7 +564,7 @@ export function startStack(e, opts) {
 	// -------------------------------------------------------------------------
 
 	if (router) {
-		router.onAfter(function(route) {
+		var offRouteAfter = router.onAfter(function(route) {
 			// Suppress transition when the gesture already committed it
 			if (transitions && transitions.__suppress) {
 				delete transitions.__suppress;
@@ -581,6 +582,7 @@ export function startStack(e, opts) {
 				store.$set('route', route);
 			}
 		});
+		if (typeof offRouteAfter === 'function') cleanups.push(offRouteAfter);
 	}
 
 	// -------------------------------------------------------------------------
